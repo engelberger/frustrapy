@@ -30,7 +30,7 @@ class Pdb:
         mode: str,
         atom: pd.DataFrame,
         equivalences: pd.DataFrame,
-        scripts_dir: str = os.path.join(os.path.dirname(__file__), "Scripts"),
+        scripts_dir: str = os.path.join(os.path.dirname(__file__), "scripts"),
     ):
         self.job_dir = job_dir
         self.pdb_base = pdb_base
