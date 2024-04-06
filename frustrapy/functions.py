@@ -1115,6 +1115,7 @@ def dynamic_frustration(
         seq_dist=seq_dist,
         mode=mode,
         results_dir=results_dir,
+        
     )
 
     print("\n\n****Storage information****")
