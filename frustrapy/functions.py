@@ -434,7 +434,7 @@ def pdb_equivalences(pdb_file: str, output_dir: str) -> pd.DataFrame:
     print(output_path)
     equivalences_df.to_csv(output_path, sep="\t", index=False, header=False)
     # Print a log that the csv was saved  to the x file
-    with open(os.path.join(output_dir, "commands.log"), "a") as f:
+    with open(os.path.join(output_dir, "commands.help"), "a") as f:
         f.write(f"\n{output_path} equivalences saved")
     return equivalences_df
 
@@ -499,6 +499,7 @@ def calculate_frustration(
     graphics: bool = True,
     visualization: bool = True,
     results_dir: Optional[str] = None,
+    debug: bool = False,
 ) -> "Pdb":
     if results_dir is None:
         results_dir = os.path.join(tempfile.gettempdir(), "")
@@ -665,12 +666,12 @@ def calculate_frustration(
         ]
     )
     # Log the command used to generate the lammps file
-    with open(os.path.join(job_dir, "commands.log"), "w") as f:
+    with open(os.path.join(job_dir, "commands.help"), "w") as f:
         f.write(
             f"sh {os.path.join(pdb.scripts_dir, 'AWSEMFiles/AWSEMTools/PdbCoords2Lammps.sh')} {pdb.pdb_base} {pdb.pdb_base} {pdb.scripts_dir}"
         )
     # log the command used to copy the dat files
-    with open(os.path.join(job_dir, "commands.log"), "a") as f:
+    with open(os.path.join(job_dir, "commands.help"), "a") as f:
         f.write(
             f"\ncp {os.path.join(pdb.scripts_dir, 'AWSEMFiles/*.dat*')} {pdb.job_dir}"
         )
@@ -708,7 +709,7 @@ def calculate_frustration(
             ]
         )
         # Log the command used to generate the gro file
-        with open(os.path.join(job_dir, "commands.log"), "a") as f:
+        with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"\npython3 {os.path.join(pdb.scripts_dir, 'Pdb2Gro.py')} {pdb.pdb_base}.pdb {pdb.pdb_base}.pdb.gro"
             )
@@ -727,7 +728,7 @@ def calculate_frustration(
         #     f"{pdb.pdb_base}.pdb.gro",
         #     os.path.join(job_dir, "charge_on_residues.dat"),
         # )
-        with open(os.path.join(job_dir, "commands.log"), "a") as f:
+        with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"\nperl {os.path.join(pdb.scripts_dir, 'GenerateChargeFile.pl')} {pdb.pdb_base}.pdb.gro > charge_on_residues.dat"
             )
@@ -742,7 +743,7 @@ def calculate_frustration(
                 pdb.job_dir,
             ]
         )
-        with open(os.path.join(job_dir, "commands.log"), "a") as f:
+        with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"\ncp {os.path.join(pdb.scripts_dir, f'lmp_serial_{seq_dist}_Linux')} {pdb.job_dir}"
             )
@@ -758,7 +759,7 @@ def calculate_frustration(
         os.system(
             f"cd {pdb.job_dir} && {pdb.job_dir}lmp_serial_{seq_dist}_Linux < {pdb.job_dir}{pdb.pdb_base}.in"
         )
-        with open(os.path.join(job_dir, "commands.log"), "a") as f:
+        with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"\nchmod +x lmp_serial_{seq_dist}_Linux"
                 f"\n{pdb.job_dir}lmp_serial_{seq_dist}_Linux < {pdb.job_dir}{pdb.pdb_base}.in"
@@ -773,7 +774,7 @@ def calculate_frustration(
         )
         subprocess.run(["chmod", "+x", f"lmp_serial_{seq_dist}_MacOS"])
         subprocess.run([f"./lmp_serial_{seq_dist}_MacOS", "<", f"{pdb.pdb_base}.in"])
-        with open(os.path.join(job_dir, "commands.log"), "a") as f:
+        with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"cp {os.path.join(pdb.scripts_dir, f'lmp_serial_{seq_dist}_MacOS')} {pdb.job_dir}"
                 f"\nchmod +x lmp_serial_{seq_dist}_MacOS"
@@ -800,7 +801,7 @@ def calculate_frustration(
     #    ]
     #)
 
-    with open(os.path.join(job_dir, "commands.log"), "a") as f:
+    with open(os.path.join(job_dir, "commands.help"), "a") as f:
         f.write(
             f"\npython {os.path.join(pdb.scripts_dir, 'RenumFiles.py')} {pdb.pdb_base} {pdb.job_dir} {pdb.mode}"
         )
@@ -918,9 +919,10 @@ def calculate_frustration(
         if os.path.isfile(item) and not os.path.basename(item).startswith(".")
     ]
 
-    # Remove the files
-    for file_path in files_to_remove:
-        os.remove(file_path)
+    # Remove the files if debug is false
+    if not debug:    
+        for file_path in files_to_remove:
+            os.remove(file_path)
 
     # Remove the 'split_chain' directory if 'chain' is not None, using an absolute path
     if chain is not None:
