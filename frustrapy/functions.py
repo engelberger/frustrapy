@@ -17,6 +17,7 @@ import igraph as ig
 import leidenalg as la
 from .visualization import *
 from .renum_files import renum_files
+import plotly.graph_objects as go
 
 class Pdb:
     def __init__(
