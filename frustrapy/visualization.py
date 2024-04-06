@@ -95,9 +95,8 @@ def plot_5andens(pdb, chain=None, save=False):
         ax.set_ylabel("Local frustration density (5A sphere)")
         ax.set_xlabel("Position")
         ax.legend()
-        # TODO : FIX THIS
-        # ax.set_yticks(range(0, int(maximum) + 1, 5))
-        # ax.set_xticks(range(1, len(adens_table) + 1, (len(adens_table) - 1) // 10))
+        ax.set_yticks(range(0, int(maximum) + 1, 5))
+        ax.set_xticks(range(1, len(adens_table) + 1, (len(adens_table) - 1) // 10))
 
         if save:
             plt.savefig(
