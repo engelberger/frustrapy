@@ -212,7 +212,7 @@ def xadens(pdb: "Pdb", ratio: float = 5) -> None:
 
     with open(output_file, "a") as f:
         f.write(
-            "Res ChainRes Total nHighlyFrst nNeutrallyFrst nMinimallyFrst "
+            "Res ChainRes Total HighlyFrst NeutrallyFrst MinimallyFrst "
             "relHighlyFrustrated relNeutralFrustrated relMinimallyFrustrated\n"
         )
 

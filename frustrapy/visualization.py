@@ -46,30 +46,23 @@ def plot_5andens(pdb, chain=None, save=False):
         os.path.join(
             pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
         ),
-        sep="\s+",
+        sep=" ",
         header=0,
-        names=[
-            "Positions",
-            "Chains",
-            "Total",
-            "MaximallyFrst",
-            "NeutrallyFrst",
-            "MinimallyFrst",
-        ],
+
     )
     adens_table["PositionsTotal"] = range(1, len(adens_table) + 1)
 
     if chain is None:
         maximum = max(
             adens_table[
-                ["MaximallyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
+                ["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
             ].max()
         )
 
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(
             adens_table["PositionsTotal"],
-            adens_table["MaximallyFrst"],
+            adens_table["HighlyFrst"],
             color="red",
             label="Highly frustrated",
         )
@@ -111,14 +104,14 @@ def plot_5andens(pdb, chain=None, save=False):
         adens_table = adens_table[adens_table["Chains"] == chain]
         maximum = max(
             adens_table[
-                ["MaximallyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
+                ["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
             ].max()
         )
 
         fig, ax = plt.subplots(figsize=(10, 6))
         ax.plot(
             adens_table["Positions"],
-            adens_table["MaximallyFrst"],
+            adens_table["HighlyFrst"],
             color="red",
             label="Highly frustrated",
         )
@@ -196,16 +189,9 @@ def plot_5adens_proportions(pdb, chain=None, save=False):
         os.path.join(
             pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
         ),
-        sep="\s+",
+        sep=" ",
         header=0,
-        names=[
-            "Positions",
-            "Chains",
-            "Total",
-            "MaximallyFrst",
-            "NeutrallyFrst",
-            "MinimallyFrst",
-        ],
+
     )
 
     if chain is not None:
@@ -213,11 +199,11 @@ def plot_5adens_proportions(pdb, chain=None, save=False):
 
     minimally_frst = adens_table["MinimallyFrst"].astype(float)
     neutrally_frst = adens_table["NeutrallyFrst"].astype(float)
-    maximally_frst = adens_table["MaximallyFrst"].astype(float)
+    maximally_frst = adens_table["HighlyFrst"].astype(float)
 
     frustration_data = pd.DataFrame(
         {
-            "Positions": adens_table["Positions"],
+            "Positions": adens_table["Res"],
             "Highly frustrated": maximally_frst,
             "Neutral": neutrally_frst,
             "Minimally frustrated": minimally_frst,
@@ -301,16 +287,9 @@ def plot_contact_map(pdb, chain=None, save=False):
         os.path.join(
             pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
         ),
-        sep="\s+",
+        sep=" ",
         header=0,
-        names=[
-            "Positions",
-            "Chains",
-            "Total",
-            "MaximallyFrst",
-            "NeutrallyFrst",
-            "MinimallyFrst",
-        ],
+
     )
 
     if chain is not None:
@@ -466,165 +445,6 @@ def plot_contact_map(pdb, chain=None, save=False):
         )
 
     return fig
-
-
-def _wrong_plot_contact_map(pdb, chain=None, save=False):
-    """
-    Generates contact map plot to visualize the frustration values assigned to each contact.
-    Args:
-        pdb (Pdb): Pdb Frustration object.
-        chain (str, optional): Chain of residue. Default: None.
-        save (bool, optional): If True, saves the graph; otherwise, it does not. Default: False.
-    Returns:
-        matplotlib.figure.Figure: The generated plot.
-    """
-    if save not in [True, False]:
-        raise ValueError("Save must be a boolean value!")
-    if chain is not None:
-        if len(chain) > 1:
-            raise ValueError("You must enter only one Chain!")
-        if chain not in pdb.atom["chain"].unique():
-            raise ValueError(
-                f"The Chain {chain} doesn't exist! The Chains are: {', '.join(pdb.atom['chain'].unique())}"
-            )
-    if not os.path.exists(os.path.join(pdb.job_dir, "Images")):
-        os.makedirs(os.path.join(pdb.job_dir, "Images"))
-    adens_table = pd.read_csv(
-        os.path.join(
-            pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
-        ),
-        sep="\s+",
-        header=0,
-        names=[
-            "Positions",
-            "Chains",
-            "Total",
-            "MaximallyFrst",
-            "NeutrallyFrst",
-            "MinimallyFrst",
-        ],
-    )
-    if chain is not None:
-        adens_table = adens_table[adens_table["Chains"] == chain]
-    datos = pd.read_csv(
-        os.path.join(pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}"),
-        sep="\s+",
-        header=0,
-        names=[
-            "Res1",
-            "Res2",
-            "ChainRes1",
-            "ChainRes2",
-            "AA1",
-            "AA2",
-            "NativeEnergy",
-            "DecoyEnergy",
-            "SDEnergy",
-            "FrstIndex",
-            "FrstState",
-        ],
-    )
-    if chain is not None:
-        datos = datos[datos["ChainRes1"] == chain]
-    chains = sorted(set(datos["ChainRes1"].tolist() + datos["ChainRes2"].tolist()))
-    positions = []
-    aux_pos_vec = []
-    for c in chains:
-        res1_range = datos[datos["ChainRes1"] == c]["Res1"]
-        res2_range = datos[datos["ChainRes2"] == c]["Res2"]
-        min_pos = min(res1_range.min(), res2_range.min())
-        max_pos = max(res1_range.max(), res2_range.max())
-        positions.append([min_pos, max_pos, max_pos - min_pos + 1])
-        aux_pos_vec.extend(range(int(min_pos), int(max_pos) + 1))
-    datos["pos1"] = 0
-    datos["pos2"] = 0
-    bias = 0
-    for i, c in enumerate(chains):
-        if i > 0:
-            bias = sum(pos[2] for pos in positions[:i])
-        idx1 = datos["ChainRes1"] == c
-        datos.loc[idx1, "pos1"] = datos.loc[idx1, "Res1"] - positions[i][0] + bias + 1
-        idx2 = datos["ChainRes2"] == c
-        datos.loc[idx2, "pos2"] = datos.loc[idx2, "Res2"] - positions[i][0] + bias + 1
-    pos_new = []
-    for c in chains:
-        pos1_range = datos[datos["ChainRes1"] == c]["pos1"]
-        pos2_range = datos[datos["ChainRes2"] == c]["pos2"]
-        min_pos = min(pos1_range.min(), pos2_range.min())
-        max_pos = max(pos1_range.max(), pos2_range.max())
-        pos_new.append([min_pos, max_pos, max_pos - min_pos + 1])
-    total_positions = sum(pos[2] for pos in pos_new)
-    matrz = pd.DataFrame(
-        index=range(1, total_positions + 1), columns=range(1, total_positions + 1)
-    )
-    for _, row in datos.iterrows():
-        matrz.loc[row["pos2"], row["pos1"]] = row["FrstIndex"]
-        matrz.loc[row["pos1"], row["pos2"]] = row["FrstIndex"]
-    matrz = matrz.fillna(0)
-    matrz.values[np.tril_indices(matrz.shape[0], k=0)] = 0
-    cmap = LinearSegmentedColormap.from_list(
-        "custom_cmap", ["red", "grey", "green"], N=256
-    )
-    fig, ax = plt.subplots(figsize=(7, 6))
-    sns.heatmap(
-        matrz,
-        cmap=cmap,
-        vmin=-4,
-        vmax=4,
-        square=True,
-        linewidths=0.5,
-        ax=ax,
-        cbar_kws={
-            "ticks": [-4, -3, -2, -1, 0, 1, 2, 3, 4],
-            "label": f"Local {pdb.mode} Frustration Index",
-        },
-    )
-    ax.set_xlabel("Residue i")
-    ax.set_ylabel("Residue j")
-    ax.set_title(f"Contact map {pdb.pdb_base}")
-    if len(chains) > 1:
-        breaks = [round(x) for x in np.linspace(1, total_positions, 15)]
-        labels = [str(aux_pos_vec[b - 1]) for b in breaks]
-        for pos in np.cumsum([p[2] for p in pos_new[:-1]]):
-            ax.axvline(pos, color="gray", linestyle="--", linewidth=0.5)
-            ax.axhline(pos, color="gray", linestyle="--", linewidth=0.5)
-        for i, c in enumerate(chains):
-            mean_pos = np.mean(pos_new[i][:2])
-            ax.text(
-                mean_pos,
-                total_positions + 0.5,
-                c,
-                color="gray",
-                ha="center",
-                va="center",
-            )
-            ax.text(
-                total_positions + 0.5,
-                mean_pos,
-                c,
-                color="gray",
-                ha="center",
-                va="center",
-            )
-        ax.set_xticks(breaks)
-        ax.set_xticklabels(labels, rotation=0)
-        ax.set_yticks(breaks)
-        ax.set_yticklabels(labels)
-    ax.tick_params(axis="both", which="both", length=0)
-    ax.set_xticklabels(ax.get_xticklabels(), fontsize=9)
-    ax.set_yticklabels(ax.get_yticklabels(), fontsize=9)
-    ax.set_title(ax.get_title(), fontsize=11, ha="center")
-    fig.tight_layout()
-    if save:
-        plt.savefig(
-            os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.png"),
-            dpi=300,
-        )
-        print(
-            f"Contact map is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_map.png')}"
-        )
-    return fig
-
 
 def view_frustration_pymol(pdb):
     """
@@ -954,103 +774,3 @@ def plot_mutate_res(pdb, resno, chain, method="threading", save=False):
 
     return fig
 
-def _plot_5adens_proportions(pdb, chain=None, save=False):
-    """
-    Generates plot to analyze the density of contacts around a sphere of 5 Armstrongs,
-    centered in the C-alfa atom from the residue. The different classes of contacts
-    based on the mutational frustration index are counted in relative terms.
-    Args:
-        pdb (Pdb): Pdb Frustration object.
-        chain (str, optional): Chain of residue. Default: None.
-        save (bool, optional): If True, saves the graph; otherwise, it does not. Default: False.
-    Returns:
-        matplotlib.figure.Figure: The generated plot.
-    """
-    if save not in [True, False]:
-        raise ValueError("Save must be a boolean value!")
-    if chain is not None:
-        if len(chain) > 1:
-            raise ValueError("You must enter only one Chain!")
-        if chain not in pdb.atom["chain"].unique():
-            raise ValueError(
-                f"The Chain {chain} doesn't exist! The Chains are: {', '.join(pdb.atom['chain'].unique())}"
-            )
-    if not os.path.exists(os.path.join(pdb.job_dir, "Images")):
-        os.makedirs(os.path.join(pdb.job_dir, "Images"))
-    adens_table = pd.read_csv(
-        os.path.join(
-            pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
-        ),
-        sep="\s+",
-        header=0,
-        names=[
-            "Positions",
-            "Chains",
-            "Total",
-            "MaximallyFrst",
-            "NeutrallyFrst",
-            "MinimallyFrst",
-        ],
-    )
-    if chain is not None:
-        adens_table = adens_table[adens_table["Chains"] == chain]
-    minimally_frst = adens_table["MinimallyFrst"].astype(float)
-    neutrally_frst = adens_table["NeutrallyFrst"].astype(float)
-    maximally_frst = adens_table["MaximallyFrst"].astype(float)
-    frustration_data = pd.DataFrame(
-        {
-            "Positions": adens_table["Positions"],
-            "Highly frustrated": maximally_frst,
-            "Neutral": neutrally_frst,
-            "Minimally frustrated": minimally_frst,
-        }
-    )
-    frustration_data = frustration_data.melt(
-        id_vars="Positions", var_name="Frustration", value_name="Density"
-    )
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.barplot(
-        x="Positions",
-        y="Density",
-        hue="Frustration",
-        data=frustration_data,
-        palette=["red", "gray", "green"],
-        ax=ax,
-    )
-    ax.set_xticks(range(0, len(adens_table), max(1, (len(adens_table) - 1) // 10)))
-    ax.set_xticklabels(ax.get_xticks(), rotation=0)
-    ax.set_xlabel("Positions")
-    ax.set_ylabel("Density around 5A sphere (%)")
-    if chain is None:
-        ax.set_title(f"Density around 5A sphere (%) in {pdb.pdb_base}")
-    else:
-        ax.set_title(f"Density around 5A sphere (%) in {pdb.pdb_base} chain {chain}")
-    ax.legend(title="", loc="upper right")
-    ax.set_title(ax.get_title(), fontsize=11, ha="center")
-    fig.tight_layout()
-    if save:
-        if chain is None:
-            plt.savefig(
-                os.path.join(
-                    pdb.job_dir,
-                    "Images",
-                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.png",
-                ),
-                dpi=300,
-            )
-            print(
-                f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around.png')}"
-            )
-        else:
-            plt.savefig(
-                os.path.join(
-                    pdb.job_dir,
-                    "Images",
-                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.png",
-                ),
-                dpi=300,
-            )
-            print(
-                f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.png')}"
-            )
-    return fig
