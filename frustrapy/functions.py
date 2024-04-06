@@ -947,6 +947,8 @@ def dir_frustration(
     graphics: bool = True,
     visualization: bool = True,
     results_dir: str = None,
+    debug: bool = False,
+
 ) -> None:
     """
     Calculate local energy frustration for all protein structures in one directory.
@@ -1022,6 +1024,7 @@ def dir_frustration(
                 graphics=graphics,
                 visualization=visualization,
                 results_dir=results_dir,
+                debug=debug,
             )
 
         with open(modes_log_file, "a") as f:
@@ -1239,7 +1242,7 @@ def dynamic_res(
     return dynamic
 
 def mutate_res(
-    pdb: "Pdb", resno: int, chain: str, split: bool = True, method: str = "threading"
+    pdb: "Pdb", resno: int, chain: str, split: bool = True, method: str = "threading", debug: bool = False
 ) -> "Pdb":
     """
     Calculate the local energy frustration for each of the 20 residual variants in the Resno position and Chain chain.
@@ -1465,6 +1468,8 @@ def mutate_res(
                     graphics=False,
                     visualization=False,
                     chain=chain,
+                    debug=debug,
+
                 )
             else:
                 calculate_frustration(
@@ -1475,6 +1480,7 @@ def mutate_res(
                     results_dir=pdb.job_dir,
                     graphics=False,
                     visualization=False,
+                    debug=debug,
                 )
 
             print("----------------------------Storing-----------------------------")
