@@ -158,7 +158,7 @@ def _plot_5andens(pdb, chain=None, save=False):
 
     return fig
 
-def plot_5andens(pdb, chain=None, save=False):
+def plot_5andens(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive plot to analyze the density of contacts around a sphere of 5 Armstrongs,
     centered in the C-alfa atom from the residue. The different classes of contacts
@@ -407,7 +407,7 @@ def _plot_5adens_proportions(pdb, chain=None, save=False):
 
     return fig
 
-def plot_5adens_proportions(pdb, chain=None, save=False):
+def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive plot to analyze the density of contacts around a sphere of 5 Armstrongs,
     centered in the C-alfa atom from the residue. The different classes of contacts
@@ -700,7 +700,7 @@ def _plot_contact_map(pdb, chain=None, save=False):
 
     return fig
 
-def plot_contact_map(pdb, chain=None, save=False):
+def plot_contact_map(pdb, chain=None, save=False,show=False):
     """
     Generates an interactive contact map plot to visualize the frustration values assigned to each contact.
 

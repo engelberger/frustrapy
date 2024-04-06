@@ -834,10 +834,15 @@ def calculate_frustration(
         images_dir = os.path.join(pdb.job_dir, "Images")
         if not os.path.exists(images_dir):
             os.makedirs(images_dir)
-        plot_5andens(pdb, save=True)
-        plot_5adens_proportions(pdb, save=True)
-        plot_contact_map(pdb, save=True)
-
+        plotly_5andens = plot_5andens(pdb, save=True)
+        plotly_5adens_proportions = plot_5adens_proportions(pdb, save=True)
+        plotly_contact_map = plot_contact_map(pdb, save=True)
+        # Bundle all plots in a dictionary
+        plots = {
+            "plot_5andens": plotly_5andens,
+            "plot_5adens_proportions": plotly_5adens_proportions,
+            "plot_contact_map": plotly_contact_map,
+        }
     if visualization and pdb.mode != "singleresidue":
         print(
             "-----------------------------Visualizations-----------------------------"
@@ -938,7 +943,7 @@ def calculate_frustration(
     if os.path.exists(pdb_file_path):
         os.remove(pdb_file_path)
 
-    return pdb
+    return pdb, plots
 
 def dir_frustration(
     pdbs_dir: str,
@@ -1016,9 +1021,12 @@ def dir_frustration(
                 f for f in os.listdir(pdbs_dir) if f.endswith((".pdb", ".PDB"))
             ]
 
+        # Create a dictionary to store the plots for each PDB
+        plots_dir_dict = {}
+        
         for pdb_file in order_list:
             pdb_path = os.path.join(pdbs_dir, pdb_file)
-            calculate_frustration(
+            pdb, plots = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
                 electrostatics_k=electrostatics_k,
@@ -1029,6 +1037,9 @@ def dir_frustration(
                 results_dir=results_dir,
                 debug=debug,
             )
+            # Add the plots to the dictionary
+            plots_dir_dict[pdb.pdb_base] = plots
+            
 
         with open(modes_log_file, "a") as f:
             f.write(mode + "\n")
@@ -1037,6 +1048,7 @@ def dir_frustration(
         print(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
+        return plots_dir_dict
 
 def dynamic_frustration(
     pdbs_dir: str,
