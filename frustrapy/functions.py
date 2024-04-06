@@ -184,16 +184,18 @@ def xadens(pdb: "Pdb", ratio: float = 5) -> None:
     conts_coords.iloc[:, 6] = pd.to_numeric(conts_coords.iloc[:, 6], errors="coerce")
     conts_coords.iloc[:, 7] = pd.to_numeric(conts_coords.iloc[:, 7], errors="coerce")
     conts_coords.iloc[:, 8] = pd.to_numeric(conts_coords.iloc[:, 8], errors="coerce")
-
+    
+  
     # Now perform your operations
     vps = pd.DataFrame(
         {
             "col1": conts_coords.iloc[:, 0],
             "col2": conts_coords.iloc[:, 1],
-            "col3": (conts_coords.iloc[:, 5] + conts_coords.iloc[:, 2]) / 2.0,
-            "col4": (conts_coords.iloc[:, 6] + conts_coords.iloc[:, 3]) / 2.0,
-            "col5": (conts_coords.iloc[:, 7] + conts_coords.iloc[:, 4]) / 2.0,
-            "col6": conts_coords.iloc[:, 8],
+            "col3": (conts_coords.iloc[:, 5].astype(float) + conts_coords.iloc[:, 2].astype(float)) / 2.0,
+            "col4": (conts_coords.iloc[:, 6].astype(float) + conts_coords.iloc[:, 3].astype(float)) / 2.0,
+            "col5": (conts_coords.iloc[:, 7].astype(float) + conts_coords.iloc[:, 4].astype(float)) / 2.0,
+            "col6": conts_coords.iloc[:, 8].astype(float),
+            
         }
     )
 
