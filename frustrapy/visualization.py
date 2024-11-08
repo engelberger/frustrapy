@@ -10,6 +10,7 @@ import matplotlib.pyplot as plt
 import seaborn as sns
 from Bio.PDB import PDBParser, Select
 import plotly.graph_objects as go
+import logging
 
 
 def _plot_5andens(pdb, chain=None, save=False):
@@ -49,15 +50,12 @@ def _plot_5andens(pdb, chain=None, save=False):
         ),
         sep=" ",
         header=0,
-
     )
     adens_table["PositionsTotal"] = range(1, len(adens_table) + 1)
 
     if chain is None:
         maximum = max(
-            adens_table[
-                ["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
-            ].max()
+            adens_table[["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]].max()
         )
 
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -104,9 +102,7 @@ def _plot_5andens(pdb, chain=None, save=False):
     else:
         adens_table = adens_table[adens_table["Chains"] == chain]
         maximum = max(
-            adens_table[
-                ["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]
-            ].max()
+            adens_table[["HighlyFrst", "MinimallyFrst", "NeutrallyFrst", "Total"]].max()
         )
 
         fig, ax = plt.subplots(figsize=(10, 6))
@@ -158,6 +154,7 @@ def _plot_5andens(pdb, chain=None, save=False):
 
     return fig
 
+
 def plot_5andens(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive plot to analyze the density of contacts around a sphere of 5 Armstrongs,
@@ -199,114 +196,147 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
     if chain is None:
         fig = go.Figure()
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["PositionsTotal"],
-            y=adens_table["HighlyFrst"],
-            mode='lines',
-            name='Highly frustrated',
-            line=dict(color='red')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["PositionsTotal"],
+                y=adens_table["HighlyFrst"],
+                mode="lines",
+                name="Highly frustrated",
+                line=dict(color="red"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["PositionsTotal"],
-            y=adens_table["NeutrallyFrst"],
-            mode='lines',
-            name='Neutral',
-            line=dict(color='gray')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["PositionsTotal"],
+                y=adens_table["NeutrallyFrst"],
+                mode="lines",
+                name="Neutral",
+                line=dict(color="gray"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["PositionsTotal"],
-            y=adens_table["MinimallyFrst"],
-            mode='lines',
-            name='Minimally frustrated',
-            line=dict(color='green')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["PositionsTotal"],
+                y=adens_table["MinimallyFrst"],
+                mode="lines",
+                name="Minimally frustrated",
+                line=dict(color="green"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["PositionsTotal"],
-            y=adens_table["Total"],
-            mode='lines',
-            name='Total',
-            line=dict(color='black')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["PositionsTotal"],
+                y=adens_table["Total"],
+                mode="lines",
+                name="Total",
+                line=dict(color="black"),
+            )
+        )
 
         fig.update_layout(
             title=f"Density around 5A sphere (%) in {pdb.pdb_base}",
             xaxis_title="Position",
             yaxis_title="Local frustration density (5A sphere)",
             legend_title="",
-            font=dict(
-                family="Arial",
-                size=12,
-                color="black"
-            )
+            font=dict(family="Arial", size=12, color="black"),
         )
 
         if save:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_html(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.html_5Adens.html"))
-            print(f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}.html_5Adens.html')}")
-            fig.write_image(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.png_5Adens.png"))
-            
+            fig.write_html(
+                os.path.join(
+                    pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.html_5Adens.html"
+                )
+            )
+            print(
+                f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}.html_5Adens.html')}"
+            )
+            fig.write_image(
+                os.path.join(
+                    pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.png_5Adens.png"
+                )
+            )
+
     else:
         adens_table = adens_table[adens_table["Chains"] == chain]
 
         fig = go.Figure()
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["Positions"],
-            y=adens_table["HighlyFrst"],
-            mode='lines',
-            name='Highly frustrated',
-            line=dict(color='red')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["Positions"],
+                y=adens_table["HighlyFrst"],
+                mode="lines",
+                name="Highly frustrated",
+                line=dict(color="red"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["Positions"],
-            y=adens_table["NeutrallyFrst"],
-            mode='lines',
-            name='Neutral',
-            line=dict(color='gray')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["Positions"],
+                y=adens_table["NeutrallyFrst"],
+                mode="lines",
+                name="Neutral",
+                line=dict(color="gray"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["Positions"],
-            y=adens_table["MinimallyFrst"],
-            mode='lines',
-            name='Minimally frustrated',
-            line=dict(color='green')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["Positions"],
+                y=adens_table["MinimallyFrst"],
+                mode="lines",
+                name="Minimally frustrated",
+                line=dict(color="green"),
+            )
+        )
 
-        fig.add_trace(go.Scatter(
-            x=adens_table["Positions"],
-            y=adens_table["Total"],
-            mode='lines',
-            name='Total',
-            line=dict(color='black')
-        ))
+        fig.add_trace(
+            go.Scatter(
+                x=adens_table["Positions"],
+                y=adens_table["Total"],
+                mode="lines",
+                name="Total",
+                line=dict(color="black"),
+            )
+        )
 
         fig.update_layout(
             title=f"Density around 5A sphere (%) in {pdb.pdb_base} chain {chain}",
             xaxis_title="Position",
             yaxis_title="Local frustration density (5A sphere)",
             legend_title="",
-            font=dict(
-                family="Arial",
-                size=12,
-                color="black"
-            )
+            font=dict(family="Arial", size=12, color="black"),
         )
 
         if save:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.png"))
-            fig.write_html(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html"))
-            print(f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html')}")
+            fig.write_image(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.png",
+                )
+            )
+            fig.write_html(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html",
+                )
+            )
+            print(
+                f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html')}"
+            )
 
     return fig
+
 
 def _plot_5adens_proportions(pdb, chain=None, save=False):
     """
@@ -341,7 +371,6 @@ def _plot_5adens_proportions(pdb, chain=None, save=False):
         ),
         sep=" ",
         header=0,
-
     )
 
     if chain is not None:
@@ -407,6 +436,7 @@ def _plot_5adens_proportions(pdb, chain=None, save=False):
 
     return fig
 
+
 def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive plot to analyze the density of contacts around a sphere of 5 Armstrongs,
@@ -467,12 +497,18 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
 
     for frustration in ["Highly frustrated", "Neutral", "Minimally frustrated"]:
         data = frustration_data[frustration_data["Frustration"] == frustration]
-        fig.add_trace(go.Bar(
-            x=data["Positions"],
-            y=data["Density"],
-            name=frustration,
-            marker_color={"Highly frustrated": "red", "Neutral": "gray", "Minimally frustrated": "green"}[frustration]
-        ))
+        fig.add_trace(
+            go.Bar(
+                x=data["Positions"],
+                y=data["Density"],
+                name=frustration,
+                marker_color={
+                    "Highly frustrated": "red",
+                    "Neutral": "gray",
+                    "Minimally frustrated": "green",
+                }[frustration],
+            )
+        )
 
     fig.update_layout(
         barmode="stack",
@@ -480,37 +516,67 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
             title="Positions",
             tickmode="array",
             tickvals=list(range(0, len(adens_table), (len(adens_table) - 1) // 10)),
-            ticktext=[str(pos) for pos in adens_table["Res"][::((len(adens_table) - 1) // 10)]]
+            ticktext=[
+                str(pos)
+                for pos in adens_table["Res"][:: ((len(adens_table) - 1) // 10)]
+            ],
         ),
         yaxis=dict(title="Density around 5A sphere (%)"),
         legend=dict(title=""),
-        font=dict(
-            family="Arial",
-            size=12,
-            color="black"
-        )
+        font=dict(family="Arial", size=12, color="black"),
     )
 
     if chain is None:
         fig.update_layout(title=f"Density around 5A sphere (%) in {pdb.pdb_base}")
     else:
-        fig.update_layout(title=f"Density around 5A sphere (%) in {pdb.pdb_base} chain {chain}")
+        fig.update_layout(
+            title=f"Density around 5A sphere (%) in {pdb.pdb_base} chain {chain}"
+        )
 
     if save:
         if chain is None:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.png"))
-            fig.write_html(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.html"))
-            print(f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around.html')}")
+            fig.write_image(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.png",
+                )
+            )
+            fig.write_html(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.html",
+                )
+            )
+            print(
+                f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around.html')}"
+            )
         else:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.png"))
-            fig.write_html(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html"))
-            print(f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html')}")
+            fig.write_image(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.png",
+                )
+            )
+            fig.write_html(
+                os.path.join(
+                    pdb.job_dir,
+                    "Images",
+                    f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html",
+                )
+            )
+            print(
+                f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html')}"
+            )
 
     return fig
+
 
 def _plot_contact_map(pdb, chain=None, save=False):
     """
@@ -543,7 +609,6 @@ def _plot_contact_map(pdb, chain=None, save=False):
         ),
         sep=" ",
         header=0,
-
     )
 
     if chain is not None:
@@ -700,7 +765,8 @@ def _plot_contact_map(pdb, chain=None, save=False):
 
     return fig
 
-def plot_contact_map(pdb, chain=None, save=False,show=False):
+
+def plot_contact_map(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive contact map plot to visualize the frustration values assigned to each contact.
 
@@ -807,29 +873,23 @@ def plot_contact_map(pdb, chain=None, save=False,show=False):
     matrz = matrz.fillna(0)
     matrz.values[np.tril_indices(matrz.shape[0], k=0)] = 0
 
-    fig = go.Figure(data=go.Heatmap(
-        z=matrz.values,
-        x=list(matrz.columns),
-        y=list(matrz.index),
-        colorscale=[
-            [0, 'red'],
-            [0.5, 'white'],
-            [1, 'green']
-        ],
-        zmin=-4,
-        zmax=4,
-        colorbar=dict(title="Frustration Index")
-    ))
+    fig = go.Figure(
+        data=go.Heatmap(
+            z=matrz.values,
+            x=list(matrz.columns),
+            y=list(matrz.index),
+            colorscale=[[0, "red"], [0.5, "white"], [1, "green"]],
+            zmin=-4,
+            zmax=4,
+            colorbar=dict(title="Frustration Index"),
+        )
+    )
 
     fig.update_layout(
         title=f"Contact map {pdb.pdb_base}",
         xaxis_title="Residue i",
         yaxis_title="Residue j",
-        font=dict(
-            family="Arial",
-            size=12,
-            color="black"
-        )
+        font=dict(family="Arial", size=12, color="black"),
     )
 
     if len(chains_two) > 1:
@@ -843,7 +903,7 @@ def plot_contact_map(pdb, chain=None, save=False,show=False):
                 y0=0,
                 x1=pos,
                 y1=total_positions,
-                line=dict(color="gray", width=0.5, dash="dash")
+                line=dict(color="gray", width=0.5, dash="dash"),
             )
             fig.add_shape(
                 type="line",
@@ -851,7 +911,7 @@ def plot_contact_map(pdb, chain=None, save=False,show=False):
                 y0=pos,
                 x1=total_positions,
                 y1=pos,
-                line=dict(color="gray", width=0.5, dash="dash")
+                line=dict(color="gray", width=0.5, dash="dash"),
             )
 
         for i, c in enumerate(chains_two):
@@ -861,14 +921,14 @@ def plot_contact_map(pdb, chain=None, save=False,show=False):
                 y=total_positions + 0.5,
                 text=c,
                 showarrow=False,
-                font=dict(color="gray")
+                font=dict(color="gray"),
             )
             fig.add_annotation(
                 x=total_positions + 0.5,
                 y=mean_pos,
                 text=c,
                 showarrow=False,
-                font=dict(color="gray")
+                font=dict(color="gray"),
             )
 
         fig.update_xaxes(tickvals=breaks, ticktext=labels)
@@ -877,11 +937,18 @@ def plot_contact_map(pdb, chain=None, save=False,show=False):
     if save:
         # Change the widthe of the plot to 1800x 1800 and save a png
         fig.update_layout(width=1000, height=1000)
-        fig.write_image(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.png"))
-        fig.write_html(os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.html"))
-        print(f"Contact map is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_map.html')}")
+        fig.write_image(
+            os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.png")
+        )
+        fig.write_html(
+            os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.html")
+        )
+        print(
+            f"Contact map is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_map.html')}"
+        )
 
     return fig
+
 
 def view_frustration_pymol(pdb):
     """
@@ -932,282 +999,147 @@ def view_frustration_pymol(pdb):
     )
 
 
-def plot_delta_frus(pdb, resno, chain, method="threading", save=False):
+def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=False):
     """
-    Generate a plot of the single residue frustration difference for the mutation of the specific residue given by mutate_res.
+    Generate an interactive plot of the single residue frustration difference for mutations.
 
     Args:
-        pdb (Pdb): Pdb frustration object.
-        resno (int): Specific residue.
-        chain (str): Specific chain.
-        method (str): Method indicates the method to use to perform the mutation (Threading or Modeller). Default: "threading".
-        save (bool): If True, saves the graph; otherwise, it does not. Default: False.
+        pdb (Pdb): Pdb frustration object
+        res_num (int): Specific residue number
+        chain (str): Chain identifier
+        method (str): Mutation method ("threading" or "modeller")
+        save (bool): Whether to save the plot
+        show (bool): Whether to show the plot
 
     Returns:
-        matplotlib.figure.Figure: The generated plot.
+        plotly.graph_objects.Figure: Interactive plot of delta frustration
     """
+    # Input validation
     if save not in [True, False]:
         raise ValueError("Save must be a boolean value!")
     if pdb.mode != "singleresidue":
         raise ValueError(
-            "This graph is available for singleresidue index, run calculate_frustration() with Mode='singleresidue' and mutate_res()"
+            "This graph is only available for singleresidue mode. Run calculate_frustration() with mode='singleresidue'"
         )
     method = method.lower()
     if method not in ["threading", "modeller"]:
         raise ValueError(
-            f"{method} is not a valid mutation method. The available methods are: threading or modeller!"
-        )
-    if (
-        method not in pdb.mutations
-        or f"Res_{resno}_{chain}" not in pdb.mutations[method]
-    ):
-        raise ValueError(
-            f"Residue {resno} from chain {chain} was not mutated using the {method} method."
+            f"{method} is not a valid mutation method. Available methods are: threading or modeller"
         )
 
-    mutation = pdb.mutations[method][f"Res_{resno}_{chain}"]
+    # Check if mutation data exists
+    mutation_key = f"Res_{res_num}_{chain}"
+    if method not in pdb.Mutations or mutation_key not in pdb.Mutations[method]:
+        raise ValueError(
+            f"No mutation data found for residue {res_num} chain {chain} using {method} method"
+        )
+
+    # Get mutation data
+    mutation = pdb.Mutations[method][mutation_key]
+
+    # Read frustration data
     data_frus = pd.read_csv(
         mutation["File"],
         sep="\s+",
         header=0,
         names=["Res1", "Chain1", "AA1", "FrstIndex"],
     )
+
+    # Classify frustration states
     data_frus["FrstState"] = pd.cut(
         data_frus["FrstIndex"],
         bins=[-float("inf"), -1.0, 0.58, float("inf")],
         labels=["highly", "neutral", "minimally"],
     )
-    data_frus["Color"] = data_frus["FrstState"].map(
-        {"neutral": "gray", "highly": "red", "minimally": "green"}
-    )
 
-    # Native residues
+    # Get native residue and its frustration
     native = pdb.atom[
-        (pdb.atom["resno"] == mutation["Res"])
+        (pdb.atom["res_num"] == mutation["Res"])
         & (pdb.atom["chain"] == mutation["Chain"])
-    ]["resid"].unique()[0]
-    data_frus.loc[data_frus["AA1"] == native, "Color"] = "blue"
+    ]["res_num"].iloc[0]
 
-    # Delta frustration
-    frst_index_native = data_frus.loc[data_frus["AA1"] == native, "FrstIndex"].values[0]
-    data_frus["FrstIndex"] = data_frus["FrstIndex"] - frst_index_native
+    # Calculate delta frustration relative to native
+    logger = logging.getLogger(__name__)
+    # ERROR: HERE WE ARE COMPARING STRINGS TO FLOATS FIX THIS!!
+    native_mask = data_frus["AA1"] == int(native)
 
-    x1, x2 = data_frus["Res1"].min() - 3, data_frus["Res1"].max() + 3
-    y1, y2 = min(data_frus["FrstIndex"].min(), -4), max(data_frus["FrstIndex"].max(), 4)
+    if not native_mask.any():
+        logger.error(f"No native residue {native} found in frustration data")
+        raise ValueError(f"No native residue {native} found in frustration data")
 
-    data_frus = pd.concat(
-        [
-            data_frus[data_frus["Color"] != "blue"],
-            data_frus[data_frus["Color"] == "blue"],
-        ]
-    )
+    native_frst = data_frus.loc[native_mask, "FrstIndex"].values[0]
+    logger.debug(f"Native frustration value: {native_frst}")
+    data_frus["DeltaFrst"] = data_frus["FrstIndex"] - native_frst
 
-    fig, ax = plt.subplots(figsize=(10, 6))
-    sns.scatterplot(
-        x="Res1", y="FrstIndex", hue="Color", style="AA1", data=data_frus, s=100, ax=ax
-    )
-    ax.set_xlabel("Residue Position")
-    ax.set_ylabel("Delta Frustration")
-    ax.set_xticks(data_frus["Res1"].unique())
-    ax.set_xticklabels(data_frus["Res1"].unique())
-    ax.set_yticks(np.arange(y1, y2 + 0.5, 0.5))
-    ax.set_yticklabels(np.arange(y1, y2 + 0.5, 0.5))
-    ax.set_ylim(y1, y2)
-    ax.legend(
-        title="Frustration",
-        labels=["Native state", "Neutral", "Minimally frustrated", "Highly frustrated"],
-    )
-    plt.xticks(rotation=90)
-    plt.tight_layout()
+    # Create plot
+    fig = go.Figure()
 
-    if save:
-        os.makedirs(os.path.join(pdb.job_dir, "MutationsData/Images"), exist_ok=True)
-        plt.savefig(
-            os.path.join(
-                pdb.job_dir, f"MutationsData/Images/Delta_frus_{resno}_{chain}.png"
+    # Add traces for each frustration state
+    colors = {"highly": "red", "neutral": "gray", "minimally": "green"}
+
+    # Plot non-native residues first
+    for state in ["highly", "neutral", "minimally"]:
+        mask = (data_frus["FrstState"] == state) & (data_frus["AA1"] != native)
+        fig.add_trace(
+            go.Scatter(
+                x=data_frus[mask]["Res1"],
+                y=data_frus[mask]["DeltaFrst"],
+                mode="markers",
+                name=f"{state.capitalize()} frustrated",
+                marker=dict(
+                    color=colors[state],
+                    symbol=data_frus[mask]["AA1"].map(lambda x: ord(x[0])),
+                    size=12,
+                ),
+                showlegend=True,
             )
         )
+
+    # Plot native residue last (on top)
+    native_mask = data_frus["AA1"] == native
+    fig.add_trace(
+        go.Scatter(
+            x=data_frus[native_mask]["Res1"],
+            y=data_frus[native_mask]["DeltaFrst"],
+            mode="markers",
+            name="Native state",
+            marker=dict(
+                color="blue",
+                symbol=data_frus[native_mask]["AA1"].map(lambda x: ord(x[0])),
+                size=12,
+            ),
+            showlegend=True,
+        )
+    )
+
+    # Update layout
+    fig.update_layout(
+        title=f"Delta Frustration for Residue {res_num} Chain {chain}",
+        xaxis_title="Residue Position",
+        yaxis_title="Delta Frustration",
+        font=dict(size=12),
+        showlegend=True,
+        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+    )
+
+    # Add horizontal lines at important thresholds
+    fig.add_hline(y=0.58, line_dash="dash", line_color="gray", opacity=0.5)
+    fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", opacity=0.5)
+
+    if save:
+        # Create directory if it doesn't exist
+        os.makedirs(os.path.join(pdb.job_dir, "MutationsData/Images"), exist_ok=True)
+
+        # Save both HTML and PNG versions
+        output_base = os.path.join(
+            pdb.job_dir, f"MutationsData/Images/Delta_frus_{res_num}_{chain}"
+        )
+
+        fig.write_html(f"{output_base}.html")
+        fig.write_image(f"{output_base}.png")
+
         print(
-            f"Delta frus plot is stored in {os.path.join(pdb.job_dir, f'MutationsData/Images/Delta_frus_{resno}_{chain}.png')}"
+            f"Delta frustration plot saved to {output_base}.html and {output_base}.png"
         )
 
     return fig
-
-
-def plot_mutate_res(pdb, resno, chain, method="threading", save=False):
-    """
-    Plot the frustration for each of the 20 residue variants at a given position in the structure.
-
-    Args:
-        pdb (Pdb): Pdb frustration object.
-        resno (int): Specific residue.
-        chain (str): Specific chain.
-        method (str): Method indicates the method to use to perform the mutation (Threading or Modeller). Default: "threading".
-        save (bool): If True, saves the graph; otherwise, it does not. Default: False.
-
-    Returns:
-        matplotlib.figure.Figure: The generated plot.
-    """
-    if save not in [True, False]:
-        raise ValueError("Save must be a boolean value!")
-    method = method.lower()
-    if method not in ["threading", "modeller"]:
-        raise ValueError(
-            f"{method} is not a valid mutation method. The available methods are: threading or modeller!"
-        )
-    if (
-        method not in pdb.mutations
-        or f"Res_{resno}_{chain}" not in pdb.mutations[method]
-    ):
-        raise ValueError(
-            f"Residue {resno} from chain {chain} was not mutated using the {method} method."
-        )
-
-    mutation = pdb.mutations[method][f"Res_{resno}_{chain}"]
-
-    if pdb.mode in ["configurational", "mutational"]:
-        data_frus = pd.read_csv(
-            mutation["File"],
-            sep="\s+",
-            header=0,
-            names=[
-                "Res1",
-                "Res2",
-                "Chain1",
-                "Chain2",
-                "AA1",
-                "AA2",
-                "FrstIndex",
-                "FrstState",
-            ],
-        )
-        data_frus["FrstState"] = pd.cut(
-            data_frus["FrstIndex"],
-            bins=[-float("inf"), -1.0, 0.78, float("inf")],
-            labels=["highly", "neutral", "minimally"],
-        )
-        data_frus.loc[
-            data_frus["Res2"] == mutation["Res"], ["Res2", "Chain2", "AA1", "AA2"]
-        ] = data_frus.loc[
-            data_frus["Res2"] == mutation["Res"], ["Res1", "Chain1", "AA2", "AA1"]
-        ].values
-        data_frus.loc[data_frus["Chain1"] != mutation["Chain"], "Chain1"] = mutation[
-            "Chain"
-        ]
-        data_frus.loc[data_frus["Res1"] != mutation["Res"], "Res1"] = mutation["Res"]
-    elif pdb.mode == "singleresidue":
-        data_frus = pd.read_csv(
-            mutation["File"],
-            sep="\s+",
-            header=0,
-            names=["Res1", "Chain1", "AA1", "FrstIndex"],
-        )
-        data_frus["FrstState"] = pd.cut(
-            data_frus["FrstIndex"],
-            bins=[-float("inf"), -1.0, 0.58, float("inf")],
-            labels=["highly", "neutral", "minimally"],
-        )
-
-    # Native residue
-    native = pdb.atom[
-        (pdb.atom["resno"] == mutation["Res"])
-        & (pdb.atom["chain"] == mutation["Chain"])
-    ]["resid"].unique()[0]
-
-    data_frus["Color"] = data_frus["FrstState"].map(
-        {"neutral": "gray", "highly": "red", "minimally": "green"}
-    )
-    data_frus.loc[data_frus["AA1"] == native, "Color"] = "blue"
-
-    if pdb.mode in ["configurational", "mutational"]:
-        contacts = (
-            data_frus[["Res2", "Chain2"]]
-            .drop_duplicates()
-            .sort_values("Res2")
-            .reset_index(drop=True)
-        )
-        contacts["Index"] = contacts.index + 1
-        contacts["Res2"] = contacts["Res2"].astype(int)
-
-        resid = pdb.atom[
-            (pdb.atom["resno"].isin(contacts["Res2"]))
-            & (pdb.atom["chain"] == mutation["Chain"])
-            & (pdb.atom["elety"] == "CA")
-        ]["resid"].values
-
-        data_frus["Res2"] = (
-            contacts.set_index("Res2")["Index"].reindex(data_frus["Res2"]).values
-        )
-
-        data_frus = pd.concat(
-            [
-                data_frus[data_frus["Color"] != "blue"],
-                data_frus[data_frus["Color"] == "blue"],
-            ]
-        )
-
-        y1, y2 = -4, 4
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.scatterplot(
-            x="Res2",
-            y="FrstIndex",
-            hue="Color",
-            style="AA1",
-            data=data_frus,
-            s=100,
-            ax=ax,
-        )
-        ax.set_xlabel("Contact residue")
-        ax.set_ylabel("Frustration Index")
-        ax.set_xticks(contacts["Index"])
-        ax.set_xticklabels([f"{r} {c}" for r, c in zip(resid, contacts["Res2"])])
-        ax.set_yticks(np.arange(y1, y2 + 0.5, 0.5))
-        ax.set_yticklabels(np.arange(y1, y2 + 0.5, 0.5))
-        ax.set_ylim(y1, y2)
-        ax.axhline(y=0.78, color="gray", linestyle="--")
-        ax.axhline(y=-1, color="gray", linestyle="--")
-        ax.set_title(
-            f"Contact Frustration {pdb.mode} of residue {native}_{data_frus['Res1'].iloc[0]}"
-        )
-        ax.legend(
-            title="",
-            labels=["Minimally frustrated", "Neutral", "Highly frustrated", "Native"],
-        )
-        plt.xticks(rotation=90)
-        plt.tight_layout()
-
-    elif pdb.mode == "singleresidue":
-        y1, y2 = -4, 4
-        fig, ax = plt.subplots(figsize=(10, 6))
-        sns.scatterplot(
-            x="AA1", y="FrstIndex", hue="Color", data=data_frus, s=100, ax=ax
-        )
-        ax.set_xlabel("Residue")
-        ax.set_ylabel("Frustration Index")
-        ax.set_yticks(np.arange(y1, y2 + 0.5, 0.5))
-        ax.set_yticklabels(np.arange(y1, y2 + 0.5, 0.5))
-        ax.set_ylim(y1, y2)
-        ax.axhline(y=0.58, color="gray", linestyle="--")
-        ax.axhline(y=-1, color="gray", linestyle="--")
-        ax.set_title(
-            f"Frustration of the 20 variants in position {mutation['Res']} of the structure"
-        )
-        ax.legend(
-            title="",
-            labels=["Minimally frustrated", "Neutral", "Highly frustrated", "Native"],
-        )
-        plt.xticks(rotation=90)
-        plt.tight_layout()
-
-    if save:
-        os.makedirs(os.path.join(pdb.job_dir, "MutationsData/Images"), exist_ok=True)
-        plt.savefig(
-            os.path.join(
-                pdb.job_dir,
-                f"MutationsData/Images/{pdb.mode}_{data_frus['Res1'].iloc[0]}_{mutation['Method']}_{mutation['Chain']}.png",
-            )
-        )
-        # print(f"Mutate res plot is stored in {os.path.join(pdb.job_dir, f"MutationsData/Images/{pdb.mode}_{data_frus['Res1'].iloc[0]}_{mutation['Method']}_{mutation['Chain']}.png")}")
-
-    return fig
-

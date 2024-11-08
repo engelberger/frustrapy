@@ -15,9 +15,31 @@ from sklearn.decomposition import PCA
 from scipy.stats import spearmanr, pearsonr
 import igraph as ig
 import leidenalg as la
-from .visualization import *
-from .renum_files import renum_files
+
+try:
+    from .visualization import *
+except ImportError:
+    from visualization import *
+try:
+    from .renum_files import renum_files
+except ImportError:
+    from renum_files import renum_files
 import plotly.graph_objects as go
+
+import os
+import logging
+import shutil
+import pandas as pd
+from typing import TYPE_CHECKING, Optional
+
+if TYPE_CHECKING:
+    from pdb_class import Pdb  # Replace with the actual import path of your Pdb class
+
+# Setup the logging
+import logging
+
+logging.basicConfig(level=logging.DEBUG)  # or logging.DEBUG for more detailed output
+
 
 class Pdb:
     def __init__(
@@ -35,6 +57,23 @@ class Pdb:
         self.atom = atom
         self.equivalences = equivalences
         self.scripts_dir = scripts_dir
+
+    def copy(self) -> "Pdb":
+        """
+        Creates a deep copy of the Pdb object.
+
+        Returns:
+            Pdb: A new Pdb object with copied attributes
+        """
+        return Pdb(
+            job_dir=self.job_dir,
+            pdb_base=self.pdb_base,
+            mode=self.mode,
+            atom=self.atom.copy(),  # Create a deep copy of the DataFrame
+            equivalences=self.equivalences.copy(),  # Create a deep copy of the DataFrame
+            scripts_dir=self.scripts_dir,
+        )
+
 
 class Dynamic:
     def __init__(
@@ -73,36 +112,37 @@ class Dynamic:
                 f for f in os.listdir(self.pdbs_dir) if f.endswith(".pdb")
             ]
 
-    def add_residue_dynamic(self, resno: int, chain: str, data: pd.DataFrame):
+    def add_residue_dynamic(self, res_num: int, chain: str, data: pd.DataFrame):
         """
         Adds dynamic frustration data for a specific residue.
 
         Args:
-            resno (int): Residue number.
+            res_num (int): Residue number.
             chain (str): Chain identifier.
             data (pd.DataFrame): Frustration data for the residue.
         """
         if chain not in self.residues_dynamic:
             self.residues_dynamic[chain] = {}
-        self.residues_dynamic[chain][f"Res_{resno}"] = data
+        self.residues_dynamic[chain][f"Res_{res_num}"] = data
 
-    def get_residue_dynamic(self, resno: int, chain: str) -> pd.DataFrame:
+    def get_residue_dynamic(self, res_num: int, chain: str) -> pd.DataFrame:
         """
         Retrieves dynamic frustration data for a specific residue.
 
         Args:
-            resno (int): Residue number.
+            res_num (int): Residue number.
             chain (str): Chain identifier.
 
         Returns:
             pd.DataFrame: Frustration data for the residue.
         """
         try:
-            return self.residues_dynamic[chain][f"Res_{resno}"]
+            return self.residues_dynamic[chain][f"Res_{res_num}"]
         except KeyError:
             raise ValueError(
-                f"No dynamic data found for residue {resno} in chain {chain}."
+                f"No dynamic data found for residue {res_num} in chain {chain}."
             )
+
 
 def has_modeller():
     try:
@@ -111,6 +151,7 @@ def has_modeller():
         return True
     except ImportError:
         return False
+
 
 def get_os() -> str:
     """
@@ -132,6 +173,7 @@ def get_os() -> str:
             os_name = "linux"
     return os_name.lower()
 
+
 def replace_expr(pattern: str, replacement: str, file: str) -> None:
     """
     Search and replace pattern by replacement in the file lines.
@@ -146,6 +188,7 @@ def replace_expr(pattern: str, replacement: str, file: str) -> None:
     document = [line.replace(pattern, replacement) for line in document]
     with open(file, "w") as f:
         f.writelines(document)
+
 
 def xadens(pdb: "Pdb", ratio: float = 5) -> None:
     """
@@ -185,18 +228,28 @@ def xadens(pdb: "Pdb", ratio: float = 5) -> None:
     conts_coords.iloc[:, 6] = pd.to_numeric(conts_coords.iloc[:, 6], errors="coerce")
     conts_coords.iloc[:, 7] = pd.to_numeric(conts_coords.iloc[:, 7], errors="coerce")
     conts_coords.iloc[:, 8] = pd.to_numeric(conts_coords.iloc[:, 8], errors="coerce")
-    
-  
+
     # Now perform your operations
     vps = pd.DataFrame(
         {
             "col1": conts_coords.iloc[:, 0],
             "col2": conts_coords.iloc[:, 1],
-            "col3": (conts_coords.iloc[:, 5].astype(float) + conts_coords.iloc[:, 2].astype(float)) / 2.0,
-            "col4": (conts_coords.iloc[:, 6].astype(float) + conts_coords.iloc[:, 3].astype(float)) / 2.0,
-            "col5": (conts_coords.iloc[:, 7].astype(float) + conts_coords.iloc[:, 4].astype(float)) / 2.0,
+            "col3": (
+                conts_coords.iloc[:, 5].astype(float)
+                + conts_coords.iloc[:, 2].astype(float)
+            )
+            / 2.0,
+            "col4": (
+                conts_coords.iloc[:, 6].astype(float)
+                + conts_coords.iloc[:, 3].astype(float)
+            )
+            / 2.0,
+            "col5": (
+                conts_coords.iloc[:, 7].astype(float)
+                + conts_coords.iloc[:, 4].astype(float)
+            )
+            / 2.0,
             "col6": conts_coords.iloc[:, 8].astype(float),
-            
         }
     )
 
@@ -252,8 +305,9 @@ def xadens(pdb: "Pdb", ratio: float = 5) -> None:
                 f"{rel_neutral_frustrated_density} {rel_minimally_frustrated_density}\n"
             )
 
+
 def get_frustration(
-    pdb: Pdb, resno: Optional[List[int]] = None, chain: Optional[List[str]] = None
+    pdb: Pdb, res_num: Optional[List[int]] = None, chain: Optional[List[str]] = None
 ) -> pd.DataFrame:
     """
     Returns the frustration of all Pdb residues, of a specific Chain or residue (Resno).
@@ -261,7 +315,7 @@ def get_frustration(
 
     Args:
         pdb (Pdb): Pdb frustration object obtained by calculate_frustration().
-        resno (Optional[List[int]]): Specific residues in Pdb. Default: None.
+        res_num (Optional[List[int]]): Specific residues in Pdb. Default: None.
         chain (Optional[List[str]]): Specific chains in Pdb. Default: None.
 
     Returns:
@@ -301,18 +355,18 @@ def get_frustration(
 
     if chain is not None:
         frustration_table = frustration_table[frustration_table["ChainRes"].isin(chain)]
-
-    if resno is not None:
+    if res_num is not None:
         frustration_table = frustration_table[
-            (frustration_table["Res"].isin(resno))
-            | (frustration_table["Res1"].isin(resno))
-            | (frustration_table["Res2"].isin(resno))
+            (frustration_table["Res"].isin(res_num))
+            | (frustration_table["Res1"].isin(res_num))
+            | (frustration_table["Res2"].isin(res_num))
         ]
 
     return frustration_table
 
+
 def get_frustration_dynamic(
-    dynamic: "Dynamic", resno: int, chain: str, frames: Optional[List[int]] = None
+    dynamic: "Dynamic", res_num: int, chain: str, frames: Optional[List[int]] = None
 ) -> pd.DataFrame:
     """
     Obtains and returns the table of frustration of a specific chain and residue in a complete dynamic
@@ -321,7 +375,7 @@ def get_frustration_dynamic(
 
     Args:
         dynamic (Dynamic): Dynamic frustration object obtained by dynamic_frustration().
-        resno (int): Specific residue.
+        res_num (int): Specific residue.
         chain (str): Specific chain.
         frames (Optional[List[int]]): Specific frames. Default: None.
 
@@ -330,15 +384,15 @@ def get_frustration_dynamic(
     """
     # Assuming Dynamic object has an attribute 'ResiduesDynamic' which is a dictionary
     # where keys are chain identifiers and values are another dictionary.
-    # This inner dictionary has keys formatted as "Res_{resno}" pointing to the file paths
+    # This inner dictionary has keys formatted as "Res_{res_num}" pointing to the file paths
     # containing the frustration data for each residue.
 
     if chain not in dynamic.ResiduesDynamic:
         raise ValueError(f"No analysis for chain {chain}.")
 
-    res_key = f"Res_{resno}"
+    res_key = f"Res_{res_num}"
     if res_key not in dynamic.ResiduesDynamic[chain]:
-        raise ValueError(f"No analysis for residue {resno} in chain {chain}.")
+        raise ValueError(f"No analysis for residue {res_num} in chain {chain}.")
 
     # Load the frustration data for the specific residue and chain
     frustration_data_path = dynamic.ResiduesDynamic[chain][res_key]
@@ -349,6 +403,7 @@ def get_frustration_dynamic(
         frustration_df = frustration_df[frustration_df["Frame"].isin(frames)]
 
     return frustration_df
+
 
 def get_clusters(
     dynamic: Dynamic, clusters: Union[str, List[int]] = "all"
@@ -396,6 +451,7 @@ def get_clusters(
 
     return cluster_data
 
+
 def pdb_equivalences(pdb_file: str, output_dir: str) -> pd.DataFrame:
     """
     Generates auxiliary files in the execution of the script,
@@ -441,6 +497,7 @@ def pdb_equivalences(pdb_file: str, output_dir: str) -> pd.DataFrame:
         f.write(f"\n{output_path} equivalences saved")
     return equivalences_df
 
+
 def check_backbone_complete(pdb: "Pdb") -> bool:
     """
     Checks the backbone of a given protein structure to be processed by the package pipeline.
@@ -470,6 +527,7 @@ def check_backbone_complete(pdb: "Pdb") -> bool:
 
     return complete
 
+
 def complete_backbone(pdb: "Pdb") -> bool:
     """
     Completes the backbone of a given protein structure to be processed by the package pipeline.
@@ -492,6 +550,7 @@ def complete_backbone(pdb: "Pdb") -> bool:
 
     return completed
 
+
 def calculate_frustration(
     pdb_file: Optional[str] = None,
     pdb_id: Optional[str] = None,
@@ -503,7 +562,10 @@ def calculate_frustration(
     visualization: bool = True,
     results_dir: Optional[str] = None,
     debug: bool = False,
-) -> "Pdb":
+) -> Tuple["Pdb", Dict]:
+    # Initialize plots dictionary at the start
+    plots = {}
+    logger = logging.getLogger(__name__)
     if results_dir is None:
         results_dir = os.path.join(tempfile.gettempdir(), "")
     elif not os.path.exists(results_dir):
@@ -572,25 +634,46 @@ def calculate_frustration(
     pdb_io.save(pdb_file, NonHetSelect())
 
     if chain is not None:
-        if all(c in [chain.id for chain in structure.get_chains()] for c in chain):
+        logger.debug(f"Checking chains: {chain}")
+
+        # Get list of available chain IDs
+        available_chains = []
+        for chain_obj in structure.get_chains():
+            available_chains.append(chain_obj.id)
+        logger.debug(f"Available chains: {available_chains}")
+
+        # Check if all requested chains exist
+        valid_chains = True
+        missing_chains = []
+        for c in chain:
+            if c not in available_chains:
+                valid_chains = False
+                missing_chains.append(c)
+
+        if valid_chains:
+            logger.info(f"All requested chains {chain} are valid")
 
             class ChainSelect(Select):
-                def accept_chain(self, chain):
-                    return 1 if chain.id in chain else 0
+                def __init__(self, selected_chains):
+                    self.selected_chains = selected_chains
 
-            pdb_io.save(pdb_file, ChainSelect())
+                def accept_chain(self, chain_obj):
+                    return chain_obj.id in self.selected_chains
+
+            # Convert chain to list if it's a string
+            selected_chains = [chain] if isinstance(chain, str) else chain
+            pdb_io.save(pdb_file, ChainSelect(selected_chains))
+            logger.debug(f"Saved PDB with selected chains to {pdb_file}")
         else:
-            missing_chains = [
-                c
-                for c in chain
-                if c not in [chain.id for chain in structure.get_chains()]
-            ]
+            logger.error(f"Missing chains: {missing_chains}")
             raise ValueError(
-                f"The Chain {' '.join(missing_chains)} doesn't exist! The Chains are: {' '.join([chain.id for chain in structure.get_chains()])}"
+                f"The Chain {' '.join(missing_chains)} doesn't exist! The Chains are: {' '.join(available_chains)}"
             )
         pdb_base = f"{os.path.splitext(os.path.basename(pdb_file))[0]}_{chain}"
+        logger.info(f"Set pdb_base to: {pdb_base}")
     else:
         pdb_base = os.path.splitext(os.path.basename(pdb_file))[0]
+        logger.info(f"No chain specified. Set pdb_base to: {pdb_base}")
 
     job_dir = os.path.join(results_dir, f"{pdb_base}.done/")
     if not os.path.exists(job_dir):
@@ -607,7 +690,7 @@ def calculate_frustration(
         pdb_file,
         sep="\s+",
         header=None,
-        skiprows=1,
+        skiprows=0,
         names=[
             "ATOM",
             "atom_num",
@@ -783,8 +866,6 @@ def calculate_frustration(
                 f"\nchmod +x lmp_serial_{seq_dist}_MacOS"
                 f"\n./lmp_serial_{seq_dist}_MacOS < {pdb.pdb_base}.in"
             )
-    
-
 
     # The legacy script called a perl script to post process the output of lamps out of the tertiary frustration
     # I refactored this perl script to python and it is now called from here and it can be debugged more easily
@@ -794,7 +875,7 @@ def calculate_frustration(
         job_dir=pdb.job_dir,
         mode=pdb.mode,
     )
-    #subprocess.run(
+    # subprocess.run(
     #    [
     #        "python",
     #        os.path.join(pdb.scripts_dir, "RenumFiles.py"),
@@ -802,7 +883,7 @@ def calculate_frustration(
     #        pdb.job_dir,
     #        pdb.mode,
     #    ]
-    #)
+    # )
 
     with open(os.path.join(job_dir, "commands.help"), "a") as f:
         f.write(
@@ -829,20 +910,60 @@ def calculate_frustration(
     # subprocess.run(["mv", f"{results_dir}*.pdb", frustration_dir])
     os.system(f"mv {pdb_output_folder}/*.pdb {frustration_dir}")
 
-    if graphics and pdb.mode != "singleresidue":
+    if graphics:  # and pdb.mode != "singleresidue"
         print("-----------------------------Images-----------------------------")
         images_dir = os.path.join(pdb.job_dir, "Images")
         if not os.path.exists(images_dir):
             os.makedirs(images_dir)
-        plotly_5andens = plot_5andens(pdb, save=True)
-        plotly_5adens_proportions = plot_5adens_proportions(pdb, save=True)
-        plotly_contact_map = plot_contact_map(pdb, save=True)
-        # Bundle all plots in a dictionary
-        plots = {
-            "plot_5andens": plotly_5andens,
-            "plot_5adens_proportions": plotly_5adens_proportions,
-            "plot_contact_map": plotly_contact_map,
-        }
+
+        if pdb.mode != "singleresidue":
+            # Generate plots for configurational/mutational modes
+            plotly_5andens = plot_5andens(pdb, save=True)
+            plotly_5adens_proportions = plot_5adens_proportions(pdb, save=True)
+            plotly_contact_map = plot_contact_map(pdb, save=True)
+
+            plots = {
+                "plot_5andens": plotly_5andens,
+                "plot_5adens_proportions": plotly_5adens_proportions,
+                "plot_contact_map": plotly_contact_map,
+            }
+        if pdb.mode == "singleresidue":
+            # For singleresidue mode
+            try:
+                # Get residues to analyze
+                residues = pdb.atom[pdb.atom["ATOM"] == "ATOM"]["res_num"].unique()
+                chains = pdb.atom[pdb.atom["ATOM"] == "ATOM"]["chain"].unique()
+
+                for chain_id in chains:
+                    for res in residues:
+                        try:
+                            # Perform mutation analysis
+                            pdb = _mutate_res(
+                                pdb=pdb,
+                                res_num=res,
+                                chain=chain_id,
+                                split=True,
+                                method="threading",
+                            )
+
+                            # Generate and save delta frustration plot
+                            delta_plot = plot_delta_frus(
+                                pdb=pdb,
+                                res_num=res,
+                                chain=chain_id,
+                                method="threading",
+                                save=True,
+                            )
+                            plots[f"delta_frus_res{res}_chain{chain_id}"] = delta_plot
+
+                        except Exception as e:
+                            print(
+                                f"Warning: Failed to analyze residue {res} chain {chain_id}: {str(e)}"
+                            )
+                            continue
+            except Exception as e:
+                print(f"Warning: Failed to generate singleresidue plots: {str(e)}")
+
     if visualization and pdb.mode != "singleresidue":
         print(
             "-----------------------------Visualizations-----------------------------"
@@ -857,14 +978,6 @@ def calculate_frustration(
                 pdb.mode,
             ]
         )
-        # TODO : Check if pure python re-implementation of GenerateVisualizations.pl is working as expected
-        # from .generate_charge_file import generate_visualizations
-        # generate_visualizations(
-        #     f"{pdb.pdb_base}_{pdb.mode}.pdb_auxiliar",
-        #     pdb.pdb_base,
-        #     os.path.dirname(pdb.job_dir),
-        #     pdb.mode,
-        # )
 
         visualization_dir = os.path.join(pdb.job_dir, "VisualizationScripts")
         if not os.path.exists(visualization_dir):
@@ -928,7 +1041,7 @@ def calculate_frustration(
     ]
 
     # Remove the files if debug is false
-    if not debug:    
+    if not debug:
         for file_path in files_to_remove:
             os.remove(file_path)
 
@@ -945,6 +1058,7 @@ def calculate_frustration(
 
     return pdb, plots
 
+
 def dir_frustration(
     pdbs_dir: str,
     order_list: Optional[List[str]] = None,
@@ -956,7 +1070,6 @@ def dir_frustration(
     visualization: bool = True,
     results_dir: str = None,
     debug: bool = False,
-
 ) -> None:
     """
     Calculate local energy frustration for all protein structures in one directory.
@@ -1010,6 +1123,7 @@ def dir_frustration(
     calculation_enabled = True
     modes_log_file = os.path.join(results_dir, "Modes.log")
     if os.path.exists(modes_log_file):
+        print(f"The modes log file {modes_log_file} exists.")
         with open(modes_log_file, "r") as f:
             modes = f.read().splitlines()
         if mode in modes:
@@ -1023,7 +1137,7 @@ def dir_frustration(
 
         # Create a dictionary to store the plots for each PDB
         plots_dir_dict = {}
-        
+
         for pdb_file in order_list:
             pdb_path = os.path.join(pdbs_dir, pdb_file)
             pdb, plots = calculate_frustration(
@@ -1039,7 +1153,6 @@ def dir_frustration(
             )
             # Add the plots to the dictionary
             plots_dir_dict[pdb.pdb_base] = plots
-            
 
         with open(modes_log_file, "a") as f:
             f.write(mode + "\n")
@@ -1049,6 +1162,7 @@ def dir_frustration(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
         return plots_dir_dict
+
 
 def dynamic_frustration(
     pdbs_dir: str,
@@ -1130,7 +1244,6 @@ def dynamic_frustration(
         seq_dist=seq_dist,
         mode=mode,
         results_dir=results_dir,
-        
     )
 
     print("\n\n****Storage information****")
@@ -1148,15 +1261,16 @@ def dynamic_frustration(
 
     return dynamic
 
+
 def dynamic_res(
-    dynamic: "Dynamic", resno: int, chain: str, graphics: bool = True
+    dynamic: "Dynamic", res_num: int, chain: str, graphics: bool = True
 ) -> "Dynamic":
     """
     Obtain the local frustration of a specific residue in the dynamics.
 
     Args:
         dynamic (Dynamic): Dynamic frustration object.
-        resno (int): Residue specific analyzed.
+        res_num (int): Residue specific analyzed.
         chain (str): Chain of specific residue.
         graphics (bool): If it is True, the graphs corresponding to the residual frustration in the dynamics are made and stored according to the frustration index used. Default: True.
 
@@ -1171,20 +1285,22 @@ def dynamic_res(
         "structure",
         os.path.join(
             dynamic.results_dir,
-            f"{dynamic.order_list[0]}.done/FrustrationData/{dynamic.order_list[0]}",
+            f"{os.path.splitext(dynamic.order_list[0])[0]}.done/FrustrationData/{os.path.splitext(dynamic.order_list[0])[0]}.pdb_singleresidue",
         ),
     )
 
-    if len(structure[0][chain][(" ", resno, " ")].child_list) == 0:
+    if len(structure[0][chain][(" ", res_num, " ")].child_list) == 0:
         if chain not in [chain.id for chain in structure.get_chains()]:
             raise ValueError(
                 f"Chain {chain} doesn't exist. The chains found are: {', '.join([chain.id for chain in structure.get_chains()])}"
             )
         else:
-            raise ValueError(f"Resno {resno} of chain {chain} doesn't exist.")
+            raise ValueError(f"Resno {res_num} of chain {chain} doesn't exist.")
 
-    plots_dir = os.path.join(dynamic.results_dir, f"Dynamic_plots_res_{resno}_{chain}")
-    result_file = os.path.join(plots_dir, f"{dynamic.mode}_Res_{resno}_{chain}")
+    plots_dir = os.path.join(
+        dynamic.results_dir, f"Dynamic_plots_res_{res_num}_{chain}"
+    )
+    result_file = os.path.join(plots_dir, f"{dynamic.mode}_Res_{res_num}_{chain}")
 
     os.makedirs(plots_dir, exist_ok=True)
 
@@ -1210,7 +1326,7 @@ def dynamic_res(
                 header=0,
             )
             data_res = data_res[
-                (data_res["Res"] == resno) & (data_res["ChainRes"] == chain)
+                (data_res["Res"] == res_num) & (data_res["ChainRes"] == chain)
             ]
 
             with open(result_file, "a") as f:
@@ -1232,7 +1348,7 @@ def dynamic_res(
                 header=0,
             )
             data_res = data_res[
-                (data_res["Res"] == resno) & (data_res["ChainRes"] == chain)
+                (data_res["Res"] == res_num) & (data_res["ChainRes"] == chain)
             ]
 
             with open(result_file, "a") as f:
@@ -1241,7 +1357,7 @@ def dynamic_res(
     if chain not in dynamic.residues_dynamic:
         dynamic.residues_dynamic[chain] = {}
 
-    dynamic.residues_dynamic[chain][f"Res_{resno}"] = result_file
+    dynamic.residues_dynamic[chain][f"Res_{res_num}"] = result_file
 
     print("\n\n****Storage information****")
     print(f"The frustration of the residue is stored in {result_file}")
@@ -1251,14 +1367,20 @@ def dynamic_res(
         raise NotImplementedError(
             "Visualization functions for dynamics are not implemented in the new version."
         )
-        # plot_res_dynamics(dynamic, resno, chain, save=True)
+        # plot_res_dynamics(dynamic, res_num, chain, save=True)
         if dynamic.mode != "singleresidue":
-            plot_dynamic_res_5adens_proportion(dynamic, resno, chain, save=True)
+            plot_dynamic_res_5adens_proportion(dynamic, res_num, chain, save=True)
 
     return dynamic
 
+
 def mutate_res(
-    pdb: "Pdb", resno: int, chain: str, split: bool = True, method: str = "threading", debug: bool = False
+    pdb: "Pdb",
+    res_num: int,
+    chain: str,
+    split: bool = True,
+    method: str = "threading",
+    debug: bool = False,
 ) -> "Pdb":
     """
     Calculate the local energy frustration for each of the 20 residual variants in the Resno position and Chain chain.
@@ -1266,7 +1388,7 @@ def mutate_res(
 
     Args:
         pdb (Pdb): Pdb frustration object.
-        resno (int): Resno of the residue to be mutated.
+        res_num (int): Resno of the residue to be mutated.
         chain (str): Chain of the residue to be mutated.
         split (bool): Split that you are going to calculate frustration. If it is True specific string, if it is False full complex. Default: True.
         method (str): Method indicates the method to use to perform the mutation (Threading or Modeller). Default: Threading.
@@ -1278,7 +1400,7 @@ def mutate_res(
     if (
         len(
             pdb.atom[
-                (pdb.atom["resno"] == resno)
+                (pdb.atom["res_num"] == res_num)
                 & (pdb.atom["chain"] == chain)
                 & (pdb.atom["atom_name"] == "CA")
             ]
@@ -1287,7 +1409,7 @@ def mutate_res(
     ):
         raise ValueError("Resno of chain doesn't exist!")
     elif pd.isna(
-        pdb.atom[(pdb.atom["resno"] == resno) & (pdb.atom["atom_name"] == "CA")][
+        pdb.atom[(pdb.atom["res_num"] == res_num) & (pdb.atom["atom_name"] == "CA")][
             "chain"
         ].iloc[0]
     ):
@@ -1309,7 +1431,7 @@ def mutate_res(
     mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
     os.makedirs(mutations_dir, exist_ok=True)
     frustra_mut_file = os.path.join(
-        mutations_dir, f"{pdb.mode}_Res{resno}_{method}_{chain}.txt"
+        mutations_dir, f"{pdb.mode}_Res{res_num}_{method}_{chain}.txt"
     )
 
     if os.path.exists(frustra_mut_file):
@@ -1371,18 +1493,18 @@ def mutate_res(
 
         # Indices of all the atoms of the residue to mutate
         index_totales = pdb.atom[
-            (pdb.atom["chain"] == chain) & (pdb.atom["resno"] == resno)
+            (pdb.atom["chain"] == chain) & (pdb.atom["res_num"] == res_num)
         ].index
 
         # If it were glycine
         index_backbone_gly = pdb.atom[
             (pdb.atom["chain"] == chain)
-            & (pdb.atom["resno"] == resno)
+            & (pdb.atom["res_num"] == res_num)
             & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O"]))
         ].index
 
         # Check if it is glycine
-        if pdb.atom.loc[index_totales[0], "resid"] == "GLY":
+        if pdb.atom.loc[index_totales[0], "res_name"] == "GLY":
             glycine = True
         else:
             glycine = False
@@ -1391,13 +1513,13 @@ def mutate_res(
         if glycine:
             index_backbone = pdb.atom[
                 (pdb.atom["chain"] == chain)
-                & (pdb.atom["resno"] == resno)
+                & (pdb.atom["res_num"] == res_num)
                 & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O"]))
             ].index
         else:
             index_backbone = pdb.atom[
                 (pdb.atom["chain"] == chain)
-                & (pdb.atom["resno"] == resno)
+                & (pdb.atom["res_num"] == res_num)
                 & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O", "CB"]))
             ].index
 
@@ -1409,7 +1531,7 @@ def mutate_res(
             pdb_mut = pdb.copy()
 
             # If AA is equal to the residue it is not necessary to mutate and neither is it glycine
-            if aa != pdb_mut.atom.loc[index_totales[0], "resid"] and not glycine:
+            if aa != pdb_mut.atom.loc[index_totales[0], "res_name"] and not glycine:
                 # if the residue to be inserted is not glycine, insert backbone with CB
                 if aa != "GLY":
                     diff_atom = index_totales.difference(index_backbone)
@@ -1455,19 +1577,19 @@ def mutate_res(
 
             # Residues are renamed
             rename = pdb_mut.atom[
-                (pdb_mut.atom["chain"] == chain) & (pdb_mut.atom["resno"] == resno)
+                (pdb_mut.atom["chain"] == chain) & (pdb_mut.atom["res_num"] == res_num)
             ].index
-            pdb_mut.atom.loc[rename, "resid"] = aa
+            pdb_mut.atom.loc[rename, "res_name"] = aa
 
             # Mutated PDB is saved
             if split:
                 pdb_mut.to_pdb(
-                    os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}.pdb")
+                    os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}.pdb")
                 )
             else:
                 pdb_mut.to_pdb(
                     os.path.join(
-                        pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb"
+                        pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb"
                     )
                 )
 
@@ -1477,7 +1599,7 @@ def mutate_res(
             if split:
                 calculate_frustration(
                     pdb_file=os.path.join(
-                        pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}.pdb"
+                        pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}.pdb"
                     ),
                     mode=pdb.mode,
                     results_dir=pdb.job_dir,
@@ -1485,12 +1607,11 @@ def mutate_res(
                     visualization=False,
                     chain=chain,
                     debug=debug,
-
                 )
             else:
                 calculate_frustration(
                     pdb_file=os.path.join(
-                        pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb"
+                        pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb"
                     ),
                     mode=pdb.mode,
                     results_dir=pdb.job_dir,
@@ -1504,17 +1625,17 @@ def mutate_res(
                 os.rename(
                     os.path.join(
                         pdb.job_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                 )
                 frustra_table = pd.read_csv(
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                     sep="\s+",
                     header=0,
@@ -1524,7 +1645,7 @@ def mutate_res(
                 )
                 frustra_table = frustra_table[
                     (frustra_table["ChainRes"] == chain)
-                    & (frustra_table["Res"] == resno)
+                    & (frustra_table["Res"] == res_num)
                 ][["Res", "ChainRes", "AA", "FrstIndex"]]
                 frustra_table.to_csv(
                     frustra_mut_file, sep="\t", header=False, index=False, mode="a"
@@ -1534,17 +1655,17 @@ def mutate_res(
                 os.rename(
                     os.path.join(
                         pdb.job_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                 )
                 frustra_table = pd.read_csv(
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                     sep="\s+",
                     header=0,
@@ -1567,11 +1688,11 @@ def mutate_res(
                 frustra_table = frustra_table[
                     (
                         (frustra_table["ChainRes1"] == chain)
-                        & (frustra_table["Res1"] == resno)
+                        & (frustra_table["Res1"] == res_num)
                     )
                     | (
                         (frustra_table["ChainRes2"] == chain)
-                        & (frustra_table["Res2"] == resno)
+                        & (frustra_table["Res2"] == res_num)
                     )
                 ][
                     [
@@ -1585,6 +1706,7 @@ def mutate_res(
                         "FrstState",
                     ]
                 ]
+
                 frustra_table.to_csv(
                     frustra_mut_file, sep="\t", header=False, index=False, mode="a"
                 )
@@ -1592,11 +1714,12 @@ def mutate_res(
             # Unnecessary files are removed
             os.remove(
                 os.path.join(
-                    mutations_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}"
+                    mutations_dir,
+                    f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                 )
             )
             os.system(
-                f"rm -R {os.path.join(pdb.job_dir, f'{pdb.pdb_base}_{resno}_{aa}_{chain}.done/')}"
+                f"rm -R {os.path.join(pdb.job_dir, f'{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/')}"
             )
             os.system(f"cd {pdb.job_dir} ; rm *pdb")
 
@@ -1655,7 +1778,7 @@ def mutate_res(
             ]
         )
         seq = list(seq)
-        seq[resno - 1] = "-"
+        seq[res_num - 1] = "-"
         seq = "".join(seq)
 
         fasta_id = f">{pdb_id}_{chain}.pdb"
@@ -1678,7 +1801,7 @@ def mutate_res(
                     for residue in pdb_structure[0][chain].get_residues()
                     if residue.id[0] == " "
                 ],
-                "resno": [
+                "res_num": [
                     residue.id[1]
                     for residue in pdb_structure[0][chain].get_residues()
                     if residue.id[0] == " "
@@ -1723,7 +1846,7 @@ def mutate_res(
         seq_gap = pd.DataFrame(
             {
                 "AA": list(aln[1].residues.sequence),
-                "resno": [0] * len(aln[1].residues.sequence),
+                "res_num": [0] * len(aln[1].residues.sequence),
                 "index": list(range(1, len(aln[1].residues.sequence) + 1)),
             }
         )
@@ -1734,10 +1857,10 @@ def mutate_res(
                 seq_gap.loc[i, "AA"] != "-"
                 and seq_gap.loc[i, "AA"] == seq_pdb.loc[j, "AA"]
             ):
-                seq_gap.loc[i, "resno"] = seq_pdb.loc[j, "resno"]
+                seq_gap.loc[i, "res_num"] = seq_pdb.loc[j, "res_num"]
                 j += 1
 
-        pos = seq_gap[seq_gap["resno"] == resno].index[0]
+        pos = seq_gap[seq_gap["res_num"] == res_num].index[0]
 
         os.system(f"cp {os.path.join(pdb.scripts_dir, 'align2d.py')} {pdb.job_dir}")
         os.system(f"cp {os.path.join(pdb.scripts_dir, 'make_ali.py')} {pdb.job_dir}")
@@ -1770,7 +1893,7 @@ def mutate_res(
             )
             os.rename(
                 os.path.join(pdb.job_dir, "Modelo.B99990001.pdb"),
-                os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb"),
+                os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb"),
             )
             os.system(
                 f"cd {pdb.job_dir} ;rm *D00000001 *ini *rsr *sch *V99990001 *ali *pap *fa"
@@ -1781,7 +1904,7 @@ def mutate_res(
             )
             calculate_frustration(
                 pdb_file=os.path.join(
-                    pdb.job_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb"
+                    pdb.job_dir, f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb"
                 ),
                 mode=pdb.mode,
                 results_dir=pdb.job_dir,
@@ -1794,17 +1917,17 @@ def mutate_res(
                 os.rename(
                     os.path.join(
                         pdb.job_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                 )
                 frustra_table = pd.read_csv(
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_singleresidue",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_singleresidue",
                     ),
                     sep="\s+",
                     header=0,
@@ -1823,17 +1946,17 @@ def mutate_res(
                 os.rename(
                     os.path.join(
                         pdb.job_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/FrustrationData/{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                 )
                 frustra_table = pd.read_csv(
                     os.path.join(
                         mutations_dir,
-                        f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}",
+                        f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                     ),
                     sep="\s+",
                     header=0,
@@ -1874,11 +1997,12 @@ def mutate_res(
             # Unnecessary files are removed
             os.remove(
                 os.path.join(
-                    mutations_dir, f"{pdb.pdb_base}_{resno}_{aa}_{chain}.pdb_{pdb.mode}"
+                    mutations_dir,
+                    f"{pdb.pdb_base}_{res_num}_{aa}_{chain}.pdb_{pdb.mode}",
                 )
             )
             os.system(
-                f"rm -R {os.path.join(pdb.job_dir, f'{pdb.pdb_base}_{resno}_{aa}_{chain}.done/')}"
+                f"rm -R {os.path.join(pdb.job_dir, f'{pdb.pdb_base}_{res_num}_{aa}_{chain}.done/')}"
             )
             os.system(f"cd {pdb.job_dir} ; rm {pdb.pdb_base}_*")
 
@@ -1888,17 +2012,17 @@ def mutate_res(
         if pdb.mode == "singleresidue":
             data = pd.read_csv(
                 os.path.join(
-                    mutations_dir, f"singleresidue_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"singleresidue_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\s+",
                 header=0,
             )
             data["ChainRes"] = chain
             for i in range(len(data)):
-                data.loc[i, "Res"] = seq_gap.loc[data.loc[i, "Res"], "resno"]
+                data.loc[i, "Res"] = seq_gap.loc[data.loc[i, "Res"], "res_num"]
             data.to_csv(
                 os.path.join(
-                    mutations_dir, f"singleresidue_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"singleresidue_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\t",
                 header=True,
@@ -1908,18 +2032,18 @@ def mutate_res(
         elif pdb.mode == "configurational":
             data = pd.read_csv(
                 os.path.join(
-                    mutations_dir, f"configurational_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"configurational_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\s+",
                 header=0,
             )
             data[["ChainRes1", "ChainRes2"]] = chain
             for i in range(len(data)):
-                data.loc[i, "Res1"] = seq_gap.loc[data.loc[i, "Res1"], "resno"]
-                data.loc[i, "Res2"] = seq_gap.loc[data.loc[i, "Res2"], "resno"]
+                data.loc[i, "Res1"] = seq_gap.loc[data.loc[i, "Res1"], "res_num"]
+                data.loc[i, "Res2"] = seq_gap.loc[data.loc[i, "Res2"], "res_num"]
             data.to_csv(
                 os.path.join(
-                    mutations_dir, f"configurational_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"configurational_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\t",
                 header=True,
@@ -1929,18 +2053,18 @@ def mutate_res(
         elif pdb.mode == "mutational":
             data = pd.read_csv(
                 os.path.join(
-                    mutations_dir, f"mutational_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"mutational_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\s+",
                 header=0,
             )
             data[["ChainRes1", "ChainRes2"]] = chain
             for i in range(len(data)):
-                data.loc[i, "Res1"] = seq_gap.loc[data.loc[i, "Res1"], "resno"]
-                data.loc[i, "Res2"] = seq_gap.loc[data.loc[i, "Res2"], "resno"]
+                data.loc[i, "Res1"] = seq_gap.loc[data.loc[i, "Res1"], "res_num"]
+                data.loc[i, "Res2"] = seq_gap.loc[data.loc[i, "Res2"], "res_num"]
             data.to_csv(
                 os.path.join(
-                    mutations_dir, f"mutational_Res{resno}_{method}_{chain}.txt"
+                    mutations_dir, f"mutational_Res{res_num}_{method}_{chain}.txt"
                 ),
                 sep="\t",
                 header=True,
@@ -1951,21 +2075,337 @@ def mutate_res(
         pdb.Mutations = {}
     if method not in pdb.Mutations:
         pdb.Mutations[method] = {}
-    pdb.Mutations[method][f"Res_{resno}_{chain}"] = {
+    pdb.Mutations[method][f"Res_{res_num}_{chain}"] = {
         "Method": method,
-        "Res": resno,
+        "Res": res_num,
         "Chain": chain,
         "File": os.path.join(
-            mutations_dir, f"{pdb.mode}_Res{resno}_{method}_{chain}.txt"
+            mutations_dir, f"{pdb.mode}_Res{res_num}_{method}_{chain}.txt"
         ),
     }
 
     print("\n\n****Storage information****")
     print(
-        f"The frustration of the residue is stored in {os.path.join(mutations_dir, f'{pdb.mode}_Res{resno}_{method}_{chain}.txt')}"
+        f"The frustration of the residue is stored in {os.path.join(mutations_dir, f'{pdb.mode}_Res{res_num}_{method}_{chain}.txt')}"
     )
 
     return pdb
+
+
+def _mutate_res(
+    pdb: "Pdb",
+    res_num: int,
+    chain: str,
+    split: bool = True,
+    method: str = "threading",
+    debug: bool = False,
+) -> "Pdb":
+    """
+    Calculate the local energy frustration for each of the 20 amino acid variants
+    at the specified residue position and chain. Uses the frustration index indicated
+    in the Pdb object.
+
+    Args:
+        pdb (Pdb): Pdb frustration object.
+        res_num (int): Residue number to be mutated.
+        chain (str): Chain identifier of the residue to be mutated.
+        split (bool, optional): If True, calculates frustration for the specific string.
+                                If False, calculates for the full complex. Default is True.
+        method (str, optional): Method to use for mutation ('threading' or 'modeller').
+                                Default is 'threading'.
+        debug (bool, optional): If True, enables debug mode. Default is False.
+
+    Returns:
+        Pdb: Returns the Pdb frustration object with the corresponding mutation attribute.
+    """
+    logger = logging.getLogger(__name__)
+    method = method.lower()
+
+    # Validate inputs
+    if not isinstance(split, bool):
+        logger.error("Split must be a boolean value!")
+        raise ValueError("Split must be a boolean value!")
+
+    if method not in ["threading", "modeller"]:
+        logger.error(
+            f"Invalid method '{method}'. Available methods: 'threading', 'modeller'."
+        )
+        raise ValueError("Method must be 'threading' or 'modeller'.")
+
+    if not ((pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)).any():
+        logger.error(f"Residue number {res_num} in chain '{chain}' does not exist!")
+        raise ValueError(f"Residue number {res_num} in chain '{chain}' does not exist!")
+
+    if method == "modeller" and not split:
+        logger.error("Complex modeling with Modeller is not available!")
+        raise ValueError("Complex modeling with Modeller is not available!")
+
+    # Setup output directory and file
+    mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
+    os.makedirs(mutations_dir, exist_ok=True)
+    frustra_mut_file = os.path.join(
+        mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
+    )
+
+    if os.path.exists(frustra_mut_file):
+        os.remove(frustra_mut_file)
+
+    # Write header to the output file
+    with open(frustra_mut_file, "w") as f:
+        if pdb.mode in ["configurational", "mutational"]:
+            f.write("Res1 Res2 ChainRes1 ChainRes2 AA1 AA2 FrstIndex FrstState\n")
+        elif pdb.mode == "singleresidue":
+            f.write("Res ChainRes AA FrstIndex\n")
+
+    # Define amino acid codes
+    amino_acids = [
+        "LEU",
+        "ASP",
+        "ILE",
+        "ASN",
+        "THR",
+        "VAL",
+        "ALA",
+        "GLY",
+        "GLU",
+        "ARG",
+        "LYS",
+        "HIS",
+        "GLN",
+        "SER",
+        "PRO",
+        "PHE",
+        "TYR",
+        "MET",
+        "TRP",
+        "CYS",
+    ]
+
+    # Check if the residue is glycine
+    is_glycine = (
+        pdb.atom.loc[
+            (pdb.atom["res_num"] == res_num)
+            & (pdb.atom["chain"] == chain)
+            & (pdb.atom["atom_name"] == "CA"),
+            "res_name",
+        ].iloc[0]
+        == "GLY"
+    )
+
+    # Get indices of atoms for the residue to mutate
+    residue_indices = pdb.atom[
+        (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)
+    ].index
+
+    # Define backbone atoms based on whether the residue is glycine
+    backbone_atoms = ["N", "CA", "C", "O"] + ([] if is_glycine else ["CB"])
+    backbone_indices = pdb.atom[
+        (pdb.atom["res_num"] == res_num)
+        & (pdb.atom["chain"] == chain)
+        & (pdb.atom["atom_name"].isin(backbone_atoms))
+    ].index
+
+    # Iterate over each amino acid variant
+    for aa in amino_acids:
+        logger.info(f"Processing variant {aa} for residue {res_num} in chain '{chain}'")
+        mutated_pdb = pdb.atom.copy()
+
+        current_res_name = pdb.atom.loc[residue_indices[0], "res_name"]
+        should_mutate_side_chain = (aa != current_res_name) and not is_glycine
+
+        if should_mutate_side_chain:
+            # Determine which atoms to remove (side chain atoms)
+            if aa != "GLY":
+                # Keep backbone atoms including CB
+                atoms_to_remove = residue_indices.difference(backbone_indices)
+            else:
+                # Glycine does not have CB
+                backbone_indices_gly = pdb.atom[
+                    (pdb.atom["res_num"] == res_num)
+                    & (pdb.atom["chain"] == chain)
+                    & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O"]))
+                ].index
+                atoms_to_remove = residue_indices.difference(backbone_indices_gly)
+
+            # Remove side chain atoms
+            if not atoms_to_remove.empty:
+                mutated_pdb.drop(index=atoms_to_remove, inplace=True)
+
+        # Update the residue name
+        mutated_pdb.loc[
+            (mutated_pdb["res_num"] == res_num) & (mutated_pdb["chain"] == chain),
+            "res_name",
+        ] = aa
+
+        # Save the mutated PDB
+        if split:
+            output_pdb_path = os.path.join(
+                pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}.pdb"
+            )
+        else:
+            output_pdb_path = os.path.join(
+                pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}.pdb"
+            )
+
+        # Ensure correct data types
+        mutated_pdb["res_name"] = mutated_pdb["res_name"].astype(str)
+        mutated_pdb["atom_name"] = mutated_pdb["atom_name"].astype(str)
+        mutated_pdb["chain"] = mutated_pdb["chain"].astype(str)
+        mutated_pdb["element"] = mutated_pdb["element"].astype(str)
+
+        # Handle 'alt_loc' and 'insertion_code' columns
+        for col in ["alt_loc", "insertion_code"]:
+            if col in mutated_pdb.columns:
+                mutated_pdb[col] = mutated_pdb[col].astype(str)
+            else:
+                mutated_pdb[col] = " "
+
+        # Corrected PDB writing block
+        with open(output_pdb_path, "w") as pdb_file:
+            for _, row in mutated_pdb.iterrows():
+                pdb_line = (
+                    f"{row['ATOM']:<6}"  # Record name, columns 1-6
+                    f"{int(row['atom_num']):>5}"  # Atom serial number, columns 7-11
+                    f" {row['atom_name']:<4}"  # Atom name, columns 13-16
+                    f"{row['alt_loc']:<1}"  # Alternate location indicator, column 17
+                    f"{row['res_name']:<3}"  # Residue name, columns 18-20
+                    f" {row['chain']:<1}"  # Chain ID, column 22
+                    f"{int(row['res_num']):>4}"  # Residue sequence number, columns 23-26
+                    f"{row['insertion_code']:<1}"  # Insertion code, column 27
+                    f"   "  # Empty columns 28-30
+                    f"{float(row['x']):>8.3f}"  # X coordinate, columns 31-38
+                    f"{float(row['y']):>8.3f}"  # Y coordinate, columns 39-46
+                    f"{float(row['z']):>8.3f}"  # Z coordinate, columns 47-54
+                    f"{float(row['occupancy']):>6.2f}"  # Occupancy, columns 55-60
+                    f"{float(row['b_factor']):>6.2f}"  # Temperature factor, columns 61-66
+                    f"          "  # Empty columns 67-76
+                    f"{row['element']:<2}"  # Element symbol, columns 77-78
+                    f"\n"
+                )
+                pdb_file.write(pdb_line)
+
+        logger.debug(f"Saved mutated PDB to {output_pdb_path}")
+
+        # Construct the output PDB base name including chain
+        output_pdb_base = f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}"
+
+        # Calculate frustration for the mutated PDB
+        logger.info("Calculating frustration...")
+        calculate_frustration(
+            pdb_file=output_pdb_path,
+            mode=pdb.mode,
+            results_dir=pdb.job_dir,
+            graphics=False,
+            visualization=False,
+            chain=chain,
+            debug=debug,
+        )
+
+        # Store the frustration data
+        logger.info("Storing frustration data...")
+        frustration_data_dir = os.path.join(
+            pdb.job_dir,
+            f"{output_pdb_base}.done",
+            "FrustrationData",
+        )
+
+        if pdb.mode == "singleresidue":
+            src_frusta_file = os.path.join(
+                frustration_data_dir,
+                f"{output_pdb_base}.pdb_singleresidue",
+            )
+            dst_frusta_file = os.path.join(
+                mutations_dir,
+                f"{output_pdb_base}.pdb_singleresidue",
+            )
+
+            shutil.move(src_frusta_file, dst_frusta_file)
+
+            frustra_table = pd.read_csv(
+                dst_frusta_file,
+                sep="\s+",
+                header=0,
+                usecols=["Res", "ChainRes", "AA", "FrstIndex"],
+            )
+            # Ensure 'Res' column is integer for comparison
+            frustra_table["Res"] = frustra_table["Res"].astype(int)
+            frustra_table = frustra_table[
+                (frustra_table["ChainRes"] == chain) & (frustra_table["Res"] == res_num)
+            ]
+            frustra_table.to_csv(
+                frustra_mut_file, sep="\t", header=False, index=False, mode="a"
+            )
+
+        elif pdb.mode in ["configurational", "mutational"]:
+            src_frusta_file = os.path.join(
+                frustration_data_dir,
+                f"{os.path.basename(output_pdb_path).split('.')[0]}.pdb_{pdb.mode}",
+            )
+            dst_frusta_file = os.path.join(
+                mutations_dir,
+                f"{os.path.basename(output_pdb_path).split('.')[0]}.pdb_{pdb.mode}",
+            )
+
+            shutil.move(src_frusta_file, dst_frusta_file)
+
+            frustra_table = pd.read_csv(
+                dst_frusta_file,
+                sep="\s+",
+                header=0,
+                usecols=[
+                    "Res1",
+                    "Res2",
+                    "ChainRes1",
+                    "ChainRes2",
+                    "AA1",
+                    "AA2",
+                    "FrstIndex",
+                    "FrstState",
+                ],
+            )
+            frustra_table = frustra_table[
+                (
+                    (frustra_table["ChainRes1"] == chain)
+                    & (frustra_table["Res1"] == res_num)
+                )
+                | (
+                    (frustra_table["ChainRes2"] == chain)
+                    & (frustra_table["Res2"] == res_num)
+                )
+            ]
+            frustra_table.to_csv(
+                frustra_mut_file, sep="\t", header=False, index=False, mode="a"
+            )
+
+        # Clean up temporary files
+        logger.debug("Cleaning up temporary files...")
+        temp_done_dir = os.path.join(
+            pdb.job_dir, f"{os.path.basename(output_pdb_path).split('.')[0]}.done"
+        )
+        if os.path.exists(temp_done_dir):
+            shutil.rmtree(temp_done_dir)
+
+        if not debug:
+            os.remove(output_pdb_path)
+
+    # Update the pdb object with mutation information
+    if not hasattr(pdb, "Mutations"):
+        pdb.Mutations = {}
+    if method not in pdb.Mutations:
+        pdb.Mutations[method] = {}
+    mutation_key = f"Res_{res_num}_{chain}"
+    pdb.Mutations[method][mutation_key] = {
+        "Method": method,
+        "Res": res_num,
+        "Chain": chain,
+        "File": frustra_mut_file,
+    }
+
+    logger.info(
+        f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
+    )
+    return pdb
+
 
 def detect_dynamic_clusters(
     dynamic: "Dynamic",
@@ -2018,7 +2458,7 @@ def detect_dynamic_clusters(
             f"Please install the following libraries to continue: {', '.join(missing_libraries)}"
         )
 
-    # Loading residues and resno
+    # Loading residues and res_num
     ini = pd.read_csv(
         os.path.join(
             dynamic.results_dir,
@@ -2028,7 +2468,7 @@ def detect_dynamic_clusters(
         header=0,
     )
     residues = ini["AA"].tolist()
-    resnos = ini["Res"].tolist()
+    res_nums = ini["Res"].tolist()
 
     # Loading data
     print("-----------------------------Loading data-----------------------------")
@@ -2045,7 +2485,7 @@ def detect_dynamic_clusters(
         frustra_data[f"frame_{len(frustra_data.columns)}"] = read["FrstIndex"]
 
     frustra_data.index = [
-        f"{residue}_{resno}" for residue, resno in zip(residues, resnos)
+        f"{residue}_{res_num}" for residue, res_num in zip(residues, res_nums)
     ]
 
     # Model fitting and filter by difference and mean
@@ -2108,7 +2548,6 @@ def detect_dynamic_clusters(
     corr_matrix[
         (corr_matrix < min_corr) & (corr_matrix > -min_corr) | (p_values > 0.05)
     ] = 0
-
     print("-----------------------------Undirected graph-----------------------------")
     net = ig.Graph.Adjacency((corr_matrix > 0).tolist(), mode="undirected")
 

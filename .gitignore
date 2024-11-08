@@ -2,3 +2,6 @@ legacy
 Results
 legacy/frustratometeR/Results
 frustrapy/__pycache__
+tests/__pycache__/__init__.cpython-310.pyc
+tests/__pycache__/test_frustration_analysis.cpython-310-pytest-7.4.4.pyc
+Results_example/*
