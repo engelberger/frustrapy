@@ -1053,19 +1053,45 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=Fa
     )
 
     # Get native residue and its frustration
-    native = pdb.atom[
+    logger = logging.getLogger(__name__)
+
+    # Get native residue from pdb structure
+    native_res = pdb.atom[
         (pdb.atom["res_num"] == mutation["Res"])
         & (pdb.atom["chain"] == mutation["Chain"])
-    ]["res_num"].iloc[0]
+    ]["res_name"].iloc[0]
 
-    # Calculate delta frustration relative to native
-    logger = logging.getLogger(__name__)
-    # ERROR: HERE WE ARE COMPARING STRINGS TO FLOATS FIX THIS!!
-    native_mask = data_frus["AA1"] == int(native)
+    # Convert 3-letter code to 1-letter code if needed
+    if len(native_res) == 3:
+        aa_codes = {
+            "ALA": "A",
+            "CYS": "C",
+            "ASP": "D",
+            "GLU": "E",
+            "PHE": "F",
+            "GLY": "G",
+            "HIS": "H",
+            "ILE": "I",
+            "LYS": "K",
+            "LEU": "L",
+            "MET": "M",
+            "ASN": "N",
+            "PRO": "P",
+            "GLN": "Q",
+            "ARG": "R",
+            "SER": "S",
+            "THR": "T",
+            "VAL": "V",
+            "TRP": "W",
+            "TYR": "Y",
+        }
+        native_res = aa_codes[native_res]
 
+    # Find native residue's frustration
+    native_mask = data_frus["AA1"] == native_res
     if not native_mask.any():
-        logger.error(f"No native residue {native} found in frustration data")
-        raise ValueError(f"No native residue {native} found in frustration data")
+        logger.error(f"No native residue {native_res} found in frustration data")
+        raise ValueError(f"No native residue {native_res} found in frustration data")
 
     native_frst = data_frus.loc[native_mask, "FrstIndex"].values[0]
     logger.debug(f"Native frustration value: {native_frst}")
@@ -1079,64 +1105,122 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=Fa
 
     # Plot non-native residues first
     for state in ["highly", "neutral", "minimally"]:
-        mask = (data_frus["FrstState"] == state) & (data_frus["AA1"] != native)
+        mask = (data_frus["FrstState"] == state) & (data_frus["AA1"] != native_res)
         fig.add_trace(
             go.Scatter(
                 x=data_frus[mask]["Res1"],
                 y=data_frus[mask]["DeltaFrst"],
-                mode="markers",
+                mode="text",
                 name=f"{state.capitalize()} frustrated",
-                marker=dict(
+                text=data_frus[mask]["AA1"],
+                textfont=dict(
                     color=colors[state],
-                    symbol=data_frus[mask]["AA1"].map(lambda x: ord(x[0])),
-                    size=12,
+                    size=14,
+                    family="Arial",
                 ),
                 showlegend=True,
             )
         )
 
     # Plot native residue last (on top)
-    native_mask = data_frus["AA1"] == native
+    native_mask = data_frus["AA1"] == native_res
     fig.add_trace(
         go.Scatter(
             x=data_frus[native_mask]["Res1"],
             y=data_frus[native_mask]["DeltaFrst"],
-            mode="markers",
+            mode="text",
             name="Native state",
-            marker=dict(
+            text=data_frus[native_mask]["AA1"],
+            textfont=dict(
                 color="blue",
-                symbol=data_frus[native_mask]["AA1"].map(lambda x: ord(x[0])),
-                size=12,
+                size=14,
+                family="Arial",
             ),
             showlegend=True,
         )
     )
 
-    # Update layout
+    # Update layout for publication quality
     fig.update_layout(
-        title=f"Delta Frustration for Residue {res_num} Chain {chain}",
-        xaxis_title="Residue Position",
-        yaxis_title="Delta Frustration",
-        font=dict(size=12),
+        title=dict(
+            text=f"Delta Frustration for Residue {res_num} Chain {chain}",
+            font=dict(size=16, family="Arial"),
+            x=0.5,  # Center the title
+            y=0.95,
+        ),
+        xaxis=dict(
+            title="Residue Position",
+            titlefont=dict(size=14, family="Arial"),
+            tickfont=dict(size=12, family="Arial"),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.2)",
+            dtick=1,  # Force integer ticks
+            tick0=res_num,  # Start from the actual residue number
+            range=[
+                res_num - 0.5,
+                res_num + 0.5,
+            ],  # Limit x-axis range to just show the residue
+        ),
+        yaxis=dict(
+            title="ΔFrustration",  # Using proper delta symbol
+            titlefont=dict(size=14, family="Arial"),
+            tickfont=dict(size=12, family="Arial"),
+            showgrid=True,
+            gridwidth=1,
+            gridcolor="rgba(128,128,128,0.2)",
+            zeroline=True,
+            zerolinewidth=1,
+            zerolinecolor="rgba(0,0,0,0.2)",
+        ),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
         showlegend=True,
-        legend=dict(yanchor="top", y=0.99, xanchor="right", x=0.99),
+        legend=dict(
+            yanchor="top",
+            y=0.99,
+            xanchor="right",
+            x=0.99,
+            font=dict(size=12, family="Arial"),
+            bgcolor="rgba(255,255,255,0.8)",
+            bordercolor="rgba(0,0,0,0.2)",
+            borderwidth=1,
+        ),
+        width=600,
+        height=500,
     )
 
-    # Add horizontal lines at important thresholds
-    fig.add_hline(y=0.58, line_dash="dash", line_color="gray", opacity=0.5)
-    fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", opacity=0.5)
+    # Add horizontal lines at important thresholds with improved styling
+    fig.add_hline(
+        y=0.58,
+        line_dash="dash",
+        line_color="rgba(128,128,128,0.5)",
+        line_width=1,
+    )
+    fig.add_hline(
+        y=-1.0,
+        line_dash="dash",
+        line_color="rgba(128,128,128,0.5)",
+        line_width=1,
+    )
+
+    # Add subtle box around the plot
+    fig.update_layout(
+        xaxis=dict(showline=True, linewidth=1, linecolor="black", mirror=True),
+        yaxis=dict(showline=True, linewidth=1, linecolor="black", mirror=True),
+    )
 
     if save:
         # Create directory if it doesn't exist
         os.makedirs(os.path.join(pdb.job_dir, "MutationsData/Images"), exist_ok=True)
 
-        # Save both HTML and PNG versions
+        # Save both HTML and PNG versions with high DPI for publication
         output_base = os.path.join(
             pdb.job_dir, f"MutationsData/Images/Delta_frus_{res_num}_{chain}"
         )
 
         fig.write_html(f"{output_base}.html")
-        fig.write_image(f"{output_base}.png")
+        fig.write_image(f"{output_base}.png", scale=4)  # Higher DPI for publication
 
         print(
             f"Delta frustration plot saved to {output_base}.html and {output_base}.png"
