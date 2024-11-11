@@ -18,15 +18,15 @@ import functions as frustrapy_functions
 import subprocess
 
 if example:
-    # subprocess.run(
-    #    ["wget", "-q", "http://www.rcsb.org/pdb/files/1fhj.pdb", "-O", "1fhj.pdb"]
-    # )
-    # subprocess.run(
-    #    ["wget", "-q", "http://www.rcsb.org/pdb/files/2dn1.pdb", "-O", "2dn1.pdb"]
-    # )
-    # subprocess.run(
-    #    ["wget", "-q", "http://www.rcsb.org/pdb/files/1m6k.pdb", "-O", "1m6k.pdb"]
-    # )
+    subprocess.run(
+        ["wget", "-q", "http://www.rcsb.org/pdb/files/1fhj.pdb", "-O", "1fhj.pdb"]
+    )
+    subprocess.run(
+        ["wget", "-q", "http://www.rcsb.org/pdb/files/2dn1.pdb", "-O", "2dn1.pdb"]
+    )
+    subprocess.run(
+        ["wget", "-q", "http://www.rcsb.org/pdb/files/1m6k.pdb", "-O", "1m6k.pdb"]
+    )
 
     pdbs_dir = "/home/ceramirez/github/frustrapy"
     results_dir = "/home/ceramirez/github/frustrapy/Results_example"
