@@ -1415,53 +1415,151 @@ def _process_amino_acid(
     logger.info(f"Processing variant {aa} for residue {res_num} in chain '{chain}'")
 
     # Get indices of atoms for the residue to mutate
-    residue_indices = pdb.atom[
-        (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)
-    ].index
+    residue_mask = (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)
+    residue_indices = pdb.atom[residue_mask].index
 
-    # Determine available backbone atoms in the current residue
-    available_backbone_atoms = (
-        pdb.atom.loc[
-            (pdb.atom["res_num"] == res_num)
-            & (pdb.atom["chain"] == chain)
-            & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O", "CB"]))
-        ]["atom_name"]
-        .unique()
-        .tolist()
-    )
-
-    # Define backbone atoms to keep
-    if aa == "GLY":
-        backbone_atoms = ["N", "CA", "C", "O"]
-    else:
-        backbone_atoms = ["N", "CA", "C", "O", "CB"]
-
-    # Keep only the backbone atoms that are present in the current residue
-    backbone_atoms = [
-        atom for atom in backbone_atoms if atom in available_backbone_atoms
-    ]
-
-    backbone_indices = pdb.atom[
-        (pdb.atom["res_num"] == res_num)
-        & (pdb.atom["chain"] == chain)
-        & (pdb.atom["atom_name"].isin(backbone_atoms))
-    ].index
-
+    # Create new PDB with all atoms
     mutated_pdb = pdb.atom.copy()
-    current_res_name = pdb.atom.loc[residue_indices[0], "res_name"]
-    should_mutate_side_chain = aa != current_res_name
 
-    if should_mutate_side_chain:
-        # Remove side chain atoms
-        atoms_to_remove = residue_indices.difference(backbone_indices)
-        if not atoms_to_remove.empty:
-            mutated_pdb.drop(index=atoms_to_remove, inplace=True)
+    # Get current residue name before mutation
+    current_res_name = mutated_pdb.loc[residue_indices[0], "res_name"]
 
-    # Update the residue name
-    mutated_pdb.loc[
-        (mutated_pdb["res_num"] == res_num) & (mutated_pdb["chain"] == chain),
-        "res_name",
-    ] = aa
+    # Only modify if we're actually changing the residue type
+    if current_res_name != aa:
+        # Special handling for GLY -> X mutations
+        if current_res_name == "GLY" and aa != "GLY":
+            # Get coordinates of N, CA, C atoms
+            n_coords = pdb.atom.loc[
+                (pdb.atom["res_num"] == res_num)
+                & (pdb.atom["chain"] == chain)
+                & (pdb.atom["atom_name"] == "N"),
+                ["x", "y", "z"],
+            ].iloc[0]
+
+            ca_coords = pdb.atom.loc[
+                (pdb.atom["res_num"] == res_num)
+                & (pdb.atom["chain"] == chain)
+                & (pdb.atom["atom_name"] == "CA"),
+                ["x", "y", "z"],
+            ].iloc[0]
+
+            c_coords = pdb.atom.loc[
+                (pdb.atom["res_num"] == res_num)
+                & (pdb.atom["chain"] == chain)
+                & (pdb.atom["atom_name"] == "C"),
+                ["x", "y", "z"],
+            ].iloc[0]
+
+            # Calculate CB coordinates using standard geometry
+            # CB is placed 1.521 Å from CA at tetrahedral angle
+            import numpy as np
+
+            # Create vectors
+            ca_n = np.array(
+                [
+                    n_coords.x - ca_coords.x,
+                    n_coords.y - ca_coords.y,
+                    n_coords.z - ca_coords.z,
+                ]
+            )
+            ca_c = np.array(
+                [
+                    c_coords.x - ca_coords.x,
+                    c_coords.y - ca_coords.y,
+                    c_coords.z - ca_coords.z,
+                ]
+            )
+
+            # Normalize vectors
+            ca_n = ca_n / np.linalg.norm(ca_n)
+            ca_c = ca_c / np.linalg.norm(ca_c)
+
+            # Calculate CB direction (perpendicular to N-CA-C plane)
+            cb_direction = np.cross(ca_n, ca_c)
+            cb_direction = cb_direction / np.linalg.norm(cb_direction)
+
+            # Adjust to tetrahedral angle (109.5 degrees)
+            theta = np.radians(109.5)
+            rot_axis = np.cross(ca_n, cb_direction)
+            rot_axis = rot_axis / np.linalg.norm(rot_axis)
+
+            # Rotation matrix
+            c = np.cos(theta)
+            s = np.sin(theta)
+            t = 1 - c
+            x, y, z = rot_axis
+
+            rot_mat = np.array(
+                [
+                    [t * x * x + c, t * x * y - z * s, t * x * z + y * s],
+                    [t * x * y + z * s, t * y * y + c, t * y * z - x * s],
+                    [t * x * z - y * s, t * y * z + x * s, t * z * z + c],
+                ]
+            )
+
+            # Apply rotation
+            cb_direction = np.dot(rot_mat, ca_n)
+
+            # Calculate CB coordinates (1.521 Å from CA)
+            cb_coords = (
+                np.array([ca_coords.x, ca_coords.y, ca_coords.z]) + 1.521 * cb_direction
+            )
+
+            # Get backbone atoms
+            backbone_mask = residue_mask & pdb.atom["atom_name"].isin(
+                ["N", "CA", "C", "O"]
+            )
+            backbone_coords = pdb.atom[backbone_mask].copy()
+
+            # Remove all atoms of the residue
+            mutated_pdb = mutated_pdb.drop(index=residue_indices)
+
+            # Add back backbone atoms with new residue name
+            backbone_coords["res_name"] = aa
+            mutated_pdb = pd.concat([mutated_pdb, backbone_coords])
+
+            # Add CB atom
+            cb_row = backbone_coords.iloc[0].copy()
+            cb_row["atom_name"] = "CB"
+            cb_row["x"] = cb_coords[0]
+            cb_row["y"] = cb_coords[1]
+            cb_row["z"] = cb_coords[2]
+            cb_row["element"] = "C"
+
+            mutated_pdb = pd.concat([mutated_pdb, pd.DataFrame([cb_row])])
+
+        # X -> GLY mutations
+        elif current_res_name != "GLY" and aa == "GLY":
+            # Keep only N, CA, C, O for GLY
+            backbone_atoms = ["N", "CA", "C", "O"]
+            backbone_mask = residue_mask & pdb.atom["atom_name"].isin(backbone_atoms)
+            backbone_indices = pdb.atom[backbone_mask].index
+
+            # Remove all atoms except the basic backbone
+            non_backbone_indices = residue_indices.difference(backbone_indices)
+            if not non_backbone_indices.empty:
+                mutated_pdb = mutated_pdb.drop(index=non_backbone_indices)
+
+            # Update residue name
+            mutated_pdb.loc[backbone_indices, "res_name"] = aa
+
+        # Standard residue mutations (non-GLY to non-GLY)
+        else:
+            # Keep N, CA, C, O, CB
+            backbone_atoms = ["N", "CA", "C", "O", "CB"]
+            backbone_mask = residue_mask & pdb.atom["atom_name"].isin(backbone_atoms)
+            backbone_indices = pdb.atom[backbone_mask].index
+
+            # Remove all atoms except backbone
+            non_backbone_indices = residue_indices.difference(backbone_indices)
+            if not non_backbone_indices.empty:
+                mutated_pdb = mutated_pdb.drop(index=non_backbone_indices)
+
+            # Update residue name
+            mutated_pdb.loc[backbone_indices, "res_name"] = aa
+
+    # Sort by atom number to maintain proper order
+    mutated_pdb = mutated_pdb.sort_index()
 
     # Save the mutated PDB
     if split:
