@@ -364,7 +364,6 @@ def get_frustration(
             | (frustration_table["Res1"].isin(res_num))
             | (frustration_table["Res2"].isin(res_num))
         ]
-
     return frustration_table
 
 
@@ -451,7 +450,6 @@ def get_clusters(
     # Filter by specified clusters if not "all"
     if clusters != "all":
         cluster_data = cluster_data[cluster_data["Cluster"].isin(clusters)]
-
     return cluster_data
 
 
@@ -960,12 +958,27 @@ def calculate_frustration(
                             plots[f"delta_frus_res{res}_chain{chain_id}"] = delta_plot
 
                         except Exception as e:
-                            print(
-                                f"Warning: Failed to analyze residue {res} chain {chain_id}: {str(e)}"
+                            # Instead of just warning, raise a more descriptive error
+                            error_msg = (
+                                f"Failed to analyze residue {res} chain {chain_id}. "
+                                f"This could be due to:\n"
+                                f"1. Missing frustration data files\n"
+                                f"2. Invalid residue number or chain combination\n"
+                                f"3. Problems with the mutation analysis\n"
+                                f"Original error: {str(e)}"
                             )
-                            continue
+                            raise RuntimeError(error_msg) from e
+
             except Exception as e:
-                print(f"Warning: Failed to generate singleresidue plots: {str(e)}")
+                error_msg = (
+                    f"Failed to generate singleresidue analysis. "
+                    f"This could be due to:\n"
+                    f"1. Problems with the PDB structure\n"
+                    f"2. Missing or corrupted data files\n"
+                    f"3. Invalid configuration\n"
+                    f"Original error: {str(e)}"
+                )
+                raise RuntimeError(error_msg) from e
 
     if visualization and pdb.mode != "singleresidue":
         print(
@@ -1406,8 +1419,28 @@ def _process_amino_acid(
         (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)
     ].index
 
-    # Define backbone atoms based on whether the residue is glycine
-    backbone_atoms = ["N", "CA", "C", "O"] + ([] if is_glycine else ["CB"])
+    # Determine available backbone atoms in the current residue
+    available_backbone_atoms = (
+        pdb.atom.loc[
+            (pdb.atom["res_num"] == res_num)
+            & (pdb.atom["chain"] == chain)
+            & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O", "CB"]))
+        ]["atom_name"]
+        .unique()
+        .tolist()
+    )
+
+    # Define backbone atoms to keep
+    if aa == "GLY":
+        backbone_atoms = ["N", "CA", "C", "O"]
+    else:
+        backbone_atoms = ["N", "CA", "C", "O", "CB"]
+
+    # Keep only the backbone atoms that are present in the current residue
+    backbone_atoms = [
+        atom for atom in backbone_atoms if atom in available_backbone_atoms
+    ]
+
     backbone_indices = pdb.atom[
         (pdb.atom["res_num"] == res_num)
         & (pdb.atom["chain"] == chain)
@@ -1416,23 +1449,11 @@ def _process_amino_acid(
 
     mutated_pdb = pdb.atom.copy()
     current_res_name = pdb.atom.loc[residue_indices[0], "res_name"]
-    should_mutate_side_chain = (aa != current_res_name) and not is_glycine
+    should_mutate_side_chain = aa != current_res_name
 
     if should_mutate_side_chain:
-        # Determine which atoms to remove (side chain atoms)
-        if aa != "GLY":
-            # Keep backbone atoms including CB
-            atoms_to_remove = residue_indices.difference(backbone_indices)
-        else:
-            # Glycine does not have CB
-            backbone_indices_gly = pdb.atom[
-                (pdb.atom["res_num"] == res_num)
-                & (pdb.atom["chain"] == chain)
-                & (pdb.atom["atom_name"].isin(["N", "CA", "C", "O"]))
-            ].index
-            atoms_to_remove = residue_indices.difference(backbone_indices_gly)
-
         # Remove side chain atoms
+        atoms_to_remove = residue_indices.difference(backbone_indices)
         if not atoms_to_remove.empty:
             mutated_pdb.drop(index=atoms_to_remove, inplace=True)
 
