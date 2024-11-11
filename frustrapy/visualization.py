@@ -12,23 +12,6 @@ from Bio.PDB import PDBParser, Select
 import plotly.graph_objects as go
 import logging
 
-# Add error handling for plotly imports
-try:
-    import plotly.graph_objects as go
-
-    HAS_PLOTLY = True
-except ImportError:
-    HAS_PLOTLY = False
-    logging.warning("Plotly not available. Interactive plots will not work.")
-
-
-# Add a fallback function for when plotly is not available
-def _get_plotting_backend():
-    """Determine which plotting backend to use"""
-    if HAS_PLOTLY:
-        return "plotly"
-    return "matplotlib"
-
 
 def _plot_5andens(pdb, chain=None, save=False):
     """
@@ -181,22 +164,11 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
     Args:
         pdb (Pdb): Pdb Frustration object.
         chain (str, optional): Chain of residue. Default: None.
-        save (bool, optional): If True, saves the graph. Default: False.
-        show (bool, optional): If True, displays the plot. Default: False.
+        save (bool, optional): If True, saves the graph; otherwise, it does not. Default: False.
 
     Returns:
-        Union[plotly.graph_objects.Figure, matplotlib.figure.Figure]: The generated plot
+        plotly.graph_objects.Figure: The generated interactive plot.
     """
-    backend = _get_plotting_backend()
-
-    if backend == "plotly":
-        return _plot_5andens_plotly(pdb, chain, save, show)
-    else:
-        return _plot_5andens_mpl(pdb, chain, save, show)
-
-
-def _plot_5andens_plotly(pdb, chain=None, save=False, show=False):
-    """Plotly implementation of 5andens plot"""
     if save not in [True, False]:
         raise ValueError("Save must be a boolean value!")
 
@@ -1040,20 +1012,8 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=Fa
         show (bool): Whether to show the plot
 
     Returns:
-        Union[plotly.graph_objects.Figure, matplotlib.figure.Figure]: The generated plot
+        plotly.graph_objects.Figure: Interactive plot of delta frustration
     """
-    backend = _get_plotting_backend()
-
-    if backend == "plotly":
-        return _plot_delta_frus_plotly(pdb, res_num, chain, method, save, show)
-    else:
-        return _plot_delta_frus_mpl(pdb, res_num, chain, method, save, show)
-
-
-def _plot_delta_frus_mpl(
-    pdb, res_num, chain, method="threading", save=False, show=False
-):
-    """Matplotlib implementation of delta frustration plot"""
     # Input validation
     if save not in [True, False]:
         raise ValueError("Save must be a boolean value!")
@@ -1067,7 +1027,7 @@ def _plot_delta_frus_mpl(
             f"{method} is not a valid mutation method. Available methods are: threading or modeller"
         )
 
-    # Get mutation data and create plot using matplotlib
+    # Check if mutation data exists
     mutation_key = f"Res_{res_num}_{chain}"
     if method not in pdb.Mutations or mutation_key not in pdb.Mutations[method]:
         raise ValueError(
