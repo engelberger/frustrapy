@@ -41,7 +41,9 @@ if TYPE_CHECKING:
 # Setup the logging
 import logging
 
-logging.basicConfig(level=logging.DEBUG)  # or logging.DEBUG for more detailed output
+logging.basicConfig(
+    filename="frustrapy.log", level=logging.DEBUG
+)  # or logging.DEBUG for more detailed output
 
 
 class Pdb:
@@ -931,12 +933,17 @@ def calculate_frustration(
         if pdb.mode == "singleresidue":
             # For singleresidue mode
             try:
-                # Get residues to analyze
-                residues = pdb.atom[pdb.atom["ATOM"] == "ATOM"]["res_num"].unique()
+                # Get chains and their residues
                 chains = pdb.atom[pdb.atom["ATOM"] == "ATOM"]["chain"].unique()
-
+                
                 for chain_id in chains:
-                    for res in residues:
+                    # Get residues for this specific chain
+                    chain_residues = pdb.atom[
+                        (pdb.atom["ATOM"] == "ATOM") & 
+                        (pdb.atom["chain"] == chain_id)
+                    ]["res_num"].unique()
+                    
+                    for res in chain_residues:
                         try:
                             # Perform mutation analysis
                             pdb = mutate_res_parallel(
