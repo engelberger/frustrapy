@@ -1,0 +1,10 @@
+numpy
+pandas
+biopython
+plotly
+scipy
+scikit-learn
+python-igraph
+leidenalg
+psutil  # optional, for memory logging
+kaleido  # optional, for static image export 
