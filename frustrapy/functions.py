@@ -18,6 +18,9 @@ import leidenalg as la
 import multiprocessing
 from typing import Dict, Any, Tuple
 import time
+from functools import wraps
+import pickle
+from dataclasses import dataclass
 
 try:
     from .visualization import *
@@ -27,7 +30,17 @@ try:
     from .renum_files import renum_files
 except ImportError:
     from renum_files import renum_files
+
+
+# Add to the imports section at the top
+try:
+    from .scripts.pdb_to_lammps import PDBToLAMMPS
+except ImportError:
+    from scripts.pdb_to_lammps import PDBToLAMMPS
+
+
 import plotly.graph_objects as go
+
 
 import os
 import logging
@@ -41,9 +54,63 @@ if TYPE_CHECKING:
 # Setup the logging
 import logging
 
-logging.basicConfig(
-    filename="frustrapy.log", level=logging.DEBUG
-)  # or logging.DEBUG for more detailed output
+# Create a logger for this module
+logger = logging.getLogger(__name__)
+
+# Configure the logger if it hasn't been configured
+if not logger.handlers:
+    # Create handlers
+    file_handler = logging.FileHandler("frustrapy.log")
+    console_handler = logging.StreamHandler()
+
+    # Create formatters and add it to handlers
+    log_format = logging.Formatter(
+        "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    )
+    file_handler.setFormatter(log_format)
+    console_handler.setFormatter(log_format)
+
+    # Add handlers to the logger
+    logger.addHandler(file_handler)
+    logger.addHandler(console_handler)
+
+    # Set level
+    logger.setLevel(logging.INFO)
+
+
+# Add performance monitoring decorator
+def log_execution_time(func):
+    @wraps(func)
+    def wrapper(*args, **kwargs):
+        start_time = time.time()
+        logger.debug(f"Starting {func.__name__} with args: {args}, kwargs: {kwargs}")
+
+        try:
+            result = func(*args, **kwargs)
+            execution_time = time.time() - start_time
+            logger.info(f"{func.__name__} completed in {execution_time:.2f} seconds")
+            return result
+        except Exception as e:
+            execution_time = time.time() - start_time
+            logger.error(f"{func.__name__} failed after {execution_time:.2f} seconds")
+            logger.exception(f"Exception in {func.__name__}: {str(e)}")
+            raise
+
+    return wrapper
+
+
+# Add memory usage monitoring
+def log_memory_usage():
+    try:
+        import psutil
+
+        process = psutil.Process()
+        memory_info = process.memory_info()
+        logger.debug(
+            f"Memory usage - RSS: {memory_info.rss / 1024 / 1024:.2f} MB, VMS: {memory_info.vms / 1024 / 1024:.2f} MB"
+        )
+    except ImportError:
+        logger.debug("psutil not installed - memory usage logging disabled")
 
 
 class Pdb:
@@ -405,7 +472,6 @@ def get_frustration_dynamic(
     # If specific frames are requested, filter the dataframe
     if frames is not None:
         frustration_df = frustration_df[frustration_df["Frame"].isin(frames)]
-
     return frustration_df
 
 
@@ -485,17 +551,17 @@ def pdb_equivalences(pdb_file: str, output_dir: str) -> pd.DataFrame:
     equivalences_df = pd.DataFrame(
         equivalences, columns=["Chain", "SeqID", "ResNum", "ResName"]
     )
-    # print(equivalences_df)
-    # Save to file
-    print(pdb_file)
-    # Get the base name of the pdb file
+
+    logger.debug(f"Processing PDB file: {pdb_file}")
     pdb_file_base = os.path.basename(pdb_file)
     pdb_filename = pdb_file_base
-    print(pdb_filename)
+    logger.debug(f"PDB filename: {pdb_filename}")
     output_path = os.path.join(output_dir, f"{pdb_filename}_equivalences.txt")
-    print(output_path)
+    logger.debug(f"Output path: {output_path}")
+
     equivalences_df.to_csv(output_path, sep="\t", index=False, header=False)
-    # Print a log that the csv was saved  to the x file
+    logger.info(f"Saved equivalences to {output_path}")
+
     with open(os.path.join(output_dir, "commands.help"), "a") as f:
         f.write(f"\n{output_path} equivalences saved")
     return equivalences_df
@@ -554,10 +620,116 @@ def complete_backbone(pdb: "Pdb") -> bool:
     return completed
 
 
+@dataclass
+class SingleResidueData:
+    """Data class to store single residue frustration analysis results"""
+
+    residue_number: int
+    chain_id: str
+    residue_name: str
+    mutations: Dict[str, float]  # Maps mutation (e.g. 'ALA') to frustration index
+    native_energy: float
+    decoy_energy: float
+    sd_energy: float
+    density: float
+    plots: Optional[Any] = None  # Store associated plot if available
+
+
+def organize_single_residue_data(
+    pdb: "Pdb", residues_analyzed: Dict[str, List[Dict[str, Any]]]
+) -> Dict[str, Dict[int, SingleResidueData]]:
+    """
+    Organize single residue data into a structured format.
+
+    Args:
+        pdb: Pdb object
+        residues_analyzed: Dictionary of analysis results per chain/residue
+
+    Returns:
+        Dict mapping chain_id -> {residue_number -> SingleResidueData}
+    """
+    organized_data = {}
+    logger = logging.getLogger(__name__)
+
+    for chain_id, residues in residues_analyzed.items():
+        organized_data[chain_id] = {}
+        logger.debug(f"Processing chain {chain_id}")
+
+        for res_data in residues:
+            res_num = res_data["res_num"]
+            logger.debug(f"Processing residue {res_num}")
+
+            # Read the mutation data file
+            mutation_file = os.path.join(
+                pdb.job_dir,
+                "MutationsData",
+                f"{pdb.mode}_Res{res_num}_threading_{chain_id}.txt",
+            )
+
+            logger.debug(f"Reading mutation file: {mutation_file}")
+
+            # Read the file with proper column separation
+            try:
+                mutation_df = pd.read_csv(
+                    mutation_file,
+                    sep="\s+",  # Split on whitespace
+                    names=[
+                        "Res",
+                        "ChainRes",
+                        "AA",
+                        "FrstIndex",
+                    ],  # Specify column names
+                    skiprows=1,  # Skip header row
+                )
+                logger.debug(
+                    f"Successfully read mutation file with columns: {mutation_df.columns.tolist()}"
+                )
+            except Exception as e:
+                logger.error(f"Error reading mutation file: {str(e)}")
+                logger.debug("Attempting to read file contents directly:")
+                with open(mutation_file, "r") as f:
+                    logger.debug(f"File contents:\n{f.read()}")
+                raise
+
+            # Create mutations dictionary
+            mutations = {}
+            for _, row in mutation_df.iterrows():
+                mutations[row["AA"]] = row["FrstIndex"]
+
+            # Get original residue name
+            original_res = pdb.atom[
+                (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain_id)
+            ]["res_name"].iloc[0]
+
+            logger.debug(f"Original residue: {original_res}")
+
+            # Create SingleResidueData object
+            res_data = SingleResidueData(
+                residue_number=res_num,
+                chain_id=chain_id,
+                residue_name=original_res,
+                mutations=mutations,
+                native_energy=mutation_df["FrstIndex"].iloc[
+                    0
+                ],  # Use first row's frustration as native
+                decoy_energy=None,  # These values aren't available in single residue mode
+                sd_energy=None,
+                density=None,
+                plots=res_data.get("plot", None),
+            )
+
+            logger.debug(f"Created SingleResidueData object for residue {res_num}")
+            organized_data[chain_id][res_num] = res_data
+
+    return organized_data
+
+
+@log_execution_time
 def calculate_frustration(
     pdb_file: Optional[str] = None,
     pdb_id: Optional[str] = None,
     chain: Optional[Union[str, List[str]]] = None,
+    residues: Optional[Dict[str, List[int]]] = None,
     electrostatics_k: Optional[float] = None,
     seq_dist: int = 12,
     mode: str = "configurational",
@@ -566,14 +738,23 @@ def calculate_frustration(
     results_dir: Optional[str] = None,
     debug: bool = False,
 ) -> Tuple["Pdb", Dict]:
+    """
+    Calculate local energy frustration for a protein structure.
+
+    Args:
+        ... existing args ...
+        residues (Optional[Dict[str, List[int]]]): Dictionary mapping chain IDs to lists of residue numbers
+            to analyze. Only used for singleresidue mode. Default: None (analyze all residues).
+    """
     # Initialize plots dictionary at the start
     plots = {}
     logger = logging.getLogger(__name__)
+
     if results_dir is None:
         results_dir = os.path.join(tempfile.gettempdir(), "")
     elif not os.path.exists(results_dir):
         os.makedirs(results_dir)
-        print(f"The results directory {results_dir} has been created.")
+        logger.info(f"Created results directory: {results_dir}")
 
     if results_dir[-1] != "/":
         results_dir += "/"
@@ -607,10 +788,11 @@ def calculate_frustration(
         boolsplit = True
 
     if pdb_file is None:
-        print(
+        logger.info(
             "-----------------------------Download files-----------------------------"
         )
         pdb_url = f"https://files.rcsb.org/download/{pdb_id}.pdb"
+        logger.info(f"Downloading PDB from {pdb_url}")
         subprocess.run(
             [
                 "wget",
@@ -688,7 +870,7 @@ def calculate_frustration(
     assert os.path.exists(pdb_file)
     os.chdir(job_dir)
 
-    print("-----------------------------Filtering-----------------------------")
+    logger.info("-----------------------------Filtering-----------------------------")
     df = pd.read_csv(
         pdb_file,
         sep="\s+",
@@ -742,9 +924,11 @@ def calculate_frustration(
     df.loc[df["chain"].isna(), "chain"] = "A"
 
     pdb = Pdb(job_dir, pdb_base, mode, df, pdb_equivalences(pdb_file, job_dir))
-    print("HI")
+    logger.info("HI")
     pdb_equivalences(pdb_file, job_dir)
-    print("-----------------------------Preparing files-----------------------------")
+    logger.info(
+        "-----------------------------Preparing files-----------------------------"
+    )
     subprocess.run(
         [
             "sh",
@@ -766,7 +950,9 @@ def calculate_frustration(
         )
     os.system(f"cp {os.path.join(pdb.scripts_dir, 'AWSEMFiles/*.dat*')} {pdb.job_dir}")
 
-    print("-----------------------------Setting options-----------------------------")
+    logger.info(
+        "-----------------------------Setting options-----------------------------"
+    )
     replace_expr(
         "run\t\t10000", "run\t\t0", os.path.join(pdb.job_dir, f"{pdb.pdb_base}.in")
     )
@@ -775,7 +961,7 @@ def calculate_frustration(
     )
 
     if electrostatics_k is not None:
-        print(
+        logger.info(
             "-----------------------------Setting electrostatics-----------------------------"
         )
         replace_expr(
@@ -788,7 +974,7 @@ def calculate_frustration(
             f"{electrostatics_k} {electrostatics_k} {electrostatics_k}",
             os.path.join(pdb.job_dir, "fix_backbone_coeff.data"),
         )
-        print("Setting electrostatics...")
+        logger.info("Setting electrostatics...")
         subprocess.run(
             [
                 "python3",
@@ -822,9 +1008,21 @@ def calculate_frustration(
                 f"\nperl {os.path.join(pdb.scripts_dir, 'GenerateChargeFile.pl')} {pdb.pdb_base}.pdb.gro > charge_on_residues.dat"
             )
 
-    print("-----------------------------Calculating-----------------------------")
+    logger.info(
+        "-----------------------------Calculating Frustration-----------------------------"
+    )
     operative_system = get_os()
     if operative_system == "linux":
+        logger.info(f"Processing PDB: {os.path.basename(pdb_file)}")
+        if mode == "singleresidue":
+            # Fix the residues.get() error by checking if residues exists
+            if residues and "A" in residues:
+                logger.info(
+                    f"Analyzing mutations for residue(s): {', '.join(str(r) for r in residues['A'])}"
+                )
+            else:
+                logger.info("Analyzing all residues (no specific residues specified)")
+
         subprocess.run(
             [
                 "cp",
@@ -832,27 +1030,35 @@ def calculate_frustration(
                 pdb.job_dir,
             ]
         )
-        with open(os.path.join(job_dir, "commands.help"), "a") as f:
-            f.write(
-                f"\ncp {os.path.join(pdb.scripts_dir, f'lmp_serial_{seq_dist}_Linux')} {pdb.job_dir}"
-            )
-        subprocess.run(["chmod", "+x", f"lmp_serial_{seq_dist}_Linux"])
-        # TODO THIS IS NOT WORKING HAD TO USE OS.SYSTEM() INSTEAD
-        # subprocess.run(
-        #    [
-        #        f"{pdb.job_dir}lmp_serial_{seq_dist}_Linux",
-        #        "<",
-        #        f"{pdb.job_dir}{pdb.pdb_base}.in",
-        #    ]
-        # )
-        os.system(
-            f"cd {pdb.job_dir} && {pdb.job_dir}lmp_serial_{seq_dist}_Linux < {pdb.job_dir}{pdb.pdb_base}.in"
+
+        logger.info("Running LAMMPS energy calculations...")
+        # Capture LAMMPS output and only log it when debugging
+        lammps_cmd = (
+            f"{pdb.job_dir}lmp_serial_{seq_dist}_Linux < {pdb.job_dir}{pdb.pdb_base}.in"
         )
-        with open(os.path.join(job_dir, "commands.help"), "a") as f:
-            f.write(
-                f"\nchmod +x lmp_serial_{seq_dist}_Linux"
-                f"\n{pdb.job_dir}lmp_serial_{seq_dist}_Linux < {pdb.job_dir}{pdb.pdb_base}.in"
+        try:
+            result = subprocess.run(
+                lammps_cmd,
+                shell=True,
+                check=True,
+                capture_output=True,
+                text=True,
+                cwd=pdb.job_dir,
             )
+            if debug:
+                logger.debug("LAMMPS Calculation Details:")
+                logger.debug(result.stdout)
+                if result.stderr:
+                    logger.debug("LAMMPS Errors:")
+                    logger.debug(result.stderr)
+        except subprocess.CalledProcessError as e:
+            logger.error(
+                f"LAMMPS energy calculation failed with return code {e.returncode}"
+            )
+            logger.error("Error details:")
+            logger.error(e.stderr)
+            raise
+
     elif operative_system == "osx":
         subprocess.run(
             [
@@ -862,7 +1068,29 @@ def calculate_frustration(
             ]
         )
         subprocess.run(["chmod", "+x", f"lmp_serial_{seq_dist}_MacOS"])
-        subprocess.run([f"./lmp_serial_{seq_dist}_MacOS", "<", f"{pdb.pdb_base}.in"])
+
+        # Capture LAMMPS output for MacOS
+        try:
+            result = subprocess.run(
+                [f"./lmp_serial_{seq_dist}_MacOS"],
+                input=open(f"{pdb.pdb_base}.in").read(),
+                capture_output=True,
+                text=True,
+                check=True,
+                cwd=pdb.job_dir,
+            )
+            if debug:
+                logger.debug("LAMMPS Output:")
+                logger.debug(result.stdout)
+                if result.stderr:
+                    logger.debug("LAMMPS Errors:")
+                    logger.debug(result.stderr)
+        except subprocess.CalledProcessError as e:
+            logger.error(f"LAMMPS execution failed with return code {e.returncode}")
+            logger.error("LAMMPS Error Output:")
+            logger.error(e.stderr)
+            raise
+
         with open(os.path.join(job_dir, "commands.help"), "a") as f:
             f.write(
                 f"cp {os.path.join(pdb.scripts_dir, f'lmp_serial_{seq_dist}_MacOS')} {pdb.job_dir}"
@@ -897,7 +1125,9 @@ def calculate_frustration(
         xadens(pdb)
         # Stop execution if the mode is 'configurational' or 'mutational'
         # exit()
-    print("-----------------------------Reorganization-----------------------------")
+    logger.info(
+        "-----------------------------Reorganization-----------------------------"
+    )
     frustration_dir = os.path.join(pdb.job_dir, "FrustrationData")
     if not os.path.exists(frustration_dir):
         os.makedirs(frustration_dir)
@@ -914,7 +1144,7 @@ def calculate_frustration(
     os.system(f"mv {pdb_output_folder}/*.pdb {frustration_dir}")
 
     if graphics:  # and pdb.mode != "singleresidue"
-        print("-----------------------------Images-----------------------------")
+        logger.info("-----------------------------Images-----------------------------")
         images_dir = os.path.join(pdb.job_dir, "Images")
         if not os.path.exists(images_dir):
             os.makedirs(images_dir)
@@ -933,16 +1163,27 @@ def calculate_frustration(
         if pdb.mode == "singleresidue":
             # For singleresidue mode
             try:
-                # Get chains and their residues
-                chains = pdb.atom[pdb.atom["ATOM"] == "ATOM"]["chain"].unique()
-                
-                for chain_id in chains:
-                    # Get residues for this specific chain
-                    chain_residues = pdb.atom[
-                        (pdb.atom["ATOM"] == "ATOM") & 
-                        (pdb.atom["chain"] == chain_id)
-                    ]["res_num"].unique()
-                    
+                # Track analyzed residues and their data
+                residues_analyzed = {}
+
+                if chain:
+                    chains_to_analyze = [chain] if isinstance(chain, str) else chain
+                else:
+                    chains_to_analyze = pdb.atom[pdb.atom["ATOM"] == "ATOM"][
+                        "chain"
+                    ].unique()
+
+                for chain_id in chains_to_analyze:
+                    residues_analyzed[chain_id] = []
+
+                    if residues and chain_id in residues:
+                        chain_residues = residues[chain_id]
+                    else:
+                        chain_residues = pdb.atom[
+                            (pdb.atom["ATOM"] == "ATOM")
+                            & (pdb.atom["chain"] == chain_id)
+                        ]["res_num"].unique()
+
                     for res in chain_residues:
                         try:
                             # Perform mutation analysis
@@ -954,27 +1195,49 @@ def calculate_frustration(
                                 method="threading",
                             )
 
-                            # Generate and save delta frustration plot
-                            delta_plot = plot_delta_frus(
-                                pdb=pdb,
-                                res_num=res,
-                                chain=chain_id,
-                                method="threading",
-                                save=True,
-                            )
-                            plots[f"delta_frus_res{res}_chain{chain_id}"] = delta_plot
+                            res_data = {"res_num": res}
+
+                            try:
+                                delta_plot = plot_delta_frus(
+                                    pdb=pdb,
+                                    res_num=res,
+                                    chain=chain_id,
+                                    method="threading",
+                                    save=True,
+                                )
+                                plots[f"delta_frus_res{res}_chain{chain_id}"] = (
+                                    delta_plot
+                                )
+                                res_data["plot"] = delta_plot
+
+                            except Exception as plot_error:
+                                logger.warning(
+                                    f"Failed to generate plot for residue {res} chain {chain_id}: {str(plot_error)}"
+                                )
+                                res_data["plot"] = None
+
+                            residues_analyzed[chain_id].append(res_data)
 
                         except Exception as e:
-                            # Instead of just warning, raise a more descriptive error
-                            error_msg = (
-                                f"Failed to analyze residue {res} chain {chain_id}. "
-                                f"This could be due to:\n"
-                                f"1. Missing frustration data files\n"
-                                f"2. Invalid residue number or chain combination\n"
-                                f"3. Problems with the mutation analysis\n"
-                                f"Original error: {str(e)}"
+                            logger.error(
+                                f"Failed to analyze residue {res} chain {chain_id}: {str(e)}"
                             )
-                            raise RuntimeError(error_msg) from e
+                            continue
+
+                # Organize and save data
+                organized_data = organize_single_residue_data(pdb, residues_analyzed)
+
+                # Save to pickle file
+                output_dir = os.path.join(pdb.job_dir, "SingleResidueData")
+                os.makedirs(output_dir, exist_ok=True)
+
+                output_file = os.path.join(
+                    output_dir, f"{pdb.pdb_base}_single_residue_data.pkl"
+                )
+                with open(output_file, "wb") as f:
+                    pickle.dump(organized_data, f)
+
+                logger.info(f"Saved single residue analysis data to {output_file}")
 
             except Exception as e:
                 error_msg = (
@@ -985,10 +1248,11 @@ def calculate_frustration(
                     f"3. Invalid configuration\n"
                     f"Original error: {str(e)}"
                 )
+                logger.error(error_msg)
                 raise RuntimeError(error_msg) from e
 
     if visualization and pdb.mode != "singleresidue":
-        print(
+        logger.info(
             "-----------------------------Visualizations-----------------------------"
         )
         subprocess.run(
@@ -1024,7 +1288,7 @@ def calculate_frustration(
                     if os.path.exists(
                         os.path.join(visualization_dir, os.path.basename(file_path))
                     ):
-                        print(
+                        logger.info(
                             f"The file {os.path.basename(file_path)} already exists in the visualization directory. It will be overwritten."
                         )
                         # Remove the file
@@ -1034,7 +1298,7 @@ def calculate_frustration(
                         # Move the file
                         shutil.move(file_path, visualization_dir)
                 except shutil.Error:
-                    print(
+                    logger.info(
                         f"The file {os.path.basename(file_path)} already exists in the visualization directory. It will be overwritten."
                     )
 
@@ -1046,12 +1310,12 @@ def calculate_frustration(
             visualization_dir,
         )
 
-    print("\n\n****Storage information****")
-    print(f"The frustration data was stored in {frustration_dir}")
+    logger.info("\n\n****Storage information****")
+    logger.info(f"The frustration data was stored in {frustration_dir}")
     if graphics and pdb.mode != "singleresidue":
-        print(f"Graphics are stored in {images_dir}")
+        logger.info(f"Graphics are stored in {images_dir}")
     if visualization and pdb.mode != "singleresidue":
-        print(f"Visualizations are stored in {visualization_dir}")
+        logger.info(f"Visualizations are stored in {visualization_dir}")
 
     # List all files and directories in the job directory
     all_items = glob.glob(os.path.join(job_dir, "*"))
@@ -1082,10 +1346,12 @@ def calculate_frustration(
     return pdb, plots
 
 
+@log_execution_time
 def dir_frustration(
     pdbs_dir: str,
     order_list: Optional[List[str]] = None,
     chain: Optional[Union[str, List[str]]] = None,
+    residues: Optional[Dict[str, List[int]]] = None,  # Add residues parameter
     electrostatics_k: Optional[float] = None,
     seq_dist: int = 12,
     mode: str = "configurational",
@@ -1099,14 +1365,16 @@ def dir_frustration(
 
     Args:
         pdbs_dir (str): Directory containing all protein structures. The full path to the file is needed.
-        order_list (Optional[List[str]]): Ordered list of PDB files to calculate frustration. If it is None, frustration is calculated for all PDBs. Default: None.
-        chain (Optional[Union[str, List[str]]]): Chain or Chains of the protein structure. Default: None.
-        electrostatics_k (Optional[float]): K constant to use in the electrostatics Mode. Default: None (no electrostatics is considered).
-        seq_dist (int): Sequence at which contacts are considered to interact (3 or 12). Default: 12.
-        mode (str): Local frustration index to be calculated (configurational, mutational, singleresidue). Default: configurational.
-        graphics (bool): The corresponding graphics are made. Default: True.
-        visualization (bool): Make visualizations, including pymol. Default: True.
+        order_list (Optional[List[str]]): Ordered list of PDB files to calculate frustration. If it is None, frustration is calculated for all PDBs.
+        chain (Optional[Union[str, List[str]]]): Chain or Chains of the protein structure.
+        residues (Optional[Dict[str, List[int]]]): Dictionary mapping chain IDs to lists of residue numbers to analyze.
+        electrostatics_k (Optional[float]): K constant to use in the electrostatics Mode.
+        seq_dist (int): Sequence at which contacts are considered to interact (3 or 12).
+        mode (str): Local frustration index to be calculated (configurational, mutational, singleresidue).
+        graphics (bool): The corresponding graphics are made.
+        visualization (bool): Make visualizations, including pymol.
         results_dir (str): Path to the folder where results will be stored.
+        debug (bool): Debug mode flag.
     """
     if results_dir is None:
         results_dir = os.path.join(tempfile.gettempdir(), "")
@@ -1114,7 +1382,7 @@ def dir_frustration(
         # Make the results directory and absolute path
         results_dir = os.path.abspath(results_dir)
         os.makedirs(results_dir)
-        print(f"The results directory {results_dir} has been created.")
+        logger.info(f"The results directory {results_dir} has been created.")
 
     if results_dir[-1] != "/":
         results_dir += "/"
@@ -1146,7 +1414,7 @@ def dir_frustration(
     calculation_enabled = True
     modes_log_file = os.path.join(results_dir, "Modes.log")
     if os.path.exists(modes_log_file):
-        print(f"The modes log file {modes_log_file} exists.")
+        logger.info(f"The modes log file {modes_log_file} exists.")
         with open(modes_log_file, "r") as f:
             modes = f.read().splitlines()
         if mode in modes:
@@ -1166,6 +1434,7 @@ def dir_frustration(
             pdb, plots = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
+                residues=residues,  # Pass residues parameter
                 electrostatics_k=electrostatics_k,
                 seq_dist=seq_dist,
                 mode=mode,
@@ -1180,13 +1449,14 @@ def dir_frustration(
         with open(modes_log_file, "a") as f:
             f.write(mode + "\n")
 
-        print("\n\n****Storage information****")
-        print(
+        logger.info("\n\n****Storage information****")
+        logger.info(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
         return plots_dir_dict
 
 
+@log_execution_time
 def dynamic_frustration(
     pdbs_dir: str,
     order_list: Optional[List[str]] = None,
@@ -1217,7 +1487,7 @@ def dynamic_frustration(
         results_dir = os.path.join(tempfile.gettempdir(), "")
     elif not os.path.exists(results_dir):
         os.makedirs(results_dir)
-        print(f"The results directory {results_dir} has been created.")
+        logger.info(f"The results directory {results_dir} has been created.")
 
     if results_dir[-1] != "/":
         results_dir += "/"
@@ -1243,7 +1513,7 @@ def dynamic_frustration(
     if order_list is None:
         order_list = [f for f in os.listdir(pdbs_dir) if f.endswith(".pdb")]
 
-    print(
+    logger.info(
         "-----------------------------Object Dynamic Frustration-----------------------------"
     )
     dynamic = Dynamic(
@@ -1256,7 +1526,7 @@ def dynamic_frustration(
         results_dir=results_dir,
     )
 
-    print(
+    logger.info(
         "-----------------------------Calculating Dynamic Frustration-----------------------------"
     )
     dir_frustration(
@@ -1269,8 +1539,8 @@ def dynamic_frustration(
         results_dir=results_dir,
     )
 
-    print("\n\n****Storage information****")
-    print(f"The frustration of the full dynamic is stored in {results_dir}")
+    logger.info("\n\n****Storage information****")
+    logger.info(f"The frustration of the full dynamic is stored in {results_dir}")
 
     if gifs:
         if mode == "configurational" or mode == "mutational":
@@ -1285,6 +1555,7 @@ def dynamic_frustration(
     return dynamic
 
 
+@log_execution_time
 def dynamic_res(
     dynamic: "Dynamic", res_num: int, chain: str, graphics: bool = True
 ) -> "Dynamic":
@@ -1330,7 +1601,7 @@ def dynamic_res(
     if os.path.exists(result_file):
         os.remove(result_file)
 
-    print(
+    logger.info(
         "-----------------------------Getting frustrated data-----------------------------"
     )
     if dynamic.mode == "configurational" or dynamic.mode == "mutational":
@@ -1382,8 +1653,8 @@ def dynamic_res(
 
     dynamic.residues_dynamic[chain][f"Res_{res_num}"] = result_file
 
-    print("\n\n****Storage information****")
-    print(f"The frustration of the residue is stored in {result_file}")
+    logger.info("\n\n****Storage information****")
+    logger.info(f"The frustration of the residue is stored in {result_file}")
 
     if graphics:
         # Raise NotImplementedError("Visualization functions for dynamics are not implemented in the new version.")
@@ -2009,6 +2280,7 @@ def mutate_res(
     return pdb
 
 
+@log_execution_time
 def detect_dynamic_clusters(
     dynamic: "Dynamic",
     loess_span: float = 0.05,
@@ -2073,7 +2345,9 @@ def detect_dynamic_clusters(
     res_nums = ini["Res"].tolist()
 
     # Loading data
-    print("-----------------------------Loading data-----------------------------")
+    logger.info(
+        "-----------------------------Loading data-----------------------------"
+    )
     frustra_data = pd.DataFrame()
     for pdb_file in dynamic.order_list:
         read = pd.read_csv(
@@ -2091,7 +2365,7 @@ def detect_dynamic_clusters(
     ]
 
     # Model fitting and filter by difference and mean
-    print(
+    logger.info(
         "-----------------------------Model fitting and filtering by dynamic range and frustration mean-----------------------------"
     )
     frstrange = []
@@ -2125,7 +2399,7 @@ def detect_dynamic_clusters(
     ]
 
     # Principal component analysis
-    print(
+    logger.info(
         "-----------------------------Principal component analysis-----------------------------"
     )
     pca = PCA(n_components=ncp)
@@ -2150,10 +2424,14 @@ def detect_dynamic_clusters(
     corr_matrix[
         (corr_matrix < min_corr) & (corr_matrix > -min_corr) | (p_values > 0.05)
     ] = 0
-    print("-----------------------------Undirected graph-----------------------------")
+    logger.info(
+        "-----------------------------Undirected graph-----------------------------"
+    )
     net = ig.Graph.Adjacency((corr_matrix > 0).tolist(), mode="undirected")
 
-    print("-----------------------------Leiden Clustering-----------------------------")
+    logger.info(
+        "-----------------------------Leiden Clustering-----------------------------"
+    )
     leiden_clusters = la.find_partition(
         net, la.RBConfigurationVertexPartition, resolution_parameter=leiden_resol
     )
@@ -2177,13 +2455,14 @@ def detect_dynamic_clusters(
     dynamic.clusters["CorrType"] = corr_type
 
     if "Graph" not in dynamic.clusters or dynamic.clusters["Graph"] is None:
-        print("The process was not completed successfully!")
+        logger.error("The process was not completed successfully!")
     else:
-        print("The process has finished successfully!")
+        logger.info("The process has finished successfully!")
 
     return dynamic
 
 
+@log_execution_time
 def plot_delta_frus_summary(
     pdb: "Pdb",
     chain: Optional[str] = None,
@@ -2347,6 +2626,7 @@ def plot_delta_frus_summary(
     return fig
 
 
+@log_execution_time
 def plot_delta_frus_heatmap(
     pdb: "Pdb",
     method: str = "threading",
@@ -2437,3 +2717,90 @@ def plot_delta_frus_heatmap(
         logger.info(f"Saved heatmap to {output_dir}/{filename}")
 
     return fig
+
+
+# Add this function near other experimental features
+@log_execution_time
+def experimental_pdb_to_lammps(
+    pdb_file: str,
+    output_name: str,
+    awsem_path: str,
+    use_cg_bonds: bool = False,
+    use_go_model: bool = False,
+    enable_experimental: bool = False,
+) -> None:
+    """
+    Experimental feature: Convert PDB files to LAMMPS format using the new implementation.
+    This is currently disabled by default as it needs more testing.
+
+    Args:
+        pdb_file (str): Path to input PDB file
+        output_name (str): Base name for output files
+        awsem_path (str): Path to AWSEM installation
+        use_cg_bonds (bool): Enable coarse-grained bonds
+        use_go_model (bool): Enable GO model
+        enable_experimental (bool): Flag to enable this experimental feature
+
+    Raises:
+        RuntimeError: If the experimental feature is not enabled
+        ValueError: If input parameters are invalid
+    """
+    if not enable_experimental:
+        raise RuntimeError(
+            "This is an experimental feature and is currently disabled by default. "
+            "To enable it, set enable_experimental=True. "
+            "Note that this feature needs more testing and validation."
+        )
+
+    logger.warning(
+        "Using experimental PDB to LAMMPS conversion. "
+        "This feature is under development and may not work as expected."
+    )
+
+    try:
+        # Convert paths to Path objects
+        pdb_path = Path(pdb_file)
+        output_path = Path(output_name)
+        awsem_path = Path(awsem_path)
+
+        # Validate inputs
+        if not pdb_path.exists():
+            raise ValueError(f"PDB file not found: {pdb_file}")
+
+        if not awsem_path.exists():
+            raise ValueError(f"AWSEM path not found: {awsem_path}")
+
+        # Create converter and process PDB
+        converter = PDBToLAMMPS(
+            pdb_file=pdb_path,
+            output_prefix=output_path,
+            awsem_path=awsem_path,
+            cg_bonds=use_cg_bonds,
+            go_model=use_go_model,
+        )
+
+        logger.info("Processing PDB file...")
+        converter.process_pdb()
+
+        logger.info("Writing coordinate file...")
+        converter.write_coord_file()
+
+        logger.info("Writing LAMMPS files...")
+        converter.write_lammps_files()
+
+        logger.info("Conversion completed successfully")
+
+        # Log output files
+        logger.info(f"Generated files:")
+        logger.info(f"- Coordinate file: {output_path.with_suffix('.coord')}")
+        logger.info(f"- LAMMPS data file: {output_path.with_suffix('.data')}")
+        logger.info(f"- LAMMPS input script: {output_path.with_suffix('.in')}")
+
+    except Exception as e:
+        logger.error(f"PDB to LAMMPS conversion failed: {str(e)}")
+        raise
+
+    logger.warning(
+        "This is an experimental feature. Please validate the output files "
+        "before using them in production."
+    )
