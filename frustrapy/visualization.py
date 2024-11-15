@@ -11,6 +11,7 @@ import seaborn as sns
 from Bio.PDB import PDBParser, Select
 import plotly.graph_objects as go
 import logging
+import warnings
 
 
 def _plot_5andens(pdb, chain=None, save=False):
@@ -999,7 +1000,7 @@ def view_frustration_pymol(pdb):
     )
 
 
-def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=False):
+def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=False):
     """
     Generate an interactive plot of the single residue frustration difference for mutations.
 
@@ -1211,19 +1212,29 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=False, show=Fa
     )
 
     if save:
-        # Create directory if it doesn't exist
-        os.makedirs(os.path.join(pdb.job_dir, "MutationsData/Images"), exist_ok=True)
+        # Create output directory if it doesn't exist
+        output_dir = os.path.join(pdb.job_dir, "MutationsData", "Images")
+        os.makedirs(output_dir, exist_ok=True)
 
-        # Save both HTML and PNG versions with high DPI for publication
+        # Base filename
         output_base = os.path.join(
-            pdb.job_dir, f"MutationsData/Images/Delta_frus_{res_num}_{chain}"
+            output_dir, f"Delta_frus_res{int(res_num)}_chain{chain}"
         )
 
+        # Always save HTML
         fig.write_html(f"{output_base}.html")
-        fig.write_image(f"{output_base}.png", scale=4)  # Higher DPI for publication
 
-        print(
-            f"Delta frustration plot saved to {output_base}.html and {output_base}.png"
-        )
+        # Try to save PNG, but don't fail if it doesn't work
+        try:
+            fig.write_image(f"{output_base}.png", scale=4)
+        except (ImportError, TypeError) as e:
+            warnings.warn(
+                f"Could not save PNG image due to missing dependencies: {str(e)}\n"
+                "Only HTML file was saved. To save static images, install kaleido:\n"
+                "pip install -U kaleido"
+            )
+
+    if show:
+        fig.show()
 
     return fig
