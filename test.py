@@ -1,6 +1,7 @@
 # @title Frustratometer in Python
 import sys
-import functions as frustrapy_functions
+
+# import functions as frustrapy_functions
 import subprocess
 import os
 import logging
@@ -10,6 +11,7 @@ from tabulate import tabulate
 from collections import defaultdict
 import psutil
 import datetime
+import frustrapy
 
 
 class Profiler:
@@ -203,7 +205,7 @@ residues_to_analyze = {"A": [144, 146]}
 
 # Directory frustration analysis
 profiler.start_section("Directory Frustration Analysis")
-plots_dir_dict = frustrapy_functions.dir_frustration(
+plots_dir_dict = frustrapy.dir_frustration(
     pdbs_dir=pdbs_dir,
     mode=mode,
     results_dir=results_dir,
@@ -216,7 +218,7 @@ profiler.end_section("Directory Frustration Analysis")
 # Single PDB analysis
 profiler.start_section("Single PDB Analysis")
 pdb_file = "af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb"
-pdb, plots = frustrapy_functions.calculate_frustration(
+pdb, plots = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode=mode,
     results_dir=results_dir,
