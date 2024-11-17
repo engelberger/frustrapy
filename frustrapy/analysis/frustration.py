@@ -13,9 +13,8 @@ import pickle
 from ..core import Pdb, Dynamic
 from ..utils import log_execution_time
 from tqdm.auto import tqdm  # Make sure to use tqdm.auto for better compatibility
+from .frustration_calculator import FrustrationCalculator, FrustrationDensityResults
 
-
-from .frustration_calculator import FrustrationCalculator
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +34,7 @@ def calculate_frustration(
     debug: bool = False,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
-) -> Tuple["Pdb", Dict]:
+) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults]]:
     """
     Calculate local energy frustration for all protein structures in one directory.
 
@@ -108,14 +107,14 @@ def calculate_frustration(
     )
 
     logger.debug("Starting calculation")
-    result = calculator.calculate()
+    results = calculator.calculate()
     logger.debug("Calculation completed")
 
     # Clean up flag after calculation
     if hasattr(calculate_frustration, "in_mutation_calculation"):
         delattr(calculate_frustration, "in_mutation_calculation")
 
-    return result
+    return results
 
 
 @log_execution_time
@@ -231,7 +230,7 @@ def dir_frustration(
         logger.debug(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
-        return plots_dir_dict
+        return plots_dir_dict, density_results
 
 
 @log_execution_time
