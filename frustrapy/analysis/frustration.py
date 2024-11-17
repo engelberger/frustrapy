@@ -14,6 +14,7 @@ from ..core import Pdb, Dynamic
 from ..utils import log_execution_time
 from tqdm.auto import tqdm  # Make sure to use tqdm.auto for better compatibility
 from .frustration_calculator import FrustrationCalculator, FrustrationDensityResults
+from ..utils.helpers import organize_single_residue_data, pdb_equivalences, renum_files
 
 
 logger = logging.getLogger(__name__)
@@ -35,8 +36,7 @@ def calculate_frustration(
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
 ) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults]]:
-    """
-    Calculate local energy frustration for all protein structures in one directory.
+    """Calculate local energy frustration for a protein structure.
 
     Args:
         pdbs_dir (str): Directory containing all protein structures. The full path to the file is needed.
@@ -107,14 +107,42 @@ def calculate_frustration(
     )
 
     logger.debug("Starting calculation")
-    results = calculator.calculate()
+    pdb, plots, density_results = calculator.calculate()
     logger.debug("Calculation completed")
+
+    # Save single residue data if in singleresidue mode
+    if mode == "singleresidue" and residues:
+        try:
+            # Organize and save data
+            residues_analyzed = {}
+            for chain_id in residues:
+                residues_analyzed[chain_id] = [
+                    {"res_num": res} for res in residues[chain_id]
+                ]
+
+            organized_data = organize_single_residue_data(pdb, residues_analyzed)
+
+            # Save to pickle file
+            output_dir = os.path.join(pdb.job_dir, "SingleResidueData")
+            os.makedirs(output_dir, exist_ok=True)
+
+            output_file = os.path.join(
+                output_dir, f"{pdb.pdb_base}_single_residue_data.pkl"
+            )
+            with open(output_file, "wb") as f:
+                pickle.dump(organized_data, f)
+
+            logger.info(f"Saved single residue analysis data to {output_file}")
+
+        except Exception as e:
+            logger.error(f"Failed to save single residue data: {str(e)}")
+            # Continue execution since this is not critical
 
     # Clean up flag after calculation
     if hasattr(calculate_frustration, "in_mutation_calculation"):
         delattr(calculate_frustration, "in_mutation_calculation")
 
-    return results
+    return pdb, plots, density_results
 
 
 @log_execution_time
