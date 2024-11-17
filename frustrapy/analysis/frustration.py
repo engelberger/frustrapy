@@ -209,7 +209,7 @@ def dir_frustration(
 
         for pdb_file in order_list:
             pdb_path = os.path.join(pdbs_dir, pdb_file)
-            pdb, plots = calculate_frustration(
+            pdb, plots, density_results = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
                 residues=residues,  # Pass residues parameter

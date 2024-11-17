@@ -22,6 +22,7 @@ from ..visualization import (
 from .chain_selector import NonHetSelect, ChainSelect
 from ..core.data_classes import FrustrationDensity, FrustrationDensityResults
 import sys
+import pickle
 
 logger = logging.getLogger(__name__)
 
@@ -93,7 +94,7 @@ class FrustrationCalculator:
             raise ValueError("Graphics and visualization must be boolean values!")
 
     @log_execution_time
-    def calculate(self) -> Tuple[Pdb, Dict]:
+    def calculate(self) -> Tuple[Pdb, Dict, Optional[FrustrationDensityResults]]:
         """Main method to calculate protein frustration."""
         try:
             # Verify environment first
@@ -183,10 +184,10 @@ class FrustrationCalculator:
             os.makedirs(frustration_dir, exist_ok=True)
 
             # Calculate frustration density if mode is configurational or mutational
+            frustration_density_results = None
             if self.mode in ["configurational", "mutational"]:
                 logger.debug("Calculating frustration density...")
-                # Write density file directly to FrustrationData directory
-                density_results = self._calculate_frustration_density(pdb)
+                frustration_density_results = self._calculate_frustration_density(pdb)
 
             # Move/copy only the necessary files to FrustrationData directory
             files_to_move = [
@@ -227,7 +228,7 @@ class FrustrationCalculator:
             if not self.debug:
                 self._cleanup(job_dir)
 
-            return pdb, self.plots
+            return pdb, self.plots, frustration_density_results
 
         except Exception as e:
             logger.error(f"Frustration calculation failed: {str(e)}")
@@ -1031,11 +1032,27 @@ class FrustrationCalculator:
 
         logger.debug("Frustration density calculation completed")
 
-        return FrustrationDensityResults(
+        results = FrustrationDensityResults(
             densities=densities,
             contact_coordinates=contact_coords,
             frustration_values=frustration_values,
         )
+
+        # Save results to pickle file in FrustrationData directory
+        density_pkl = os.path.join(
+            pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_density.pkl"
+        )
+
+        logger.debug(f"Saving density results to pickle file: {density_pkl}")
+        try:
+            with open(density_pkl, "wb") as f:
+                pickle.dump(results, f)
+            logger.debug("Successfully saved density results")
+        except Exception as e:
+            logger.error(f"Failed to save density results: {str(e)}")
+            raise
+
+        return results
 
     def _verify_environment(self) -> None:
         """Verify the execution environment is properly set up."""
