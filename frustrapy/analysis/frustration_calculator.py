@@ -10,7 +10,7 @@ import pandas as pd
 import numpy as np
 from ..core import Pdb
 from ..utils import get_os, replace_expr
-from ..utils.helpers import pdb_equivalences, renum_files, organize_single_residue_data
+from ..utils.helpers import pdb_equivalences, renum_files
 from ..utils.decorators import log_execution_time
 from .mutations import mutate_res_parallel
 from ..visualization import (
