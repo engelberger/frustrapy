@@ -35,7 +35,7 @@ def calculate_frustration(
     debug: bool = False,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
-) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults]]:
+) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults], Optional[Dict]]:
     """Calculate local energy frustration for a protein structure.
 
     Args:
@@ -110,6 +110,7 @@ def calculate_frustration(
     pdb, plots, density_results = calculator.calculate()
     logger.debug("Calculation completed")
 
+    single_residue_data = None
     # Save single residue data if in singleresidue mode
     if mode == "singleresidue" and residues:
         try:
@@ -120,7 +121,7 @@ def calculate_frustration(
                     {"res_num": res} for res in residues[chain_id]
                 ]
 
-            organized_data = organize_single_residue_data(pdb, residues_analyzed)
+            single_residue_data = organize_single_residue_data(pdb, residues_analyzed)
 
             # Save to pickle file
             output_dir = os.path.join(pdb.job_dir, "SingleResidueData")
@@ -130,19 +131,20 @@ def calculate_frustration(
                 output_dir, f"{pdb.pdb_base}_single_residue_data.pkl"
             )
             with open(output_file, "wb") as f:
-                pickle.dump(organized_data, f)
+                pickle.dump(single_residue_data, f)
 
             logger.info(f"Saved single residue analysis data to {output_file}")
 
         except Exception as e:
             logger.error(f"Failed to save single residue data: {str(e)}")
+            single_residue_data = None
             # Continue execution since this is not critical
 
     # Clean up flag after calculation
     if hasattr(calculate_frustration, "in_mutation_calculation"):
         delattr(calculate_frustration, "in_mutation_calculation")
 
-    return pdb, plots, density_results
+    return pdb, plots, density_results, single_residue_data
 
 
 @log_execution_time
@@ -158,7 +160,7 @@ def dir_frustration(
     visualization: bool = True,
     results_dir: str = None,
     debug: bool = False,
-) -> None:
+) -> Tuple[Dict, Optional[FrustrationDensityResults]]:
     """Calculate local energy frustration for all protein structures in one directory."""
 
     # Add protocol information logging for directory analysis
@@ -236,7 +238,8 @@ def dir_frustration(
 
         for pdb_file in order_list:
             pdb_path = os.path.join(pdbs_dir, pdb_file)
-            pdb, plots, density_results = calculate_frustration(
+            # Update unpacking to handle 4 return values
+            pdb, plots, density_results, single_res_data = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
                 residues=residues,  # Pass residues parameter
