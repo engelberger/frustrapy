@@ -88,7 +88,7 @@ def main() -> None:
         sys.exit(1)
 
     input_path = Path(sys.argv[1])
-    logger.info(f"Processing file: {input_path}")
+    logger.debug(f"Processing file: {input_path}")
 
     generator = ChargeFileGenerator(input_path)
     generator.process_gro_file()

@@ -12,6 +12,7 @@ from collections import defaultdict
 import psutil
 import datetime
 import frustrapy
+from tqdm import tqdm
 
 
 class Profiler:
@@ -170,8 +171,6 @@ class Profiler:
 # Create profiler instance
 profiler = Profiler()
 
-# Setup logging
-logging.getLogger("functions").setLevel(logging.DEBUG)
 
 # Start overall timing
 profiler.start_section("Total Execution")
@@ -183,7 +182,35 @@ pdbs_dir = "/content"
 results_dir = "/home/ceramirez/github/frustrapy/Results_example"
 example = True
 overwrite = False
-debug = True
+debug = "INFO"
+
+# Disable all logging by default
+logging.getLogger().handlers = []  # Remove any existing handlers
+logging.getLogger().setLevel(
+    logging.CRITICAL
+)  # Set root logger to CRITICAL (highest level)
+
+# Only configure logging if debug level is specified
+if debug.upper() in ["DEBUG", "INFO"]:
+    if debug.upper() == "DEBUG":
+        logging_level = logging.DEBUG
+    else:
+        logging_level = logging.INFO
+
+    logging.basicConfig(
+        level=logging_level,
+        format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+        handlers=[logging.StreamHandler(sys.stdout)],
+    )
+
+    # Set frustrapy logger level
+    logging.getLogger("frustrapy").setLevel(logging_level)
+else:
+    # Disable all loggers when debug is "NONE"
+    logging.getLogger("frustrapy").setLevel(logging.CRITICAL)
+    for logger_name in logging.root.manager.loggerDict:
+        logging.getLogger(logger_name).setLevel(logging.CRITICAL)
+
 
 if example:
     pdbs_dir = "/home/ceramirez/github/frustrapy"
@@ -200,41 +227,57 @@ if overwrite:
         subprocess.run(["rm", "-rf", f"{results_dir}/*"])
 profiler.end_section("Configuration")
 
+
+# Configurational Frustration Analysis
+profiler.start_section("Configurational Frustration Analysis")
+pdb_file = "af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb"
+pdb_config, plots_config = frustrapy.calculate_frustration(
+    pdb_file=os.path.join(pdbs_dir, pdb_file),
+    mode="configurational",
+    results_dir=results_dir,
+    debug=debug.upper(),
+    chain="A",
+)
+profiler.end_section("Configurational Frustration Analysis")
+
 # Define residues to analyze
 residues_to_analyze = {"A": [144, 146]}
-
 # Directory frustration analysis
 profiler.start_section("Directory Frustration Analysis")
 plots_dir_dict = frustrapy.dir_frustration(
     pdbs_dir=pdbs_dir,
     mode=mode,
     results_dir=results_dir,
-    debug=debug,
+    debug=debug.upper(),
     chain="A",
     residues=residues_to_analyze,
 )
 profiler.end_section("Directory Frustration Analysis")
-
-# Single PDB analysis
+# Single PDB analysis (Single Residue mode)
 profiler.start_section("Single PDB Analysis")
 pdb_file = "af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb"
+
+# Calculate total mutations to process
+total_mutations = (
+    sum(len(residues) for residues in residues_to_analyze.values()) * 20
+)  # 20 amino acids per residue
+
+# Remove the progress bar from here since it's handled in the mutations module
 pdb, plots = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode=mode,
     results_dir=results_dir,
-    debug=debug,
+    debug=debug.upper(),
     chain="A",
     residues=residues_to_analyze,
 )
 profiler.end_section("Single PDB Analysis")
-
 # Results analysis and display
 profiler.start_section("Results Analysis")
 try:
     import pickle
 
     results_found = 0
-
     for root, dirs, files in os.walk(results_dir):
         for file in files:
             if file.endswith("_single_residue_data.pkl"):
@@ -243,19 +286,16 @@ try:
                     data = pickle.load(f)
                 print(f"\nAnalysis results from: {os.path.basename(pkl_path)}")
                 results_found += 1
-
                 if "A" in data:
                     for res_num in [144, 146]:
                         if res_num in data["A"]:
                             res_data = data["A"][res_num]
                             mutations = res_data.mutations
-
                             # Find most and least frustrated mutations
                             most_frustrated = min(mutations.items(), key=lambda x: x[1])
                             least_frustrated = max(
                                 mutations.items(), key=lambda x: x[1]
                             )
-
                             print(
                                 f"\nPosition {res_num} (Native: {res_data.residue_name})"
                             )
@@ -267,7 +307,6 @@ try:
                                 f"Least frustrated mutation: {res_data.residue_name} → {least_frustrated[0]} "
                                 f"(Frustration Index: {least_frustrated[1]:.3f})"
                             )
-
                             # Sort and display mutations
                             sorted_mutations = sorted(
                                 mutations.items(), key=lambda x: x[1]
@@ -282,11 +321,9 @@ try:
                             for mut, score in sorted_mutations[-5:]:
                                 print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
                             print("-" * 50)
-
 except Exception as e:
     print(f"Error accessing results: {str(e)}")
 profiler.end_section("Results Analysis")
-
 # End overall timing and print report
 profiler.end_section("Total Execution")
 profiler.print_report()

@@ -176,7 +176,7 @@ class PDBToLAMMPS:
         with open(coord_file, "w") as f:
             for atom in self.atoms:
                 atom.write_coords(f)
-        logger.info(f"Written coordinate file: {coord_file}")
+        logger.debug(f"Written coordinate file: {coord_file}")
 
     def write_lammps_files(self) -> None:
         """Write LAMMPS data file and input script"""
@@ -231,7 +231,7 @@ class PDBToLAMMPS:
                 for bond in self.bonds:
                     bond.write(f)
 
-        logger.info(f"Written LAMMPS data file: {data_file}")
+        logger.debug(f"Written LAMMPS data file: {data_file}")
 
     def _write_input_script(self) -> None:
         """Write LAMMPS input script"""
@@ -262,7 +262,7 @@ class PDBToLAMMPS:
         with open(input_file, "w") as f:
             f.write(template)
 
-        logger.info(f"Written LAMMPS input script: {input_file}")
+        logger.debug(f"Written LAMMPS input script: {input_file}")
 
     def _generate_groups_string(self) -> str:
         """Generate groups definition string"""
@@ -320,18 +320,18 @@ def main() -> None:
     cg_bonds = "-b" in sys.argv
     go_model = "-go" in sys.argv
 
-    logger.info(f"Processing PDB file: {pdb_file}")
-    logger.info(f"Output prefix: {output_prefix}")
-    logger.info(f"AWSEM path: {awsem_path}")
-    logger.info(f"CG bonds: {cg_bonds}")
-    logger.info(f"GO model: {go_model}")
+    logger.debug(f"Processing PDB file: {pdb_file}")
+    logger.debug(f"Output prefix: {output_prefix}")
+    logger.debug(f"AWSEM path: {awsem_path}")
+    logger.debug(f"CG bonds: {cg_bonds}")
+    logger.debug(f"GO model: {go_model}")
 
     try:
         converter = PDBToLAMMPS(pdb_file, output_prefix, awsem_path, cg_bonds, go_model)
         converter.process_pdb()
         converter.write_coord_file()
         converter.write_lammps_files()
-        logger.info("Conversion completed successfully")
+        logger.debug("Conversion completed successfully")
     except Exception as e:
         logger.error(f"Conversion failed: {e}")
         sys.exit(1)

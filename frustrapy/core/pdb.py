@@ -19,6 +19,10 @@ class Pdb:
         self.atom = atom
         self.equivalences = equivalences
         self.scripts_dir = scripts_dir
+        self.frustration_dir = os.path.join(job_dir, "FrustrationData")
+
+        # Initialize Mutations dictionary
+        self.Mutations = {}
 
     def copy(self) -> "Pdb":
         """

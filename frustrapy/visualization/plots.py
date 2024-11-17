@@ -17,10 +17,15 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         pdb (Pdb): Pdb Frustration object.
         chain (str, optional): Chain of residue. Default: None.
         save (bool, optional): If True, saves the graph; otherwise, it does not. Default: False.
+        show (bool, optional): If True, displays the plot. Default: False.
 
     Returns:
         plotly.graph_objects.Figure: The generated interactive plot.
     """
+    logger = logging.getLogger(__name__)
+    logger.debug("Starting contact map generation")
+
+    # Input validation
     if save not in [True, False]:
         raise ValueError("Save must be a boolean value!")
 
@@ -28,99 +33,144 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         if len(chain) > 1:
             raise ValueError("You must enter only one Chain!")
         if chain not in pdb.atom["chain"].unique():
+            available_chains = ", ".join(pdb.atom["chain"].unique())
             raise ValueError(
-                f"The Chain {chain} doesn't exist! The Chains are: {', '.join(pdb.atom['chain'].unique())}"
+                f"The Chain {chain} doesn't exist! Available chains: {available_chains}"
             )
 
-    if not os.path.exists(os.path.join(pdb.job_dir, "Images")):
-        os.makedirs(os.path.join(pdb.job_dir, "Images"))
+    # Create output directory if needed
+    output_dir = os.path.join(pdb.job_dir, "Images")
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+        logger.debug(f"Created output directory: {output_dir}")
 
-    adens_table = pd.read_csv(
-        os.path.join(
-            pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
-        ),
-        sep=" ",
-        header=0,
+    # Read frustration density data
+    density_file = os.path.join(
+        pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
     )
+    logger.debug(f"Reading density data from: {density_file}")
+    density_data = pd.read_csv(density_file, sep=" ", header=0)
 
+    # Read frustration contact data
+    contacts_file = os.path.join(
+        pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}"
+    )
+    logger.debug(f"Reading contact data from: {contacts_file}")
+    contact_data = pd.read_csv(contacts_file, sep=" ", engine="python")
+
+    # Filter by chain if specified
     if chain is not None:
-        adens_table = adens_table[adens_table["Chains"] == chain]
+        contact_data = contact_data[contact_data["ChainRes1"] == chain]
+        logger.debug(f"Filtered contacts for chain {chain}")
 
-    datos = pd.read_csv(
-        os.path.join(pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}"),
-        sep=" ",
-        engine="python",
+    # Convert chain residue identifiers to strings, handling missing values
+    for chain_col in ["ChainRes1", "ChainRes2"]:
+        contact_data[chain_col] = contact_data[chain_col].apply(
+            lambda x: str(x) if pd.notnull(x) else "Unknown"
+        )
+
+    # Convert residue numbers to numeric, allowing for missing values
+    for res_col in ["Res1", "Res2"]:
+        contact_data[res_col] = pd.to_numeric(contact_data[res_col], errors="coerce")
+
+    # Get unique chains in sorted order
+    unique_chains = sorted(
+        set(contact_data["ChainRes1"].tolist() + contact_data["ChainRes2"].tolist())
     )
+    logger.debug(f"Found chains: {unique_chains}")
 
-    if chain is not None:
-        datos = datos[datos["ChainRes1"] == chain]
+    # Calculate position ranges for each chain
+    chain_positions = []  # Stores [min_pos, max_pos, range] for each chain
+    residue_positions = []  # Stores actual residue numbers for axis labels
 
-    datos["ChainRes1"] = datos["ChainRes1"].apply(
-        lambda x: str(x) if pd.notnull(x) else "Unknown"
-    )
-    datos["ChainRes2"] = datos["ChainRes2"].apply(
-        lambda x: str(x) if pd.notnull(x) else "Unknown"
-    )
+    for chain_id in unique_chains:
+        if chain_id != "Unknown":
+            # Ensure residue numbers are numeric
+            contact_data["Res1"] = pd.to_numeric(contact_data["Res1"], errors="coerce")
+            contact_data["Res2"] = pd.to_numeric(contact_data["Res2"], errors="coerce")
 
-    datos["Res1"] = pd.to_numeric(datos["Res1"], errors="coerce")
-    datos["Res2"] = pd.to_numeric(datos["Res2"], errors="coerce")
+            # Remove rows with missing residue numbers
+            contact_data.dropna(subset=["Res1", "Res2"], inplace=True)
 
-    chains_two = sorted(set(datos["ChainRes1"].tolist() + datos["ChainRes2"].tolist()))
+            # Get residue ranges for this chain
+            chain_res1 = contact_data[contact_data["ChainRes1"] == chain_id]["Res1"]
+            chain_res2 = contact_data[contact_data["ChainRes2"] == chain_id]["Res2"]
 
-    positions = []
-    aux_pos_vec = []
-    for c in chains_two:
-        if c != "Unknown":
-            datos["Res1"] = pd.to_numeric(datos["Res1"], errors="coerce")
-            datos["Res2"] = pd.to_numeric(datos["Res2"], errors="coerce")
+            min_position = min(chain_res1.min(), chain_res2.min())
+            max_position = max(chain_res1.max(), chain_res2.max())
+            position_range = max_position - min_position + 1
 
-            datos.dropna(subset=["Res1", "Res2"], inplace=True)
+            chain_positions.append([min_position, max_position, position_range])
+            residue_positions.extend(range(int(min_position), int(max_position) + 1))
 
-            res1_range = datos[datos["ChainRes1"] == c]["Res1"]
-            res2_range = datos[datos["ChainRes2"] == c]["Res2"]
+            logger.debug(f"Chain {chain_id}: range {min_position}-{max_position}")
 
-            min_pos = min(res1_range.min(), res2_range.min())
-            max_pos = max(res1_range.max(), res2_range.max())
-            positions.append([min_pos, max_pos, max_pos - min_pos + 1])
-            aux_pos_vec.extend(range(int(min_pos), int(max_pos) + 1))
+    # Initialize position columns for contact mapping
+    contact_data["pos1"] = 0
+    contact_data["pos2"] = 0
 
-    datos["pos1"] = 0
-    datos["pos2"] = 0
-    bias = 0
-    for i, c in enumerate(chains_two):
+    # Calculate adjusted positions with chain offsets
+    cumulative_offset = 0
+    for i, chain_id in enumerate(unique_chains):
         if i > 0:
-            bias = sum(pos[2] for pos in positions[:i])
-        idx1 = datos["ChainRes1"] == c
-        datos.loc[idx1, "pos1"] = datos.loc[idx1, "Res1"] - positions[i][0] + bias + 1
-        idx2 = datos["ChainRes2"] == c
-        datos.loc[idx2, "pos2"] = datos.loc[idx2, "Res2"] - positions[i][0] + bias + 1
+            cumulative_offset = sum(pos[2] for pos in chain_positions[:i])
 
-    pos_new = []
-    for c in chains_two:
-        pos1_range = datos[datos["ChainRes1"] == c]["pos1"]
-        pos2_range = datos[datos["ChainRes2"] == c]["pos2"]
-        min_pos = min(pos1_range.min(), pos2_range.min())
-        max_pos = max(pos1_range.max(), pos2_range.max())
-        pos_new.append([min_pos, max_pos, max_pos - min_pos + 1])
+        # Adjust positions for current chain
+        chain_mask1 = contact_data["ChainRes1"] == chain_id
+        chain_mask2 = contact_data["ChainRes2"] == chain_id
 
-    total_positions = sum(pos[2] for pos in pos_new)
+        contact_data.loc[chain_mask1, "pos1"] = (
+            contact_data.loc[chain_mask1, "Res1"]
+            - chain_positions[i][0]
+            + cumulative_offset
+            + 1
+        )
+        contact_data.loc[chain_mask2, "pos2"] = (
+            contact_data.loc[chain_mask2, "Res2"]
+            - chain_positions[i][0]
+            + cumulative_offset
+            + 1
+        )
 
-    matrz = pd.DataFrame(
-        index=range(1, total_positions + 1), columns=range(1, total_positions + 1)
+    # Calculate final position ranges for visualization
+    final_positions = []
+    for chain_id in unique_chains:
+        chain_pos1 = contact_data[contact_data["ChainRes1"] == chain_id]["pos1"]
+        chain_pos2 = contact_data[contact_data["ChainRes2"] == chain_id]["pos2"]
+
+        min_pos = min(chain_pos1.min(), chain_pos2.min())
+        max_pos = max(chain_pos1.max(), chain_pos2.max())
+        final_positions.append([min_pos, max_pos, max_pos - min_pos + 1])
+
+    total_positions = sum(pos[2] for pos in final_positions)
+    logger.debug(f"Total matrix size: {total_positions}x{total_positions}")
+
+    # Create contact matrix with explicit float dtype
+    contact_matrix = pd.DataFrame(
+        np.zeros((total_positions, total_positions), dtype=np.float64),
+        index=range(1, total_positions + 1),
+        columns=range(1, total_positions + 1),
     )
 
-    for _, row in datos.iterrows():
-        matrz.loc[row["pos2"], row["pos1"]] = row["FrstIndex"]
-        matrz.loc[row["pos1"], row["pos2"]] = row["FrstIndex"]
+    # Fill matrix with frustration values
+    for _, contact in contact_data.iterrows():
+        pos1_idx = int(contact["pos1"] - 1)
+        pos2_idx = int(contact["pos2"] - 1)
+        frustration_value = contact["FrstIndex"]
 
-    matrz = matrz.fillna(0)
-    matrz.values[np.tril_indices(matrz.shape[0], k=0)] = 0
+        contact_matrix.iloc[pos2_idx, pos1_idx] = frustration_value
+        contact_matrix.iloc[pos1_idx, pos2_idx] = frustration_value
 
+    # Set lower triangle to zero for visualization
+    contact_matrix.values[np.tril_indices(contact_matrix.shape[0], k=0)] = 0.0
+
+    # Create plotly heatmap
+    logger.debug("Generating plotly heatmap")
     fig = go.Figure(
         data=go.Heatmap(
-            z=matrz.values,
-            x=list(matrz.columns),
-            y=list(matrz.index),
+            z=contact_matrix.values,
+            x=list(contact_matrix.columns),
+            y=list(contact_matrix.index),
             colorscale=[[0, "red"], [0.5, "white"], [1, "green"]],
             zmin=-4,
             zmax=4,
@@ -128,6 +178,7 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         )
     )
 
+    # Update layout
     fig.update_layout(
         title=f"Contact map {pdb.pdb_base}",
         xaxis_title="Residue i",
@@ -135,61 +186,79 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         font=dict(family="Arial", size=12, color="black"),
     )
 
-    if len(chains_two) > 1:
-        breaks = [round(x) for x in np.linspace(1, total_positions, 15)]
-        labels = [str(aux_pos_vec[b - 1]) for b in breaks]
+    # Add chain separators and labels for multiple chains
+    if len(unique_chains) > 1:
+        # Calculate tick positions and labels
+        tick_positions = [round(x) for x in np.linspace(1, total_positions, 15)]
+        tick_labels = [str(residue_positions[pos - 1]) for pos in tick_positions]
 
-        for pos in np.cumsum([p[2] for p in pos_new[:-1]]):
+        # Add chain separator lines
+        chain_boundaries = np.cumsum([p[2] for p in final_positions[:-1]])
+        for boundary in chain_boundaries:
+            # Add vertical separator
             fig.add_shape(
                 type="line",
-                x0=pos,
+                x0=boundary,
                 y0=0,
-                x1=pos,
+                x1=boundary,
                 y1=total_positions,
                 line=dict(color="gray", width=0.5, dash="dash"),
             )
+            # Add horizontal separator
             fig.add_shape(
                 type="line",
                 x0=0,
-                y0=pos,
+                y0=boundary,
                 x1=total_positions,
-                y1=pos,
+                y1=boundary,
                 line=dict(color="gray", width=0.5, dash="dash"),
             )
 
-        for i, c in enumerate(chains_two):
-            mean_pos = np.mean(pos_new[i][:2])
+        # Add chain labels
+        for i, chain_id in enumerate(unique_chains):
+            mean_position = np.mean(final_positions[i][:2])
+            # Add top label
             fig.add_annotation(
-                x=mean_pos,
+                x=mean_position,
                 y=total_positions + 0.5,
-                text=c,
+                text=chain_id,
                 showarrow=False,
                 font=dict(color="gray"),
             )
+            # Add right label
             fig.add_annotation(
                 x=total_positions + 0.5,
-                y=mean_pos,
-                text=c,
+                y=mean_position,
+                text=chain_id,
                 showarrow=False,
                 font=dict(color="gray"),
             )
 
-        fig.update_xaxes(tickvals=breaks, ticktext=labels)
-        fig.update_yaxes(tickvals=breaks, ticktext=labels)
+        # Update axis labels
+        fig.update_xaxes(tickvals=tick_positions, ticktext=tick_labels)
+        fig.update_yaxes(tickvals=tick_positions, ticktext=tick_labels)
 
+    # Save plot if requested
     if save:
-        # Change the widthe of the plot to 1800x 1800 and save a png
+        logger.debug("Saving contact map")
         fig.update_layout(width=1000, height=1000)
-        fig.write_image(
-            os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.png")
-        )
-        fig.write_html(
-            os.path.join(pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}_map.html")
-        )
-        print(
-            f"Contact map is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_map.html')}"
-        )
 
+        # Save PNG version
+        png_path = os.path.join(output_dir, f"{pdb.pdb_base}_{pdb.mode}_map.png")
+        fig.write_image(png_path)
+        logger.debug(f"Saved PNG to: {png_path}")
+
+        # Save HTML version
+        html_path = os.path.join(output_dir, f"{pdb.pdb_base}_{pdb.mode}_map.html")
+        fig.write_html(html_path)
+        logger.debug(f"Saved HTML to: {html_path}")
+
+        logger.debug(f"Contact map is stored in {html_path}")
+
+    if show:
+        fig.show()
+
+    logger.debug("Contact map generation complete")
     return fig
 
 
@@ -290,7 +359,7 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
                     pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.html_5Adens.html"
                 )
             )
-            print(
+            logger.debug(
                 f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}.html_5Adens.html')}"
             )
             fig.write_image(
@@ -369,7 +438,7 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html",
                 )
             )
-            print(
+            logger.debug(
                 f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.html')}"
             )
 
@@ -490,7 +559,7 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.html",
                 )
             )
-            print(
+            logger.debug(
                 f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around.html')}"
             )
         else:
@@ -510,7 +579,7 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html",
                 )
             )
-            print(
+            logger.debug(
                 f"5Adens proportion plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.html')}"
             )
 
