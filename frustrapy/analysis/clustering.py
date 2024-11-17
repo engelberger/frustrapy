@@ -78,7 +78,7 @@ def detect_dynamic_clusters(
     res_nums = ini["Res"].tolist()
 
     # Loading data
-    logger.info(
+    logger.debug(
         "-----------------------------Loading data-----------------------------"
     )
     frustra_data = pd.DataFrame()
@@ -98,7 +98,7 @@ def detect_dynamic_clusters(
     ]
 
     # Model fitting and filter by difference and mean
-    logger.info(
+    logger.debug(
         "-----------------------------Model fitting and filtering by dynamic range and frustration mean-----------------------------"
     )
     frstrange = []
@@ -132,7 +132,7 @@ def detect_dynamic_clusters(
     ]
 
     # Principal component analysis
-    logger.info(
+    logger.debug(
         "-----------------------------Principal component analysis-----------------------------"
     )
     pca = PCA(n_components=ncp)
@@ -157,12 +157,12 @@ def detect_dynamic_clusters(
     corr_matrix[
         (corr_matrix < min_corr) & (corr_matrix > -min_corr) | (p_values > 0.05)
     ] = 0
-    logger.info(
+    logger.debug(
         "-----------------------------Undirected graph-----------------------------"
     )
     net = ig.Graph.Adjacency((corr_matrix > 0).tolist(), mode="undirected")
 
-    logger.info(
+    logger.debug(
         "-----------------------------Leiden Clustering-----------------------------"
     )
     leiden_clusters = la.find_partition(
@@ -190,6 +190,6 @@ def detect_dynamic_clusters(
     if "Graph" not in dynamic.clusters or dynamic.clusters["Graph"] is None:
         logger.error("The process was not completed successfully!")
     else:
-        logger.info("The process has finished successfully!")
+        logger.debug("The process has finished successfully!")
 
     return dynamic
