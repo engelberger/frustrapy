@@ -188,12 +188,12 @@ def main() -> None:
     output_dir = Path(sys.argv[3])
     suffix = sys.argv[4]
 
-    logger.info(f"Generating visualization files for {pdb_name}")
+    logger.debug(f"Generating visualization files for {pdb_name}")
 
     generator = VisualizationGenerator(aux_file, pdb_name, output_dir, suffix)
     generator.generate_files()
 
-    logger.info("Visualization files generated successfully")
+    logger.debug("Visualization files generated successfully")
 
 
 if __name__ == "__main__":

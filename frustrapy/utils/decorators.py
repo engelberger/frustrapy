@@ -13,7 +13,7 @@ def log_execution_time(func):
         try:
             result = func(*args, **kwargs)
             execution_time = time.time() - start_time
-            logger.info(f"{func.__name__} completed in {execution_time:.2f} seconds")
+            logger.debug(f"{func.__name__} completed in {execution_time:.2f} seconds")
             return result
         except Exception as e:
             execution_time = time.time() - start_time
