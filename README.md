@@ -20,7 +20,6 @@ FrustraPy is an attempt at a parallelized Python implementation of the [frustrat
 ### Performance Optimizations
 - **Parallel Processing**:
   - Multi-core support for mutation analysis
-  - Batch processing capabilities
   - Optimized memory usage
 - **Progress Tracking**:
   - Real-time progress bars using tqdm
