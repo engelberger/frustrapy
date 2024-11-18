@@ -8,6 +8,7 @@ import time
 from tqdm import tqdm
 from ..core import Pdb, SingleResidueData
 from ..utils import log_execution_time
+import sys
 
 logger = logging.getLogger(__name__)
 
@@ -34,7 +35,12 @@ def _process_amino_acid(
     """
     aa, pdb, res_num, chain, split, debug, is_glycine, method = args
     logger = logging.getLogger(__name__)
-    logger.info(f"Processing variant {aa} for residue {res_num} in chain '{chain}'")
+
+    # Only log detailed mutation info if in debug mode
+    if logger.getEffectiveLevel() <= logging.DEBUG:
+        logger.debug(
+            f"Processing variant {aa} for residue {res_num} in chain '{chain}'"
+        )
 
     # Get indices of atoms for the residue to mutate
     residue_mask = (pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)
@@ -236,9 +242,10 @@ def _process_amino_acid(
     output_pdb_base = f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}"
 
     # Calculate frustration for the mutated PDB
-    logger.info("Calculating frustration...")
+    logger.debug("Calculating frustration...")
     from .frustration import calculate_frustration
 
+    # Pass is_mutation_calculation=True to suppress protocol logging
     calculate_frustration(
         pdb_file=output_pdb_path,
         mode=pdb.mode,
@@ -247,10 +254,11 @@ def _process_amino_acid(
         visualization=False,
         chain=chain,
         debug=debug,
+        is_mutation_calculation=True,  # Add this flag
     )
 
     # Store the frustration data
-    logger.info("Storing frustration data...")
+    logger.debug("Storing frustration data...")
     frustration_data_dir = os.path.join(
         pdb.job_dir,
         f"{output_pdb_base}.done",
@@ -338,9 +346,28 @@ def _process_amino_acid(
     if not debug:
         os.remove(output_pdb_path)
 
+    # After processing the mutation and calculating frustration, add the data to pdb.Mutations
+    mutation_key = f"Res_{res_num}_{chain}"
+
+    # Initialize Mutations dict if it doesn't exist
+    if not hasattr(pdb, "Mutations"):
+        pdb.Mutations = {}
+    if method not in pdb.Mutations:
+        pdb.Mutations[method] = {}
+
+    # Store mutation data
+    pdb.Mutations[method][mutation_key] = {
+        "Method": method,
+        "Res": res_num,
+        "Chain": chain,
+        "File": frustra_mut_file,
+    }
+
+    # Return both the mutation data and updated pdb object
     return {
         "aa": aa,
         "frustra_mut_file": frustra_mut_file,
+        "pdb": pdb,  # Add this to return the updated pdb object
     }
 
 
@@ -350,27 +377,11 @@ def mutate_res_parallel(
     chain: str,
     split: bool = True,
     method: str = "threading",
-    debug: bool = False,
-    n_processes: Optional[int] = None,
+    pbar: Optional[tqdm] = None,
 ) -> "Pdb":
-    """
-    Parallel version of mutate_res that processes amino acid mutations concurrently.
-
-    Args:
-        pdb (Pdb): Pdb frustration object
-        res_num (int): Residue number to mutate
-        chain (str): Chain identifier
-        split (bool): Whether to split chains
-        method (str): Mutation method ('threading' or 'modeller')
-        debug (bool): Debug mode flag
-        n_processes (Optional[int]): Number of processes to use. Defaults to CPU count.
-
-    Returns:
-        Pdb: Updated Pdb object with mutation results
-    """
-    logger = logging.getLogger(__name__)
+    """Parallel version of mutate_res that processes amino acid mutations concurrently."""
     start_time = time.time()
-    method = method.lower()
+    logger.info(f"\nAnalyzing mutations for residue {res_num} in chain {chain}")
 
     # Validate inputs (same as mutate_res)
     if not isinstance(split, bool):
@@ -432,6 +443,17 @@ def mutate_res_parallel(
         "CYS",
     ]
 
+    # Create our own progress bar if none was provided
+    if pbar is None:
+        pbar = tqdm(
+            total=len(amino_acids),
+            desc=f"Processing mutations for residue {res_num}",
+            position=0,
+            leave=True,
+            dynamic_ncols=True,
+            file=sys.stdout,
+        )
+
     # Check if the residue is glycine
     is_glycine = (
         pdb.atom.loc[
@@ -443,56 +465,53 @@ def mutate_res_parallel(
         == "GLY"
     )
 
-    logger.info("Starting parallel mutation processing")
+    logger.debug("Starting parallel mutation processing")
     process_start = time.time()
 
     # Create process pool
-    n_processes = n_processes or multiprocessing.cpu_count()
+    n_processes = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(processes=n_processes)
 
     # Create arguments list
     args_list = [
-        (aa, pdb, res_num, chain, split, debug, is_glycine, method)
+        (aa, pdb, res_num, chain, split, False, is_glycine, method)
         for aa in amino_acids
     ]
 
     # Process mutations in parallel with progress bar
-    with tqdm(
-        total=len(amino_acids), desc=f"Processing mutations for residue {res_num}"
-    ) as pbar:
-        for _ in pool.imap_unordered(_process_amino_acid, args_list):
-            if debug:
-                logger.debug(f"Completed mutation")
-            pbar.update(1)
+    results = []
+    try:
+        for result in pool.imap_unordered(_process_amino_acid, args_list):
+            results.append(result)
+            # Update pdb object with mutation data from each result
+            if "pdb" in result:
+                # Update mutation data
+                if not hasattr(pdb, "Mutations"):
+                    pdb.Mutations = {}
+                if method not in pdb.Mutations:
+                    pdb.Mutations[method] = {}
+
+                mutation_key = f"Res_{res_num}_{chain}"
+                if mutation_key not in pdb.Mutations[method]:
+                    pdb.Mutations[method][mutation_key] = result["pdb"].Mutations[
+                        method
+                    ][mutation_key]
+
+            if pbar is not None:
+                pbar.update(1)
+                pbar.set_postfix({"residue": f"{res_num}"}, refresh=False)
+    finally:
+        if pbar is not None and pbar.disable is False:
+            pbar.close()
 
     pool.close()
     pool.join()
 
-    process_time = time.time() - process_start
+    total_time = time.time() - start_time
 
-    # Update the pdb object with mutation information
-    if not hasattr(pdb, "Mutations"):
-        pdb.Mutations = {}
-    if method not in pdb.Mutations:
-        pdb.Mutations[method] = {}
-
-    mutation_key = f"Res_{res_num}_{chain}"
-    pdb.Mutations[method][mutation_key] = {
-        "Method": method,
-        "Res": res_num,
-        "Chain": chain,
-        "File": frustra_mut_file,
-    }
-
+    # Log only the final storage location
     logger.info(
         f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
-    )
-
-    total_time = time.time() - start_time
-    logger.info(f"Parallel processing completed in {process_time:.2f} seconds")
-    logger.info(f"Total mutation time (including setup): {total_time:.2f} seconds")
-    logger.info(
-        f"Average time per amino acid: {process_time/len(amino_acids):.2f} seconds"
     )
 
     return pdb
@@ -506,21 +525,7 @@ def mutate_res(
     method: str = "threading",
     debug: bool = False,
 ) -> "Pdb":
-    """
-    Serial version of amino acid mutation processing.
-    Uses the same helper function as the parallel version for consistency.
-
-    Args:
-        pdb (Pdb): Pdb frustration object
-        res_num (int): Residue number to mutate
-        chain (str): Chain identifier
-        split (bool): Whether to split chains
-        method (str): Mutation method ('threading' or 'modeller')
-        debug (bool): Debug mode flag
-
-    Returns:
-        Pdb: Updated Pdb object with mutation results
-    """
+    """Serial version of amino acid mutation processing."""
     logger = logging.getLogger(__name__)
     start_time = time.time()
     method = method.lower()
@@ -596,7 +601,7 @@ def mutate_res(
         == "GLY"
     )
 
-    logger.info("Starting serial mutation processing")
+    logger.debug("Starting serial mutation processing")
     process_start = time.time()
 
     # Add progress bar for serial processing
@@ -607,9 +612,22 @@ def mutate_res(
             if debug:
                 logger.debug(f"Processing mutation to {aa}")
             aa_start = time.time()
-            _process_amino_acid(
+            result = _process_amino_acid(
                 (aa, pdb, res_num, chain, split, debug, is_glycine, method)
             )
+            # Update pdb object with mutation data
+            if "pdb" in result:
+                if not hasattr(pdb, "Mutations"):
+                    pdb.Mutations = {}
+                if method not in pdb.Mutations:
+                    pdb.Mutations[method] = {}
+
+                mutation_key = f"Res_{res_num}_{chain}"
+                if mutation_key not in pdb.Mutations[method]:
+                    pdb.Mutations[method][mutation_key] = result["pdb"].Mutations[
+                        method
+                    ][mutation_key]
+
             if debug:
                 logger.debug(f"Processed {aa} in {time.time() - aa_start:.2f} seconds")
             pbar.update(1)
@@ -630,14 +648,14 @@ def mutate_res(
         "File": frustra_mut_file,
     }
 
-    logger.info(
+    logger.debug(
         f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
     )
 
     total_time = time.time() - start_time
-    logger.info(f"Serial processing completed in {process_time:.2f} seconds")
-    logger.info(f"Total mutation time (including setup): {total_time:.2f} seconds")
-    logger.info(
+    logger.debug(f"Serial processing completed in {process_time:.2f} seconds")
+    logger.debug(f"Total mutation time (including setup): {total_time:.2f} seconds")
+    logger.debug(
         f"Average time per amino acid: {process_time/len(amino_acids):.2f} seconds"
     )
 
