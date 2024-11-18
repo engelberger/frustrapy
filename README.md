@@ -2,7 +2,7 @@
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/engelberger/frustrapy/blob/main/FrustraPy_colab.ipynb)
 
-FrustraPy is a "high-performance" Python reimplementation of the [Protein Frustratometer](https://academic.oup.com/nar/article/44/W1/W356/2499321) by Parra et al. and Guzovsky et al., designed for analyzing energetic frustration in protein structures. This implementation offers significant enhancements including interactive visualizations, parallel processing capabilities, and various performance optimizations.
+FrustraPy is an attempt of a "high-performance" Python reimplementation of the [Protein Frustratometer](https://academic.oup.com/nar/article/44/W1/W356/2499321) by Parra et al. and Guzovsky et al., designed for analyzing energetic frustration in protein structures. This implementation offers significant enhancements including interactive visualizations, parallel processing capabilities, and various performance optimizations.
 
 ⚠️ **Disclaimer**: This is an unofficial reimplementation. Use at your own risk and verify results against the original Frustratometer when possible.
 
