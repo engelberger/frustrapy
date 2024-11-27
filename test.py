@@ -231,13 +231,56 @@ profiler.end_section("Configuration")
 # Configurational Frustration Analysis
 profiler.start_section("Configurational Frustration Analysis")
 pdb_file = "af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb"
-pdb_config, plots_config = frustrapy.calculate_frustration(
+pdb_config, plots_config, density_results, _ = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode="configurational",
     results_dir=results_dir,
     debug=debug.upper(),
     chain="A",
 )
+
+# You can now use density_results directly
+if density_results:
+    print("\nFrustration Density Results:")
+    print(f"Number of residues analyzed: {len(density_results.densities)}")
+    print(f"Number of contact points: {len(density_results.contact_coordinates)}")
+
+    # Example: Print summary of first few residues
+    print("\nFirst 5 residues density analysis:")
+    for density in density_results.densities[:5]:
+        print(f"\nResidue {density.residue_number} Chain {density.chain_id}:")
+        print(f"  Total contacts: {density.total_density}")
+        print(
+            f"  Highly frustrated: {density.highly_frustrated} ({density.rel_highly_frustrated:.2%})"
+        )
+        print(
+            f"  Neutrally frustrated: {density.neutrally_frustrated} ({density.rel_neutrally_frustrated:.2%})"
+        )
+        print(
+            f"  Minimally frustrated: {density.minimally_frustrated} ({density.rel_minimally_frustrated:.2%})"
+        )
+
+    # Find residue with lowest configurational frustration density
+    min_frustration_density = min(
+        density_results.densities,
+        key=lambda x: x.rel_highly_frustrated if x.total_density > 0 else float("inf"),
+    )
+
+    print("\nResidue with lowest configurational frustration density:")
+    print(
+        f"Residue {min_frustration_density.residue_number} Chain {min_frustration_density.chain_id}:"
+    )
+    print(f"  Total contacts: {min_frustration_density.total_density}")
+    print(
+        f"  Highly frustrated: {min_frustration_density.highly_frustrated} ({min_frustration_density.rel_highly_frustrated:.2%})"
+    )
+    print(
+        f"  Neutrally frustrated: {min_frustration_density.neutrally_frustrated} ({min_frustration_density.rel_neutrally_frustrated:.2%})"
+    )
+    print(
+        f"  Minimally frustrated: {min_frustration_density.minimally_frustrated} ({min_frustration_density.rel_minimally_frustrated:.2%})"
+    )
+
 profiler.end_section("Configurational Frustration Analysis")
 
 # Define residues to analyze
@@ -262,8 +305,8 @@ total_mutations = (
     sum(len(residues) for residues in residues_to_analyze.values()) * 20
 )  # 20 amino acids per residue
 
-# Remove the progress bar from here since it's handled in the mutations module
-pdb, plots = frustrapy.calculate_frustration(
+# Update unpacking to handle 4 return values including single_residue_data
+pdb, plots, density_results, single_residue_data = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode=mode,
     results_dir=results_dir,
@@ -272,58 +315,47 @@ pdb, plots = frustrapy.calculate_frustration(
     residues=residues_to_analyze,
 )
 profiler.end_section("Single PDB Analysis")
+
 # Results analysis and display
 profiler.start_section("Results Analysis")
 try:
-    import pickle
+    if single_residue_data and "A" in single_residue_data:
+        for res_num in [144, 146]:
+            if res_num in single_residue_data["A"]:
+                res_data = single_residue_data["A"][res_num]
+                mutations = res_data.mutations
+                # Find most and least frustrated mutations
+                most_frustrated = min(mutations.items(), key=lambda x: x[1])
+                least_frustrated = max(mutations.items(), key=lambda x: x[1])
 
-    results_found = 0
-    for root, dirs, files in os.walk(results_dir):
-        for file in files:
-            if file.endswith("_single_residue_data.pkl"):
-                pkl_path = os.path.join(root, file)
-                with open(pkl_path, "rb") as f:
-                    data = pickle.load(f)
-                print(f"\nAnalysis results from: {os.path.basename(pkl_path)}")
-                results_found += 1
-                if "A" in data:
-                    for res_num in [144, 146]:
-                        if res_num in data["A"]:
-                            res_data = data["A"][res_num]
-                            mutations = res_data.mutations
-                            # Find most and least frustrated mutations
-                            most_frustrated = min(mutations.items(), key=lambda x: x[1])
-                            least_frustrated = max(
-                                mutations.items(), key=lambda x: x[1]
-                            )
-                            print(
-                                f"\nPosition {res_num} (Native: {res_data.residue_name})"
-                            )
-                            print(
-                                f"Most frustrated mutation: {res_data.residue_name} → {most_frustrated[0]} "
-                                f"(Frustration Index: {most_frustrated[1]:.3f})"
-                            )
-                            print(
-                                f"Least frustrated mutation: {res_data.residue_name} → {least_frustrated[0]} "
-                                f"(Frustration Index: {least_frustrated[1]:.3f})"
-                            )
-                            # Sort and display mutations
-                            sorted_mutations = sorted(
-                                mutations.items(), key=lambda x: x[1]
-                            )
-                            print(
-                                "\nAll mutations sorted by frustration (top 5 most and least frustrated):"
-                            )
-                            print("Most frustrated:")
-                            for mut, score in sorted_mutations[:5]:
-                                print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
-                            print("Least frustrated:")
-                            for mut, score in sorted_mutations[-5:]:
-                                print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
-                            print("-" * 50)
+                print(f"\nPosition {res_num} (Native: {res_data.residue_name})")
+                print(
+                    f"Most frustrated mutation: {res_data.residue_name} → {most_frustrated[0]} "
+                    f"(Frustration Index: {most_frustrated[1]:.3f})"
+                )
+                print(
+                    f"Least frustrated mutation: {res_data.residue_name} → {least_frustrated[0]} "
+                    f"(Frustration Index: {least_frustrated[1]:.3f})"
+                )
+
+                # Sort and display mutations
+                sorted_mutations = sorted(mutations.items(), key=lambda x: x[1])
+                print(
+                    "\nAll mutations sorted by frustration (top 5 most and least frustrated):"
+                )
+                print("Most frustrated:")
+                for mut, score in sorted_mutations[:5]:
+                    print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
+                print("Least frustrated:")
+                for mut, score in sorted_mutations[-5:]:
+                    print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
+                print("-" * 50)
+    else:
+        print("\nNo single residue data available in the results")
 except Exception as e:
-    print(f"Error accessing results: {str(e)}")
+    print(f"Error analyzing results: {str(e)}")
 profiler.end_section("Results Analysis")
+
 # End overall timing and print report
 profiler.end_section("Total Execution")
 profiler.print_report()
