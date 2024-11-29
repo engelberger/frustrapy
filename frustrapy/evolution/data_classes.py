@@ -28,7 +28,8 @@ class MSAData:
     identifiers: List[str]
     length: int
     num_sequences: int
-    reference_index: Optional[int] = None
+    reference_index: Optional[int]
+    fasta_file: Optional[Path] = None
 
     @property
     def conservation_matrix(self) -> np.ndarray:
