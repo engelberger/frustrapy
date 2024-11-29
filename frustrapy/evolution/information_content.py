@@ -48,7 +48,7 @@ class InformationContentCalculator:
     REQUIRED_DIRECTORIES: Set[str] = {
         "data",
         "plots",
-        "Equivalences",
+        "equivalences",
         "Frustration",
         "pdbs",
         "msa",
@@ -457,7 +457,7 @@ class InformationContentCalculator:
         try:
             logger.info("Validating logo data")
 
-            equiv_dir = self.results_dir / "Equivalences"
+            equiv_dir = self.results_dir / "equivalences"
             combined_file = equiv_dir / "AllEquivalences.txt"
 
             if not equiv_dir.exists() or not any(equiv_dir.iterdir()):
@@ -1229,7 +1229,7 @@ class InformationContentCalculator:
             logger.info("Calculating residue equivalences")
 
             # Ensure equivalences directory exists
-            equiv_dir = self.results_dir / "Equivalences"
+            equiv_dir = self.results_dir / "equivalences"
             equiv_dir.mkdir(exist_ok=True)
 
             # Process each sequence in MSA
