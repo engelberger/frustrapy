@@ -61,7 +61,7 @@ class LogoCalculator:
         self.mode = self.mode.lower()
 
         # Create directories
-        self.equivalences_dir = self.job_dir / "Equivalences"
+        self.equivalences_dir = self.job_dir / "equivalences"
         self.frustration_dir = self.job_dir / "Frustration"
 
         for directory in [
@@ -731,7 +731,7 @@ class LogoCalculator:
             # List of directories to clean if empty
             temp_dirs = [
                 "tmp",
-                "Equivalences",
+                "equivalences",
                 "Frustration",
             ]
 

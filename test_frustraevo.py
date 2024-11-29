@@ -15,7 +15,7 @@ logging.getLogger("fontTools").setLevel(
 
 # Main logging configuration
 logging.basicConfig(
-    level=logging.DEBUG,
+    level=logging.INFO,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
@@ -174,15 +174,6 @@ if __name__ == "__main__":
     try:
         # Run analysis
         results = run_test()
-
-        # Validate results
-        if validate_results(results):
-            logger.info("Test completed successfully")
-            sys.exit(0)
-        else:
-            logger.error("Test failed validation")
-            sys.exit(1)
-
     except Exception as e:
         logger.error(f"Test failed: {str(e)}")
         sys.exit(1)

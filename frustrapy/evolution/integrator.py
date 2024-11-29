@@ -288,7 +288,7 @@ class EvolutionaryAnalysisIntegrator:
 
         if not self.config.debug:
             # List of temporary directories to clean
-            temp_dirs = ["Frustration", "Equivalences", "tmp"]
+            temp_dirs = ["Frustration", "equivalences", "tmp"]
 
             for temp_dir in temp_dirs:
                 path = self.results_dir / temp_dir

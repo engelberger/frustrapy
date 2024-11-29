@@ -694,7 +694,10 @@ class FrustrationCalculator:
                 src_path = os.path.join(pdb.job_dir, src_name)
                 dst_path = os.path.join(frustration_dir, dst_name)
 
-                # TODO: Fix the logic here, the 5dens files should not be moved
+                # Skip 5adens files as they should not be moved
+                if "_5adens" in src_name:
+                    continue
+
                 # Skip if source doesn't exist (might already be in FrustrationData)
                 if not os.path.exists(src_path):
                     # Check if file exists in destination
@@ -704,11 +707,7 @@ class FrustrationCalculator:
                         )
                         continue
                     else:
-                        # Only log warning if file is actually needed for this mode
-                        if not (pdb.mode == "singleresidue" and "_5adens" in src_name):
-                            logger.warning(
-                                f"File not found in either location: {src_name}"
-                            )
+                        logger.warning(f"File not found in either location: {src_name}")
                     continue
 
                 logger.debug(f"Moving {src_name} to FrustrationData directory")
