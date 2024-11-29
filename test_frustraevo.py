@@ -4,8 +4,16 @@ from pathlib import Path
 import frustrapy
 from frustrapy.evolution import analyze_family
 from frustrapy.evolution.exceptions import FrustraEvoError
+import matplotlib.pyplot as plt
 
-# Configure logging
+# Configure logging - Add these lines
+logging.getLogger("matplotlib").setLevel(logging.WARNING)  # Silence matplotlib
+logging.getLogger("PIL").setLevel(logging.WARNING)  # Silence PIL/Pillow
+logging.getLogger("fontTools").setLevel(
+    logging.WARNING
+)  # Silence font related messages
+
+# Main logging configuration
 logging.basicConfig(
     level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",

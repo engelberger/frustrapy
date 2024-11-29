@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import logomaker
 import logging
 from pathlib import Path
-from .data_classes import MSAData
+from .data_classes import MSAData, PositionInformation
 
 logger = logging.getLogger(__name__)
 
@@ -32,37 +32,68 @@ class SequenceLogoGenerator:
         self.reference_pdb = reference_pdb
         self.aa_colors = self._get_aa_colors()
 
-    def generate_logo(self, frustration_data: Dict[str, pd.DataFrame]) -> None:
-        """Generate sequence logo with frustration information"""
+    def generate_logo(self, ic_results: List[PositionInformation]) -> None:
+        """
+        Generate sequence logo with frustration information.
+
+        Args:
+            ic_results: List of position-specific information content results
+        """
         try:
-            # Calculate sequence logo data
-            logo_data = self._calculate_logo_data()
+            logger.info("Generating sequence logo")
 
-            # Create figure
-            fig = plt.figure(figsize=(20, 10))
-            gs = fig.add_gridspec(3, 1, height_ratios=[2, 1, 1])
+            # Create logo data
+            logo_data = []
+            for result in ic_results:
+                logo_data.append(
+                    {
+                        "position": result.position,
+                        "residue": result.residue,
+                        "conservation": result.conservation,
+                        "ic_total": result.ic_total,
+                        "frust_state": result.frust_state,
+                    }
+                )
 
-            # Plot sequence logo
-            ax_logo = fig.add_subplot(gs[0])
-            self._plot_sequence_logo(ax_logo, logo_data)
+            # Convert to DataFrame for easier plotting
+            df = pd.DataFrame(logo_data)
 
-            # Plot information content
-            ax_info = fig.add_subplot(gs[1])
-            self._plot_information_content(ax_info, logo_data)
+            # Create logo plot
+            plt.figure(figsize=(20, 10))
 
-            # Plot frustration bars
-            ax_frust = fig.add_subplot(gs[2])
-            self._plot_frustration_bars(ax_frust, frustration_data)
+            # Plot sequence conservation
+            plt.subplot(2, 1, 1)
+            plt.bar(df["position"], df["conservation"], color="blue", alpha=0.5)
+            plt.title("Sequence Conservation")
+            plt.xlabel("Position")
+            plt.ylabel("Conservation Score")
 
-            # Adjust layout and save
+            # Plot frustration information
+            plt.subplot(2, 1, 2)
+            colors = {"MIN": "green", "NEU": "grey", "MAX": "red", "UNK": "white"}
+            bar_colors = [colors.get(state, "white") for state in df["frust_state"]]
+            plt.bar(df["position"], df["ic_total"], color=bar_colors)
+            plt.title("Frustration Information Content")
+            plt.xlabel("Position")
+            plt.ylabel("Information Content")
+
+            # Add legend
+            from matplotlib.patches import Patch
+
+            legend_elements = [
+                Patch(facecolor=color, label=state)
+                for state, color in colors.items()
+                if state != "UNK"
+            ]
+            plt.legend(handles=legend_elements)
+
+            # Save plot
             plt.tight_layout()
-            plt.savefig(
-                self.results_dir / "SequenceLogo.png", dpi=300, bbox_inches="tight"
-            )
+            output_file = self.results_dir / "plots" / "sequence_logo.png"
+            plt.savefig(output_file, dpi=300, bbox_inches="tight")
             plt.close()
 
-            # Save data
-            self._save_logo_data(logo_data, frustration_data)
+            logger.info(f"Saved sequence logo to {output_file}")
 
         except Exception as e:
             logger.error(f"Failed to generate sequence logo: {str(e)}")

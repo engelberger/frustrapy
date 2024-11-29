@@ -5,6 +5,7 @@ import pandas as pd
 import logging
 from pathlib import Path
 from ..core import Pdb
+from .data_classes import PositionInformation
 
 logger = logging.getLogger(__name__)
 
@@ -54,12 +55,15 @@ class ContactAnalyzer:
         self.cutoff_min = 0.78
         self.cutoff_max = -1.0
 
-    def analyze_contacts(self, alignment_length: int) -> Dict:
+    def analyze_contacts(
+        self, alignment_length: int, ic_results: List[PositionInformation]
+    ) -> Dict:
         """
         Analyze contacts across all structures.
 
         Args:
             alignment_length: Length of multiple sequence alignment
+            ic_results: List of position-specific information content results
 
         Returns:
             Dictionary of PDB IDs and their corresponding frustration data
@@ -82,12 +86,14 @@ class ContactAnalyzer:
                 logger.debug(f"Directory contents: {list(results_path.glob('*'))}")
                 raise FileNotFoundError("No frustration results found")
 
-            # Process each structure
+            # Process each structure with IC results
             contacts = {}
             for done_dir in done_dirs:
                 pdb_id = done_dir.name.replace(".done", "")
                 frust_data = self._read_frustration_data(done_dir, pdb_id)
                 if frust_data is not None:
+                    # Enrich frustration data with IC results
+                    frust_data = self._enrich_with_ic(frust_data, ic_results)
                     contacts[pdb_id] = frust_data
                     logger.debug(f"Processed contacts for {pdb_id}")
 
@@ -296,3 +302,29 @@ class ContactAnalyzer:
         except Exception as e:
             logger.error(f"Failed to read frustration data for {pdb_id}: {str(e)}")
             return None
+
+    def _enrich_with_ic(
+        self, frust_data: pd.DataFrame, ic_results: List[PositionInformation]
+    ) -> pd.DataFrame:
+        """
+        Enrich frustration data with information content results.
+
+        Args:
+            frust_data: DataFrame with frustration data
+            ic_results: List of position-specific information content results
+
+        Returns:
+            Enriched DataFrame
+        """
+        # Create mapping of position to IC data
+        ic_map = {r.position: r for r in ic_results}
+
+        # Add IC columns
+        frust_data["IC_Total"] = frust_data["Residue1"].map(
+            lambda x: ic_map.get(x).ic_total if x in ic_map else 0.0
+        )
+        frust_data["FrustState"] = frust_data["Residue1"].map(
+            lambda x: ic_map.get(x).frust_state if x in ic_map else "UNK"
+        )
+
+        return frust_data

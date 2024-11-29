@@ -54,6 +54,39 @@ def analyze_family(
         # Run main calculation pipeline
         calculator.calculate()
 
+        # Read information content results
+        ic_file = calculator.results_dir / "data" / "InformationContent.csv"
+        if ic_file.exists():
+            ic_data = pd.read_csv(ic_file)
+            ic_results = [
+                PositionInformation(
+                    position=int(row["Position"]),
+                    residue=row["Residue"],
+                    chain=row["Chain"],
+                    conservation=float(row["Conservation"]),
+                    min_percent=float(row["Pct_Min"]),
+                    neu_percent=float(row["Pct_Neu"]),
+                    max_percent=float(row["Pct_Max"]),
+                    min_count=int(row["Count_Min"]),
+                    neu_count=int(row["Count_Neu"]),
+                    max_count=int(row["Count_Max"]),
+                    h_min=float(row["H_Min"]),
+                    h_neu=float(row["H_Neu"]),
+                    h_max=float(row["H_Max"]),
+                    h_total=float(row["H_Total"]),
+                    ic_min=float(row["IC_Min"]),
+                    ic_neu=float(row["IC_Neu"]),
+                    ic_max=float(row["IC_Max"]),
+                    ic_total=float(row["IC_Total"]),
+                    frust_state=row["FrustState"],
+                    conserved_state=row["ConservedState"],
+                )
+                for _, row in ic_data.iterrows()
+            ]
+        else:
+            logger.warning(f"No IC data found at {ic_file}")
+            ic_results = []
+
         # Initialize analyzers using calculator's paths
         contact_analyzer = ContactAnalyzer(
             results_dir=calculator.results_dir,
@@ -64,48 +97,25 @@ def analyze_family(
         # Get alignment length
         alignment_length = calculator._get_alignment_length()
 
-        # Analyze contacts
-        contacts = contact_analyzer.analyze_contacts(alignment_length)
+        # Analyze contacts with IC results
+        contacts = contact_analyzer.analyze_contacts(
+            alignment_length=alignment_length, ic_results=ic_results
+        )
 
-        # Read information content results
-        ic_file = calculator.results_dir / "InformationContent.csv"
-        if ic_file.exists():
-            ic_data = pd.read_csv(ic_file)
-            processed_contacts = {
-                "data": contacts,
-                "information_content": {
-                    str(row["Position"]): {
-                        "conserved_state": row["FrustrationState"],
-                        "ic_min": float(row["IC_MIN"]),
-                        "ic_max": float(row["IC_MAX"]),
-                        "ic_neu": float(row["IC_NEU"]),
-                        "ic_total": float(row["IC_Total"]),
-                    }
-                    for _, row in ic_data.iterrows()
-                },
-            }
-        else:
-            # Create default information content data using Residue1 instead of Res1
-            positions = sorted(
-                set(
-                    pos
-                    for struct_data in contacts.values()
-                    for pos in struct_data["Residue1"].unique()
-                )
-            )
-            processed_contacts = {
-                "data": contacts,
-                "information_content": {
-                    str(pos): {
-                        "conserved_state": "UNK",
-                        "ic_min": 0.0,
-                        "ic_max": 0.0,
-                        "ic_neu": 0.0,
-                        "ic_total": 0.0,
-                    }
-                    for pos in positions
-                },
-            }
+        # Process contacts
+        processed_contacts = {
+            "data": contacts,
+            "information_content": {
+                str(r.position): {
+                    "conserved_state": r.conserved_state,
+                    "ic_min": float(r.ic_min),
+                    "ic_max": float(r.ic_max),
+                    "ic_neu": float(r.ic_neu),
+                    "ic_total": float(r.ic_total),
+                }
+                for r in ic_results
+            },
+        }
 
         # Generate contact maps if requested
         if contact_maps:
@@ -114,17 +124,19 @@ def analyze_family(
                 msa_file=calculator.job_dir / "MSA_Clean_final.fasta",
                 reference_pdb=reference_pdb,
             )
-            histogram_generator.generate_contact_maps(contacts)
+            histogram_generator.generate_contact_maps(
+                contacts=contacts, ic_results=ic_results
+            )
 
         # Collect results
         results = {
             "job_id": job_id,
             "output_dir": str(calculator.results_dir),
             "files": {
-                "logo": str(calculator.results_dir / "SequenceLogo.png"),
-                "data": str(calculator.results_dir / "FrustrationData.csv"),
+                "logo": str(calculator.results_dir / "plots" / "sequence_logo.png"),
+                "data": str(calculator.results_dir / "data" / "FrustrationData.csv"),
                 "contact_maps": (
-                    [str(calculator.results_dir / "ContactMaps.png")]
+                    [str(calculator.results_dir / "plots" / "contact_map.png")]
                     if contact_maps
                     else None
                 ),

@@ -17,7 +17,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from tqdm import tqdm
 import pandas as pd
 from .information_content import InformationContentCalculator
-from .data_classes import MSAData
+from .data_classes import MSAData, PositionInformation
 from .sequence_logo import SequenceLogoGenerator
 from .contacts import ContactAnalyzer
 from .generator import HistogramGenerator
@@ -36,6 +36,7 @@ class LogoCalculator:
     pdb_dir: Optional[Path] = None
     contact_maps: bool = False
     results_dir: Optional[Path] = None
+    mode: str = "configurational"
 
     def __post_init__(self):
         """Initialize paths and validate inputs"""
@@ -49,6 +50,15 @@ class LogoCalculator:
         else:
             self.job_dir = Path(f"FrustraEvo_{self.job_id}").absolute()
             self.results_dir = self.job_dir / "OutPutFiles"
+
+        # Initialize msa_data as None
+        self.msa_data = None
+
+        # Validate mode
+        valid_modes = {"singleresidue", "mutational", "configurational"}
+        if self.mode.lower() not in valid_modes:
+            raise ValueError(f"Invalid mode: {self.mode}. Must be one of {valid_modes}")
+        self.mode = self.mode.lower()
 
         # Create directories
         self.equivalences_dir = self.job_dir / "Equivalences"
@@ -73,6 +83,7 @@ class LogoCalculator:
         logger.debug(f"Job directory: {self.job_dir}")
         logger.debug(f"Results directory: {self.results_dir}")
         logger.debug(f"FASTA file: {self.fasta_file}")
+        logger.debug(f"Mode: {self.mode}")
         if self.pdb_dir:
             logger.debug(f"PDB directory: {self.pdb_dir}")
 
@@ -89,28 +100,57 @@ class LogoCalculator:
             self._process_msa()
             self._check_sequences(pdb_list)
 
-            # Debug: Check MSA file exists
-            msa_file = self.job_dir / "MSA_Clean_final.fasta"
-            if not msa_file.exists():
-                logger.error(f"MSA file not created at {msa_file}")
-                logger.debug(f"Job directory contents: {list(self.job_dir.glob('*'))}")
-                raise FileNotFoundError(f"MSA file not created: {msa_file}")
+            # Create MSAData object for IC calculation
+            self.msa_data = MSAData(
+                sequences=[],
+                identifiers=[],
+                length=0,
+                num_sequences=0,
+                reference_index=None,
+                fasta_file=self.job_dir / "MSA_Clean_final.fasta",
+            )
+
+            # Read MSA
+            with open(self.msa_data.fasta_file) as f:
+                for record in SeqIO.parse(f, "fasta"):
+                    self.msa_data.sequences.append(str(record.seq))
+                    self.msa_data.identifiers.append(record.id)
+
+            self.msa_data.length = len(self.msa_data.sequences[0])
+            self.msa_data.num_sequences = len(self.msa_data.sequences)
+
+            if self.reference_pdb:
+                try:
+                    self.msa_data.reference_index = self.msa_data.identifiers.index(
+                        self.reference_pdb
+                    )
+                except ValueError:
+                    logger.warning(
+                        f"Reference PDB {self.reference_pdb} not found in MSA"
+                    )
 
             # Calculate frustration
             self._calculate_frustration(pdb_list)
-
-            # Aggregate frustration data into single file
             self._aggregate_frustration_data()
 
-            # Calculate equivalences and information content
-            self._calculate_equivalences()
+            # Initialize IC calculator
+            ic_calculator = InformationContentCalculator(
+                msa_data=self.msa_data,
+                results_dir=self.results_dir,
+                reference_pdb=self.reference_pdb,
+                pdb_dir=self.pdb_dir,
+                mode=self.mode,
+            )
 
-            # Generate sequence logo
-            self._generate_logo()
+            # Calculate frustration and information content
+            ic_results = ic_calculator.calculate()
+
+            # Generate sequence logo using IC results
+            self._generate_logo(ic_results=ic_results)
 
             # Optional: Generate contact maps
             if self.contact_maps:
-                self._generate_contact_maps()
+                self._generate_contact_maps(ic_results=ic_results)
 
             # Clean up temporary files
             self._cleanup()
@@ -526,251 +566,52 @@ class LogoCalculator:
                 f"Failed to calculate frustration for {pdb_id}: {str(e)}"
             )
 
-    def _calculate_equivalences(self) -> None:
-        """
-        Calculate residue equivalences between PDB structures and MSA positions.
-
-        This method:
-        1. Processes each PDB structure
-        2. Maps residue numbers to MSA positions
-        3. Calculates information content
-
-        Raises:
-            CalculationError: If equivalence calculation fails
-        """
-        logger.debug("Calculating residue equivalences")
-
-        try:
-            # Use absolute paths
-            msa_file = self.job_dir.absolute() / "MSA_Clean_final.fasta"
-            logger.debug(f"Looking for MSA file at absolute path: {msa_file}")
-
-            if not msa_file.exists():
-                logger.error(f"MSA file not found at {msa_file}")
-                logger.debug(f"Current working directory: {Path.cwd()}")
-                logger.debug(f"Job directory (absolute): {self.job_dir.absolute()}")
-                logger.debug(f"Directory contents: {list(self.job_dir.glob('*'))}")
-                raise FileNotFoundError(f"MSA file not found: {msa_file}")
-
-            # Create MSA data object
-            msa_data = MSAData(
-                sequences=[],
-                identifiers=[],
-                length=0,
-                num_sequences=0,
-                reference_index=None,
-            )
-
-            # Read MSA
-            with open(msa_file) as f:
-                for record in SeqIO.parse(f, "fasta"):
-                    msa_data.sequences.append(str(record.seq))
-                    msa_data.identifiers.append(record.id)
-
-            msa_data.length = len(msa_data.sequences[0])
-            msa_data.num_sequences = len(msa_data.sequences)
-
-            if self.reference_pdb:
-                try:
-                    msa_data.reference_index = msa_data.identifiers.index(
-                        self.reference_pdb
-                    )
-                except ValueError:
-                    logger.warning(
-                        f"Reference PDB {self.reference_pdb} not found in MSA"
-                    )
-
-            # Initialize information content calculator
-            ic_calculator = InformationContentCalculator(
-                msa_data=msa_data,
-                results_dir=self.results_dir.absolute(),
-                reference_pdb=self.reference_pdb,
-            )
-
-            # Calculate information content
-            ic_results = ic_calculator.calculate()
-
-            # Save equivalences for each structure
-            for pdb_id in msa_data.identifiers:
-                try:
-                    # Get PDB file path
-                    if self.pdb_dir:
-                        pdb_file = self.pdb_dir.absolute() / f"{pdb_id}.pdb"
-                    else:
-                        pdb_file = self.frustration_dir.absolute() / f"{pdb_id}.pdb"
-
-                    if not pdb_file.exists():
-                        logger.warning(f"PDB file not found: {pdb_file}")
-                        continue
-
-                    # Calculate equivalences
-                    equiv_file = (
-                        self.equivalences_dir.absolute() / f"Equival_{pdb_id}.txt"
-                    )
-                    self._save_equivalences(
-                        pdb_file=pdb_file,
-                        msa_data=msa_data,
-                        pdb_id=pdb_id,
-                        output_file=equiv_file,
-                    )
-
-                except Exception as e:
-                    logger.error(
-                        f"Failed to process equivalences for {pdb_id}: {str(e)}"
-                    )
-
-            logger.info(
-                f"Completed equivalence calculations for {len(msa_data.identifiers)} structures"
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to calculate equivalences: {str(e)}")
-            raise CalculationError(f"Failed to calculate equivalences: {str(e)}")
-
-    def _save_equivalences(
-        self, pdb_file: Path, msa_data: MSAData, pdb_id: str, output_file: Path
-    ) -> None:
-        """
-        Save residue equivalences for a single structure.
-
-        Args:
-            pdb_file: Path to PDB file
-            msa_data: MSA data object
-            pdb_id: PDB identifier
-            output_file: Output file path
-        """
-        try:
-            # Get sequence from PDB
-            pdb_seq = self._get_pdb_sequence(pdb_id)
-
-            # Get sequence from MSA
-            msa_idx = msa_data.identifiers.index(pdb_id)
-            msa_seq = msa_data.sequences[msa_idx].replace("-", "")
-
-            if pdb_seq != msa_seq:
-                raise ValueError(f"Sequence mismatch for {pdb_id}")
-
-            # Map residue numbers to MSA positions
-            equivalences = []
-            msa_pos = 0
-            pdb_pos = 1
-
-            for i, aa in enumerate(msa_data.sequences[msa_idx]):
-                if aa != "-":
-                    equivalences.append((i + 1, pdb_pos))
-                    pdb_pos += 1
-
-            # Write equivalences file
-            with open(output_file, "w") as f:
-                f.write("MSA_pos\tPDB_pos\n")
-                for msa_pos, pdb_pos in equivalences:
-                    f.write(f"{msa_pos}\t{pdb_pos}\n")
-
-        except Exception as e:
-            logger.error(f"Failed to save equivalences for {pdb_id}: {str(e)}")
-            raise
-
-    def _generate_logo(self) -> None:
+    def _generate_logo(self, ic_results: List[PositionInformation]) -> None:
         """
         Generate sequence logo with frustration information.
 
-        This method:
-        1. Initializes logo generator
-        2. Processes MSA data
-        3. Generates visualization
-
-        Raises:
-            CalculationError: If logo generation fails
+        Args:
+            ic_results: List of position-specific information content results
         """
-        logger.debug("Generating sequence logo")
-
         try:
-            # First read MSA data
-            msa_data = MSAData(
-                sequences=[],
-                identifiers=[],
-                length=0,
-                num_sequences=0,
-                reference_index=None,
-            )
+            logger.debug("Generating sequence logo")
 
-            # Read MSA
-            with open(self.job_dir / "MSA_Clean_final.fasta") as f:
-                for record in SeqIO.parse(f, "fasta"):
-                    msa_data.sequences.append(str(record.seq))
-                    msa_data.identifiers.append(record.id)
-
-            msa_data.length = len(msa_data.sequences[0])
-            msa_data.num_sequences = len(msa_data.sequences)
-
-            if self.reference_pdb:
-                try:
-                    msa_data.reference_index = msa_data.identifiers.index(
-                        self.reference_pdb
-                    )
-                except ValueError:
-                    logger.warning(
-                        f"Reference PDB {self.reference_pdb} not found in MSA"
-                    )
-
-            # Initialize logo generator with MSA data directly
+            # Initialize logo generator with IC results
             logo_generator = SequenceLogoGenerator(
-                msa_data=msa_data,
+                msa_data=self.msa_data,
                 results_dir=self.results_dir,
                 reference_pdb=self.reference_pdb,
             )
 
-            # Read frustration data
-            frustration_data = {}
-            for pdb_id in msa_data.identifiers:
-                try:
-                    frust_file = (
-                        self.frustration_dir
-                        / f"{pdb_id}.done/FrustrationData/{pdb_id}.pdb_configurational"
-                    )
-                    if frust_file.exists():
-                        df = pd.read_csv(frust_file, sep="\s+")
-                        frustration_data[pdb_id] = df
-                        logger.debug(f"Loaded frustration data for {pdb_id}")
-                except Exception as e:
-                    logger.warning(
-                        f"Failed to read frustration data for {pdb_id}: {str(e)}"
-                    )
-
-            # Generate logo
-            logo_generator.generate_logo(frustration_data=frustration_data)
+            # Generate logo using IC results
+            logo_generator.generate_logo(ic_results=ic_results)
             logger.info("Successfully generated sequence logo")
 
         except Exception as e:
             logger.error(f"Failed to generate logo: {str(e)}")
             raise CalculationError(f"Failed to generate logo: {str(e)}")
 
-    def _generate_contact_maps(self) -> None:
+    def _generate_contact_maps(self, ic_results: List[PositionInformation]) -> None:
         """
         Generate contact map visualizations.
 
-        This method:
-        1. Processes contact data
-        2. Generates configurational and mutational maps
-
-        Raises:
-            CalculationError: If contact map generation fails
+        Args:
+            ic_results: List of position-specific information content results
         """
-        logger.debug("Generating contact maps")
-
         try:
-            # Initialize contact analyzer with the correct path to frustration data
+            logger.debug("Generating contact maps")
+
+            # Initialize contact analyzer
             contact_analyzer = ContactAnalyzer(
                 results_dir=self.results_dir,
-                mode="configurational",
-                frustration_dir=self.frustration_dir,  # Add this parameter
+                mode=self.mode,
+                frustration_dir=self.frustration_dir,
             )
 
-            # Get alignment length
-            alignment_length = self._get_alignment_length()
-
-            # Analyze contacts
-            contacts = contact_analyzer.analyze_contacts(alignment_length)
+            # Analyze contacts using IC results
+            contacts = contact_analyzer.analyze_contacts(
+                alignment_length=self.msa_data.length, ic_results=ic_results
+            )
 
             # Generate contact maps
             histogram_generator = HistogramGenerator(
@@ -779,7 +620,9 @@ class LogoCalculator:
                 reference_pdb=self.reference_pdb,
             )
 
-            histogram_generator.generate_contact_maps(contacts)
+            histogram_generator.generate_contact_maps(
+                contacts=contacts, ic_results=ic_results
+            )
 
             logger.info("Successfully generated contact maps")
 
@@ -807,7 +650,7 @@ class LogoCalculator:
             data_dir.mkdir(exist_ok=True)
 
             # Output file
-            output_file = self.results_dir / "FrustrationData.csv"
+            output_file = data_dir / "FrustrationData.csv"
 
             # Collect data from all structures
             all_data = []
