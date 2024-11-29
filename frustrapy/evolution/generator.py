@@ -9,6 +9,8 @@ from Bio import SeqIO
 import seaborn as sns
 from .logo import LogoData
 from .contacts import ContactInformation
+from matplotlib.colors import LinearSegmentedColormap
+from .data_classes import PositionInformation
 
 logger = logging.getLogger(__name__)
 
@@ -219,79 +221,84 @@ class HistogramGenerator:
             logger.error(f"Failed to save data: {str(e)}")
             raise
 
-    def generate_contact_maps(self, contacts: Dict[str, pd.DataFrame]) -> None:
+    def generate_contact_maps(
+        self, contacts: Dict[str, pd.DataFrame], ic_results: List[PositionInformation]
+    ) -> None:
         """
         Generate contact map visualizations.
 
         Args:
-            contacts: Dictionary mapping structure IDs to contact DataFrames
+            contacts: Dictionary of contact data by structure
+            ic_results: List of position-specific information content results
         """
         try:
-            # Convert DataFrame contacts to Contact objects
-            contact_objects = []
-            for struct_id, df in contacts.items():
-                for _, row in df.iterrows():
-                    contact = Contact(
-                        residue1=int(row["Residue1"]),
-                        residue2=int(row["Residue2"]),
-                        frustration_index=float(row["FrustrationIndex"]),
-                        frustration_state=str(row["FrustrationState"]),
-                        structure=str(row["Structure"]),
-                    )
-                    contact_objects.append(contact)
-
-            if not contact_objects:
-                logger.warning("No contacts to plot")
-                return
-
-            # Get maximum position for plot dimensions
-            positions = max(max(c.residue1, c.residue2) for c in contact_objects)
+            logger.info("Generating contact maps")
 
             # Create figure
-            fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(20, 10))
+            plt.figure(figsize=(15, 15))
 
-            # Plot configurational contacts
-            self._plot_contact_map(
-                ax1, contact_objects, positions, "Configurational Frustration"
+            # Create contact matrix
+            n_pos = max(r.position for r in ic_results)
+            contact_matrix = np.zeros((n_pos, n_pos))
+            state_matrix = np.full((n_pos, n_pos), "UNK", dtype=str)
+
+            # Fill matrices
+            for struct_id, struct_data in contacts.items():
+                for _, row in struct_data.iterrows():
+                    i = int(row["Residue1"]) - 1
+                    j = int(row["Residue2"]) - 1
+                    contact_matrix[i, j] = row["IC_Total"]
+                    state_matrix[i, j] = row["FrustState"]
+
+            # Plot contact map
+            colors = {
+                "MIN": "green",
+                "NEU": "grey",
+                "MAX": "red",
+                "UNK": "white",
+                "minimally": "green",
+                "neutral": "grey",
+                "highly": "red",
+            }
+
+            cmap = LinearSegmentedColormap.from_list(
+                "frustration", ["white", "grey", "red", "green"]
             )
 
-            # Plot mutational contacts
-            self._plot_contact_map(
-                ax2, contact_objects, positions, "Mutational Frustration"
+            # Plot heatmap
+            sns.heatmap(
+                contact_matrix,
+                cmap=cmap,
+                center=0,
+                square=True,
+                cbar_kws={"label": "Information Content"},
             )
 
-            # Save figure
-            plt.tight_layout()
-            plt.savefig(
-                self.results_dir / "ContactMaps.png", dpi=300, bbox_inches="tight"
-            )
+            # Add state markers
+            for i in range(n_pos):
+                for j in range(n_pos):
+                    if state_matrix[i, j] != "UNK":
+                        plt.plot(
+                            j + 0.5,
+                            i + 0.5,
+                            "o",
+                            color=colors.get(state_matrix[i, j], "white"),
+                            markersize=3,
+                        )
+
+            plt.title("Contact Map with Frustration States")
+            plt.xlabel("Residue Position")
+            plt.ylabel("Residue Position")
+
+            # Save plot
+            output_file = self.results_dir / "plots" / "contact_map.png"
+            plt.savefig(output_file, dpi=300, bbox_inches="tight")
             plt.close()
+
+            logger.info(f"Saved contact map to {output_file}")
 
         except Exception as e:
             logger.error(f"Failed to generate contact maps: {str(e)}")
-            raise
-
-    def _plot_contact_map(
-        self, ax: plt.Axes, contacts: List[Contact], positions: int, title: str
-    ) -> None:
-        """Plot contact map on given axes."""
-        try:
-            # Create contact matrix
-            matrix = np.zeros((positions, positions))
-
-            # Fill matrices
-            for contact in contacts:
-                i, j = contact.residue1 - 1, contact.residue2 - 1
-                matrix[i, j] = matrix[j, i] = contact.frustration_index
-
-            # Plot matrix
-            sns.heatmap(matrix, cmap="viridis", center=0, square=True, ax=ax)
-            ax.set_title(title)
-            ax.set_xlabel("Residue Position")
-            ax.set_ylabel("Residue Position")
-
-        except Exception as e:
-            logger.error(f"Failed to plot contact map: {str(e)}")
             raise
 
     def _get_frustration_value(self, contact: ContactInformation) -> float:
