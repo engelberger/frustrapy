@@ -5,6 +5,7 @@ from .logo_calculator import LogoCalculator
 from .contacts import ContactAnalyzer
 from .generator import HistogramGenerator
 import pandas as pd
+from .data_classes import PositionInformation
 
 logger = logging.getLogger(__name__)
 
