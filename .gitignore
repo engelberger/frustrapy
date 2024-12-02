@@ -38,3 +38,4 @@ frustraevo_example_inputs
 frustrapy/evolution/__pycache__/
 frustraevo_test.log
 repo.md
+frustraevo_docker/*

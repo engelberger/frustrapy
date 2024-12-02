@@ -1,11 +1,9 @@
 from typing import Optional, Dict, List, Union
 from pathlib import Path
 import logging
-from .logo_calculator import LogoCalculator
-from .contacts import ContactAnalyzer
-from .generator import HistogramGenerator
+from .information_content import InformationContentCalculator
+from .data_classes import MSAData
 import pandas as pd
-from .data_classes import PositionInformation
 
 logger = logging.getLogger(__name__)
 
@@ -25,124 +23,86 @@ def analyze_family(
     Args:
         fasta_file: Path to MSA file in FASTA format
         job_id: Identifier for this analysis
-        reference_pdb: Reference PDB identifier (optional)
-        pdb_dir: Directory containing PDB files (optional)
+        reference_pdb: Reference PDB identifier
+        pdb_dir: Directory containing PDB files
         contact_maps: Whether to generate contact maps
-        results_dir: Output directory (optional)
+        results_dir: Output directory
         debug: Enable debug mode
 
     Returns:
         Dict containing analysis results and paths to output files
     """
     try:
-        # Convert paths to Path objects
+        # Convert paths
         fasta_file = Path(fasta_file)
+        results_dir = Path(results_dir) if results_dir else Path(f"results_{job_id}")
         if pdb_dir:
             pdb_dir = Path(pdb_dir)
-        if results_dir:
-            results_dir = Path(results_dir)
 
-        # Initialize calculator with results_dir
-        calculator = LogoCalculator(
-            job_id=job_id,
-            fasta_file=fasta_file,
+        # Load MSA data
+        msa_data = MSAData.from_fasta(fasta_file)
+
+        # Initialize calculator
+        calculator = InformationContentCalculator(
+            msa_data=msa_data,
+            results_dir=results_dir,
             reference_pdb=reference_pdb,
             pdb_dir=pdb_dir,
-            contact_maps=contact_maps,
-            results_dir=results_dir,
         )
 
-        # Run main calculation pipeline
-        calculator.calculate()
+        # Setup required files and directories
+        calculator._setup_directories()
+        calculator._copy_required_files()
+        calculator._validate_sequences()
+        calculator._prepare_reference_alignment()
+        calculator._create_final_alignment()
+        calculator._calculate_equivalences()
 
-        # Read information content results
-        ic_file = calculator.results_dir / "data" / "InformationContent.csv"
-        if ic_file.exists():
-            ic_data = pd.read_csv(ic_file)
-            ic_results = [
-                PositionInformation(
-                    position=int(row["Position"]),
-                    residue=row["Residue"],
-                    chain=row["Chain"],
-                    conservation=float(row["Conservation"]),
-                    min_percent=float(row["Pct_Min"]),
-                    neu_percent=float(row["Pct_Neu"]),
-                    max_percent=float(row["Pct_Max"]),
-                    min_count=int(row["Count_Min"]),
-                    neu_count=int(row["Count_Neu"]),
-                    max_count=int(row["Count_Max"]),
-                    h_min=float(row["H_Min"]),
-                    h_neu=float(row["H_Neu"]),
-                    h_max=float(row["H_Max"]),
-                    h_total=float(row["H_Total"]),
-                    ic_min=float(row["IC_Min"]),
-                    ic_neu=float(row["IC_Neu"]),
-                    ic_max=float(row["IC_Max"]),
-                    ic_total=float(row["IC_Total"]),
-                    frust_state=row["FrustState"],
-                    conserved_state=row["ConservedState"],
-                )
-                for _, row in ic_data.iterrows()
-            ]
-        else:
-            logger.warning(f"No IC data found at {ic_file}")
-            ic_results = []
+        # Calculate information content
+        ic_results = calculator.calculate()
 
-        # Initialize analyzers using calculator's paths
-        contact_analyzer = ContactAnalyzer(
-            results_dir=calculator.results_dir,
-            mode="configurational",
-            frustration_dir=calculator.frustration_dir,
-        )
-
-        # Get alignment length
-        alignment_length = calculator._get_alignment_length()
-
-        # Analyze contacts with IC results
-        contacts = contact_analyzer.analyze_contacts(
-            alignment_length=alignment_length, ic_results=ic_results
-        )
-
-        # Process contacts
-        processed_contacts = {
-            "data": contacts,
-            "information_content": {
-                str(r.position): {
-                    "conserved_state": r.conserved_state,
-                    "ic_min": float(r.ic_min),
-                    "ic_max": float(r.ic_max),
-                    "ic_neu": float(r.ic_neu),
-                    "ic_total": float(r.ic_total),
-                }
-                for r in ic_results
-            },
-        }
-
-        # Generate contact maps if requested
+        # Generate visualizations if requested
         if contact_maps:
-            histogram_generator = HistogramGenerator(
-                results_dir=calculator.results_dir,
-                msa_file=calculator.job_dir / "MSA_Clean_final.fasta",
+            from .generator import HistogramGenerator
+
+            generator = HistogramGenerator(
+                results_dir=results_dir,
+                msa_file=fasta_file,
                 reference_pdb=reference_pdb,
             )
-            histogram_generator.generate_contact_maps(
-                contacts=contacts, ic_results=ic_results
-            )
+            generator.generate_contact_maps(ic_results)
 
-        # Collect results
+        # Convert list of contacts to dictionary with indices as keys
+        contact_data = ic_results.to_dict(orient="records")
+        contact_dict = {i: contact for i, contact in enumerate(contact_data)}
+
+        # Collect results with updated structure
         results = {
             "job_id": job_id,
-            "output_dir": str(calculator.results_dir),
+            "output_dir": str(results_dir),
             "files": {
-                "logo": str(calculator.results_dir / "plots" / "sequence_logo.png"),
-                "data": str(calculator.results_dir / "data" / "FrustrationData.csv"),
+                "data": str(results_dir / f"IC_Configurational_{reference_pdb}.csv"),
                 "contact_maps": (
-                    [str(calculator.results_dir / "plots" / "contact_map.png")]
+                    str(results_dir / "plots" / "contact_map.png")
                     if contact_maps
                     else None
                 ),
             },
-            "contacts": processed_contacts,
+            "contacts": {
+                "information_content": contact_dict,  # Now a dictionary with indices as keys
+                "summary": {
+                    "total_contacts": len(ic_results),
+                    "minimally_frustrated": len(
+                        ic_results[ic_results["FstConserved"] == "MIN"]
+                    ),
+                    "neutrally_frustrated": len(
+                        ic_results[ic_results["FstConserved"] == "NEU"]
+                    ),
+                    "maximally_frustrated": len(
+                        ic_results[ic_results["FstConserved"] == "MAX"]
+                    ),
+                },
+            },
         }
 
         return results

@@ -15,7 +15,7 @@ logging.getLogger("fontTools").setLevel(
 
 # Main logging configuration
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
     handlers=[logging.StreamHandler(sys.stdout)],
 )
@@ -24,89 +24,56 @@ logger = logging.getLogger(__name__)
 
 
 def run_test():
-    """Run test analysis on example data"""
+    """Run FrustraEvo analysis on example data."""
     try:
-        # Set up paths
-        example_dir = Path("frustraevo_example_inputs")
-        if not example_dir.exists():
-            raise FileNotFoundError(f"Example directory not found: {example_dir}")
-
-        # Input files
-        fasta_file = example_dir / "alphas.fasta"  # Using the actual example file
-        pdb_dir = example_dir / "pdbs"
-        results_dir = Path("frustraevo_results")
-
-        # Ensure results directory exists
-        results_dir.mkdir(exist_ok=True)
-
         logger.info("Starting FrustraEvo analysis")
-        logger.info(f"FASTA file: {fasta_file}")
-        logger.info(f"PDB directory: {pdb_dir}")
-        logger.info(f"Results directory: {results_dir}")
+        logger.info("FASTA file: frustraevo_example_inputs/alphas.fasta")
+        logger.info("PDB directory: frustraevo_example_inputs/pdbs")
+        logger.info("Results directory: frustraevo_results")
 
-        # Run analysis with one of the example PDBs as reference
+        # Run analysis
         results = analyze_family(
-            fasta_file=fasta_file,
-            job_id="test_run",
-            reference_pdb="1fhj-A",  # Using an actual PDB from the example set
-            pdb_dir=pdb_dir,
+            fasta_file="frustraevo_example_inputs/alphas.fasta",
+            job_id="test",
+            reference_pdb="2dn1-A",
+            pdb_dir="frustraevo_example_inputs/pdbs",
             contact_maps=True,
-            results_dir=results_dir,
+            results_dir="frustraevo_results",
             debug=True,
         )
 
-        # Print results summary
-        logger.info("\nAnalysis Results:")
-        logger.info(f"Job ID: {results['job_id']}")
-        logger.info(f"Output directory: {results['output_dir']}")
+        # Validate results
+        total_contacts = len(results["contacts"]["information_content"])
+        logger.info(f"Total contacts analyzed: {total_contacts}")
 
-        # Check output files
-        logger.info("\nGenerated Files:")
-        for category, files in results["files"].items():
-            if isinstance(files, list):
-                for f in files:
-                    logger.info(f"{category}: {Path(f).name}")
-            elif files:
-                logger.info(f"{category}: {Path(files).name}")
+        # Count contacts by frustration state
+        min_contacts = sum(
+            1
+            for c in results["contacts"]["information_content"].values()
+            if c["FstConserved"]
+            == "MIN"  # Changed from conserved_state to FstConserved
+        )
+        neu_contacts = sum(
+            1
+            for c in results["contacts"]["information_content"].values()
+            if c["FstConserved"]
+            == "NEU"  # Changed from conserved_state to FstConserved
+        )
+        max_contacts = sum(
+            1
+            for c in results["contacts"]["information_content"].values()
+            if c["FstConserved"]
+            == "MAX"  # Changed from conserved_state to FstConserved
+        )
 
-        # Print contact analysis summary
-        if results.get("contacts"):
-            logger.info("\nContact Analysis Summary:")
-            total_contacts = len(results["contacts"]["information_content"])
-            min_contacts = sum(
-                1
-                for c in results["contacts"]["information_content"].values()
-                if c["conserved_state"] == "MIN"
-            )
-            max_contacts = sum(
-                1
-                for c in results["contacts"]["information_content"].values()
-                if c["conserved_state"] == "MAX"
-            )
-            neu_contacts = sum(
-                1
-                for c in results["contacts"]["information_content"].values()
-                if c["conserved_state"] == "NEU"
-            )
-
-            logger.info(f"Total contacts analyzed: {total_contacts}")
-            logger.info(
-                f"Minimally frustrated contacts: {min_contacts} ({min_contacts/total_contacts*100:.1f}%)"
-            )
-            logger.info(
-                f"Maximally frustrated contacts: {max_contacts} ({max_contacts/total_contacts*100:.1f}%)"
-            )
-            logger.info(
-                f"Neutrally frustrated contacts: {neu_contacts} ({neu_contacts/total_contacts*100:.1f}%)"
-            )
+        logger.info(f"Minimally frustrated contacts: {min_contacts}")
+        logger.info(f"Neutrally frustrated contacts: {neu_contacts}")
+        logger.info(f"Maximally frustrated contacts: {max_contacts}")
 
         return results
 
-    except FrustraEvoError as e:
-        logger.error(f"FrustraEvo analysis failed: {str(e)}")
-        raise
     except Exception as e:
-        logger.error(f"Unexpected error: {str(e)}")
+        logger.error(f"FrustraEvo analysis failed: {str(e)}")
         raise
 
 
