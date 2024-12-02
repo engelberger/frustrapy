@@ -3,6 +3,10 @@ from typing import Dict, List, Optional, Union
 from pathlib import Path
 import numpy as np
 from ..core.data_classes import FrustrationDensity
+from Bio import SeqIO
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -44,6 +48,54 @@ class MSAData:
 
         # Normalize by number of sequences
         return matrix / self.num_sequences
+
+    @classmethod
+    def from_fasta(cls, fasta_file: Path) -> "MSAData":
+        """
+        Create MSAData from a FASTA file.
+
+        Args:
+            fasta_file: Path to FASTA format alignment file
+
+        Returns:
+            MSAData object
+
+        Raises:
+            ValueError: If FASTA file is invalid or empty
+        """
+        try:
+            sequences = []
+            identifiers = []
+
+            # Read FASTA file
+            with open(fasta_file) as f:
+                for record in SeqIO.parse(f, "fasta"):
+                    sequences.append(str(record.seq))
+                    identifiers.append(record.id)
+
+            if not sequences:
+                raise ValueError(f"No sequences found in {fasta_file}")
+
+            # Verify all sequences have same length
+            length = len(sequences[0])
+            if not all(len(seq) == length for seq in sequences):
+                raise ValueError("All sequences must have the same length")
+
+            num_sequences = len(sequences)
+            logger.debug(f"Loaded {num_sequences} sequences of length {length}")
+
+            return cls(
+                sequences=sequences,
+                identifiers=identifiers,
+                length=length,
+                num_sequences=num_sequences,
+                reference_index=None,  # Will be set later if needed
+                fasta_file=fasta_file,
+            )
+
+        except Exception as e:
+            logger.error(f"Failed to load FASTA file {fasta_file}: {str(e)}")
+            raise
 
 
 @dataclass
