@@ -41,6 +41,7 @@ pip install frustrapy
 # Development installation
 git clone https://github.com/engelberger/frustrapy.git
 cd frustrapy
+pip install -r requirements.txt
 pip install -e ".[dev]"
 ```
 
