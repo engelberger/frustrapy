@@ -32,3 +32,10 @@ frustrapy/R-implementation/visualization.R
 af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb
 del.ipynb
 tests/__init__.py
+frustraevo_docker/*
+frustraevo_results/*
+*.cpython-310.pyc
+frustraevo_example_inputs/*
+frustraevo_legacy/*
+frustraevo_test.log
+repo.md
