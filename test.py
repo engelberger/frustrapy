@@ -178,8 +178,8 @@ profiler.start_section("Total Execution")
 # Configuration
 profiler.start_section("Configuration")
 mode = "singleresidue"
-pdbs_dir = "/content"
-results_dir = "/home/ceramirez/github/frustrapy/Results_example"
+pdbs_dir = "/workspaces/frustrapy/example_pdbs"
+results_dir = "/workspaces/frustrapy/Results_example"
 example = True
 overwrite = False
 debug = "INFO"
@@ -213,14 +213,14 @@ else:
 
 
 if example:
-    pdbs_dir = "/home/ceramirez/github/frustrapy"
-    results_dir = "/home/ceramirez/github/frustrapy/Results_example"
-    subprocess.run(["rm", "-rf", "/home/ceramirez/github/frustrapy/Results_example/*"])
+    pdbs_dir = "/workspaces/frustrapy"
+    results_dir = "/workspaces/frustrapy/Results_example"
+    subprocess.run(["rm", "-rf", "/workspaces/frustrapy/Results_example/*"])
 
 if overwrite:
     if example:
         subprocess.run(
-            ["rm", "-rf", "/home/ceramirez/github/frustrapy/Results_example/*"]
+            ["rm", "-rf", "/workspaces/frustrapy/Results_example/*"]
         )
     else:
         results_dir = os.path.abspath(results_dir)

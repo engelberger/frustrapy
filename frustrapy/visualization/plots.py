@@ -824,3 +824,193 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=Fal
         fig.show()
 
     return fig
+
+
+def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=False):
+    """
+    Plot the frustration for each of the 20 residue variants at a given position in the structure.
+
+    Args:
+        pdb (Pdb): Pdb frustration object.
+        res_num (int): Specific residue number.
+        chain (str): Specific chain identifier.
+        method (str, optional): Mutation method ("threading" or "modeller"). Defaults to "threading".
+        save (bool, optional): Whether to save the graph. Defaults to False.
+        show (bool, optional): Whether to display the graph. Defaults to False.
+
+    Returns:
+        plotly.graph_objects.Figure: The generated interactive plot.
+    """
+    logger = logging.getLogger(__name__)
+
+    # Input validation
+    if save not in [True, False]:
+        raise ValueError("Save must be a boolean value!")
+    if show not in [True, False]:
+        raise ValueError("Show must be a boolean value!")
+    method = method.lower()
+    if method not in ["threading", "modeller"]:
+        raise ValueError(f"{method} is not a valid mutation method. Available methods are: threading or modeller")
+
+    mutation_key = f"Res_{res_num}_{chain}"
+    if method not in pdb.Mutations or mutation_key not in pdb.Mutations[method]:
+        raise ValueError(f"No mutation data found for residue {res_num} chain {chain} using {method} method")
+    mutation = pdb.Mutations[method][mutation_key]
+
+    # Read frustration data based on mode
+    if pdb.mode in ["configurational", "mutational"]:
+        cols = ["Res1", "Res2", "Chain1", "Chain2", "AA1", "AA2", "FrstIndex", "FrstState"]
+        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols)
+        # Classify frustration states
+        df["FrstState"] = np.where(df["FrstIndex"] >= 0.78, "minimally",
+                             np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
+        df["FrstState"] = df["FrstState"].astype("category")
+        # Reorder pairs so Res1 is the mutated residue
+        mask = df["Res2"] == mutation["Res"]
+        df.loc[mask, ["Res2", "Chain2", "AA1", "AA2"]] = df.loc[mask, ["Res1", "Chain1", "AA2", "AA1"]].values
+        df.loc[df["Chain1"] != mutation["Chain"], "Chain1"] = mutation["Chain"]
+        df.loc[df["Res1"] != mutation["Res"], "Res1"] = mutation["Res"]
+    else:
+        cols = ["Res1", "Chain1", "AA1", "FrstIndex"]
+        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols)
+        df["FrstState"] = np.where(df["FrstIndex"] >= 0.58, "minimally",
+                             np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
+        df["FrstState"] = df["FrstState"].astype("category")
+
+    # Identify native residue and convert to 1-letter code
+    native_res = pdb.atom[(pdb.atom["res_num"] == mutation["Res"]) &  
+                          (pdb.atom["chain"] == mutation["Chain"])]["res_name"].iloc[0]
+    # mapping 3-letter to 1-letter
+    aa_3to1 = {
+        "ALA": "A", "CYS": "C", "ASP": "D", "GLU": "E", "PHE": "F",
+        "GLY": "G", "HIS": "H", "ILE": "I", "LYS": "K", "LEU": "L",
+        "MET": "M", "ASN": "N", "PRO": "P", "GLN": "Q", "ARG": "R",
+        "SER": "S", "THR": "T", "VAL": "V", "TRP": "W", "TYR": "Y",
+    }
+    if len(native_res) == 3:
+        native_res = aa_3to1.get(native_res, native_res)
+    # reverse mapping for 1-letter to 3-letter
+    aa_1to3 = {v: k for k, v in aa_3to1.items()}
+
+    # Map colors
+    df["Color"] = np.where(df["FrstState"] == "neutral", "gray",
+                   np.where(df["FrstState"] == "highly", "red", "green"))
+    df.loc[df["AA1"] == native_res, "Color"] = "blue"
+    df["Color"] = df["Color"].astype("category")
+
+    # Plotting
+    if pdb.mode in ["configurational", "mutational"]:
+        # Prepare contact index and labels
+        contacts = df[["Res2", "Chain2"]].drop_duplicates().copy()
+        contacts["Res2"] = contacts["Res2"].astype(int)
+        contacts = contacts.sort_values("Res2").reset_index(drop=True)
+        contacts["Index"] = np.arange(1, len(contacts) + 1)
+        # Get 3-letter codes for contact residues (CA atom)
+        sel = pdb.atom[
+            (pdb.atom["chain"] == mutation["Chain"]) &
+            (pdb.atom["elety"] == "CA") &
+            (pdb.atom["res_num"].isin(contacts["Res2"].tolist()))
+        ]
+        resid_map = dict(zip(sel["res_num"], sel["resid"]))
+        contacts["ResName"] = contacts["Res2"].map(resid_map)
+        contacts["label"] = contacts.apply(lambda r: f"{r['ResName']}{r['Res2']}{r['Chain2']}", axis=1)
+        # Map Res2 to the new index
+        df["Res2"] = df["Res2"].map(dict(zip(contacts["Res2"], contacts["Index"])))
+        # Plot text traces per frustration state
+        df = pd.concat([df[df["Color"] != "blue"], df[df["Color"] == "blue"]], ignore_index=True)
+        fig = go.Figure()
+        color_order = [
+            ("green", "Minimally frustrated"),
+            ("gray", "Neutral"),
+            ("red", "Highly frustrated"),
+            ("blue", "Native"),
+        ]
+        for color, label in color_order:
+            sub = df[df["Color"] == color]
+            fig.add_trace(go.Scatter(
+                x=sub["Res2"], y=sub["FrstIndex"], mode="text",
+                text=sub["AA1"], textfont=dict(color=color, size=14, family="Arial"),
+                name=label,
+            ))
+        y1, y2 = -4, 4
+        # Determine native residue 3-letter for title
+        native_three = aa_1to3.get(native_res, native_res)
+        fig.update_layout(
+            title_text=f"Contact Frustration {pdb.mode} of residue {native_three}_{mutation['Res']}",
+            title_x=0.5,
+            font=dict(family="Arial", size=12, color="black"),
+            xaxis=dict(
+                title="Contact residue",
+                tickmode="array",
+                tickvals=contacts["Index"].tolist(),
+                ticktext=contacts["label"].tolist(),
+            ),
+            yaxis=dict(
+                title="Frustration Index",
+                tickvals=list(np.arange(y1, y2 + 0.5, 0.5)),
+                ticktext=[str(x) for x in np.arange(y1, y2 + 0.5, 0.5)],
+                range=[y1, y2],
+            ),
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            showlegend=True,
+            legend=dict(title="", orientation="h"),
+        )
+        fig.add_hline(y=0.78, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
+    else:
+        # Single residue variants mode
+        fig = go.Figure()
+        color_order = [
+            ("green", "Minimally frustrated"),
+            ("gray", "Neutral"),
+            ("red", "Highly frustrated"),
+            ("blue", "Native"),
+        ]
+        for color, label in color_order:
+            sub = df[df["Color"] == color]
+            sub_x = sub["AA1"].map(lambda a: aa_1to3.get(a, a))
+            fig.add_trace(go.Scatter(
+                x=sub_x, y=sub["FrstIndex"], mode="markers",
+                marker=dict(color=color, size=8), name=label,
+            ))
+        y1, y2 = -4, 4
+        fig.update_layout(
+            title_text=f"Frustration of the 20 variants in position {mutation['Res']} of the structure",
+            title_x=0.5,
+            font=dict(family="Arial", size=12, color="black"),
+            xaxis=dict(title="Residue"),
+            yaxis=dict(
+                title="Frustration Index",
+                tickvals=list(np.arange(y1, y2 + 0.5, 0.5)),
+                ticktext=[str(x) for x in np.arange(y1, y2 + 0.5, 0.5)],
+                range=[y1, y2],
+            ),
+            plot_bgcolor="white",
+            paper_bgcolor="white",
+            showlegend=True,
+            legend=dict(title="", orientation="h"),
+        )
+        fig.add_hline(y=0.58, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
+
+    # Save plot if requested
+    if save:
+        output_dir = os.path.join(pdb.job_dir, "MutationsData", "Images")
+        os.makedirs(output_dir, exist_ok=True)
+        base = os.path.join(output_dir, f"{pdb.mode}_{mutation['Res']}_{method}_{chain}")
+        fig.write_html(f"{base}.html")
+        try:
+            fig.write_image(f"{base}.png", scale=4)
+        except (ImportError, TypeError) as e:
+            warnings.warn(
+                f"Could not save PNG image due to missing dependencies: {str(e)}\n"
+                "Only HTML file was saved. To save static images, install kaleido:\n"
+                "pip install -U kaleido"
+            )
+        logger.debug(f"Mutate res plot is stored in {base}.html")
+
+    if show:
+        fig.show()
+
+    return fig
