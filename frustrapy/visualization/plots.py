@@ -842,7 +842,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         plotly.graph_objects.Figure: The generated interactive plot.
     """
     logger = logging.getLogger(__name__)
-
+    # set the log level to debug
+    #logger.setLevel(logging.DEBUG)
     # Input validation
     if save not in [True, False]:
         raise ValueError("Save must be a boolean value!")
@@ -860,7 +861,9 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
     # Read frustration data based on mode
     if pdb.mode in ["configurational", "mutational"]:
         cols = ["Res1", "Res2", "Chain1", "Chain2", "AA1", "AA2", "FrstIndex", "FrstState"]
-        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols)
+        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols, skiprows=1)
+        # Ensure FrstIndex is numeric
+        df["FrstIndex"] = pd.to_numeric(df["FrstIndex"], errors="coerce")
         # Classify frustration states
         df["FrstState"] = np.where(df["FrstIndex"] >= 0.78, "minimally",
                              np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
@@ -872,7 +875,9 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         df.loc[df["Res1"] != mutation["Res"], "Res1"] = mutation["Res"]
     else:
         cols = ["Res1", "Chain1", "AA1", "FrstIndex"]
-        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols)
+        df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols, skiprows=1)
+        # Ensure FrstIndex is numeric
+        df["FrstIndex"] = pd.to_numeric(df["FrstIndex"], errors="coerce")
         df["FrstState"] = np.where(df["FrstIndex"] >= 0.58, "minimally",
                              np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
         df["FrstState"] = df["FrstState"].astype("category")
@@ -908,12 +913,12 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         # Get 3-letter codes for contact residues (CA atom)
         sel = pdb.atom[
             (pdb.atom["chain"] == mutation["Chain"]) &
-            (pdb.atom["elety"] == "CA") &
+            (pdb.atom["atom_name"] == "CA") &
             (pdb.atom["res_num"].isin(contacts["Res2"].tolist()))
         ]
-        resid_map = dict(zip(sel["res_num"], sel["resid"]))
+        resid_map = dict(zip(sel["res_num"], sel["res_name"]))
         contacts["ResName"] = contacts["Res2"].map(resid_map)
-        contacts["label"] = contacts.apply(lambda r: f"{r['ResName']}{r['Res2']}{r['Chain2']}", axis=1)
+        contacts["label"] = contacts.apply(lambda r: f"{r['ResName']}{r['Res2']}-{r['Chain2']}", axis=1)
         # Map Res2 to the new index
         df["Res2"] = df["Res2"].map(dict(zip(contacts["Res2"], contacts["Index"])))
         # Plot text traces per frustration state
@@ -954,7 +959,14 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
             plot_bgcolor="white",
             paper_bgcolor="white",
             showlegend=True,
-            legend=dict(title="", orientation="h"),
+            legend=dict(
+                title="",
+                orientation="h",
+                yanchor="bottom",
+                y=0.95, # Position below the title
+                xanchor="center",
+                x=0.5
+            ),
         )
         fig.add_hline(y=0.78, line_dash="dash", line_color="gray", line_width=1)
         fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
@@ -989,7 +1001,7 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
             plot_bgcolor="white",
             paper_bgcolor="white",
             showlegend=True,
-            legend=dict(title="", orientation="h"),
+            legend=dict(title="", orientation="h"), # Keep legend at bottom for this plot type
         )
         fig.add_hline(y=0.58, line_dash="dash", line_color="gray", line_width=1)
         fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
