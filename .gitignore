@@ -39,3 +39,4 @@ Results*
 jupyter_results/*
 test*.*
 *.pdb
+scripts/benchmark_results/*
