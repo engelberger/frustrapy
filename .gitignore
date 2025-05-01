@@ -34,3 +34,7 @@ frustrapy/R-implementation/visualization.R
 **/*.cpython-311.pyc
 **/*.cpython-310.pyc
 
+example_pdbs/*.pdb
+Results*
+jupyter_results/*
+test*.*
