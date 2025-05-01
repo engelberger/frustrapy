@@ -43,13 +43,23 @@ class FrustrationCalculator:
         visualization: bool = True,
         results_dir: Optional[str] = None,
         debug: bool = False,
+        n_cpus: Optional[int] = None,
         is_mutation_calculation: bool = False,
     ):
-        """Initialize frustration calculator with configuration parameters."""
+        """Initialize frustration calculator with configuration parameters.
+
+        Args:
+            n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
+        """
+        # Validate core inputs
         self.validate_inputs(
             pdb_file, pdb_id, electrostatics_k, seq_dist, mode, graphics, visualization
         )
+        # Validate CPU core parameter
+        if n_cpus is not None and (not isinstance(n_cpus, int) or n_cpus <= 0):
+            raise ValueError("n_cpus must be a positive integer or None")
 
+        # Store configuration
         self.pdb_file = pdb_file
         self.pdb_id = pdb_id
         self.chain = chain
@@ -60,6 +70,7 @@ class FrustrationCalculator:
         self.graphics = graphics
         self.visualization = visualization
         self.debug = debug
+        self.n_cpus = n_cpus
         self.results_dir = self._setup_results_dir(results_dir)
         self.temp_folder = tempfile.gettempdir()
         self.plots = {}
@@ -820,12 +831,14 @@ class FrustrationCalculator:
 
             for res in chain_residues:
                 try:
+                    # Run mutation analysis with specified CPU count
                     pdb = mutate_res_parallel(
                         pdb=pdb,
                         res_num=res,
                         chain=chain_id,
                         split=True,
                         method="threading",
+                        n_cpus=self.n_cpus,
                     )
                     plot_key = f"delta_frus_res{res}_chain{chain_id}"
                     self.plots[plot_key] = plot_delta_frus(

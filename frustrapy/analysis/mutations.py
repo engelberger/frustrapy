@@ -9,6 +9,7 @@ from tqdm import tqdm
 from ..core import Pdb, SingleResidueData
 from ..utils import log_execution_time
 import sys
+import datetime  # added for timestamping
 
 logger = logging.getLogger(__name__)
 
@@ -409,9 +410,10 @@ def mutate_res_parallel(
     chain: str,
     split: bool = True,
     method: str = "threading",
+    n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
 ) -> "Pdb":
-    """Parallel version of mutate_res that processes amino acid mutations concurrently."""
+    """Parallel version of mutate_res with n_cpus parameter."""
     logger.debug(f"[mutate_res_parallel] Starting parallel mutations for residue {res_num}, chain {chain}")
     start_time = time.time()
     logger.info(f"\nAnalyzing mutations for residue {res_num} in chain {chain}")
@@ -503,7 +505,13 @@ def mutate_res_parallel(
     process_start = time.time()
 
     # Create process pool
-    n_processes = multiprocessing.cpu_count()
+    # Determine number of processes
+    if n_cpus is not None:
+        if not isinstance(n_cpus, int) or n_cpus <= 0:
+            raise ValueError("n_cpus must be a positive integer or None")
+        n_processes = min(n_cpus, multiprocessing.cpu_count())
+    else:
+        n_processes = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(processes=n_processes)
 
     # Create arguments list
@@ -550,6 +558,19 @@ def mutate_res_parallel(
         logger.error(f"[mutate_res_parallel] Could not list MutationsData directory: {e}", exc_info=True)
 
     total_time = time.time() - start_time
+
+    # Record runtime metrics for benchmarking
+    end_time = time.time()
+    start_iso = datetime.datetime.fromtimestamp(start_time).isoformat()
+    end_iso = datetime.datetime.fromtimestamp(end_time).isoformat()
+    metrics = {
+        "n_cpus": n_processes,
+        "time_s": total_time,
+        "time_per_aa": total_time / len(amino_acids),
+        "start_time": start_iso,
+        "end_time": end_iso,
+    }
+    pdb.MutationAnalysis = metrics
 
     # Log only the final storage location
     logger.info(

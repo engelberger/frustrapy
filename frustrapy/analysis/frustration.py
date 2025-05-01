@@ -33,6 +33,7 @@ def calculate_frustration(
     visualization: bool = True,
     results_dir: Optional[str] = None,
     debug: bool = False,
+    n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
 ) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults], Optional[Dict]]:
@@ -51,6 +52,7 @@ def calculate_frustration(
         visualization (bool): Make visualizations, including pymol.
         results_dir (str): Path to the folder where results will be stored.
         debug (bool): Debug mode flag.
+        n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
     """
 
     # Set flag for mutation calculations to suppress logging
@@ -103,6 +105,7 @@ def calculate_frustration(
         visualization=visualization,
         results_dir=results_dir,
         debug=debug,
+        n_cpus=n_cpus,
         is_mutation_calculation=is_mutation_calculation,
     )
 
@@ -152,7 +155,7 @@ def dir_frustration(
     pdbs_dir: str,
     order_list: Optional[List[str]] = None,
     chain: Optional[Union[str, List[str]]] = None,
-    residues: Optional[Dict[str, List[int]]] = None,  # Add residues parameter
+    residues: Optional[Dict[str, List[int]]] = None,
     electrostatics_k: Optional[float] = None,
     seq_dist: int = 12,
     mode: str = "configurational",
@@ -160,6 +163,7 @@ def dir_frustration(
     visualization: bool = True,
     results_dir: str = None,
     debug: bool = False,
+    n_cpus: Optional[int] = None,
 ) -> Tuple[Dict, Optional[FrustrationDensityResults]]:
     """Calculate local energy frustration for all protein structures in one directory."""
 
@@ -242,7 +246,7 @@ def dir_frustration(
             pdb, plots, density_results, single_res_data = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
-                residues=residues,  # Pass residues parameter
+                residues=residues,
                 electrostatics_k=electrostatics_k,
                 seq_dist=seq_dist,
                 mode=mode,
@@ -250,6 +254,7 @@ def dir_frustration(
                 visualization=visualization,
                 results_dir=results_dir,
                 debug=debug,
+                n_cpus=n_cpus,
             )
             # Add the plots to the dictionary
             plots_dir_dict[pdb.pdb_base] = plots
@@ -276,7 +281,7 @@ def dynamic_frustration(
     results_dir: Optional[str] = None,
 ) -> "Dynamic":
     """
-    Calculates local energetic frustration for a dynamic.
+    Calculates local energetic frustration for a trajectory.
 
     Args:
         pdbs_dir (str): Directory containing all protein structures. The full path to the file is needed.
