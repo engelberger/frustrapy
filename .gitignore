@@ -38,3 +38,4 @@ example_pdbs/*.pdb
 Results*
 jupyter_results/*
 test*.*
+*.pdb

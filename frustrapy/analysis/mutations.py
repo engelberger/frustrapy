@@ -12,6 +12,8 @@ import sys
 
 logger = logging.getLogger(__name__)
 
+# set the log level to debug
+#logger.setLevel(logging.DEBUG)
 
 def _process_amino_acid(
     args: Tuple[str, "Pdb", int, str, bool, bool, bool, str]
@@ -35,6 +37,8 @@ def _process_amino_acid(
     """
     aa, pdb, res_num, chain, split, debug, is_glycine, method = args
     logger = logging.getLogger(__name__)
+    # Debug: log incoming arguments for mutation
+    logger.debug(f"[_process_amino_acid] args: aa={aa}, res_num={res_num}, chain={chain}, split={split}, debug={debug}, is_glycine={is_glycine}, method={method}")
 
     # Only log detailed mutation info if in debug mode
     if logger.getEffectiveLevel() <= logging.DEBUG:
@@ -190,6 +194,7 @@ def _process_amino_acid(
     mutated_pdb = mutated_pdb.sort_index()
 
     # Save the mutated PDB
+    logger.debug(f"[_process_amino_acid] Preparing to save mutated PDB for variant {aa}")
     if split:
         output_pdb_path = os.path.join(
             pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}.pdb"
@@ -211,7 +216,7 @@ def _process_amino_acid(
             mutated_pdb[col] = mutated_pdb[col].astype(str)
         else:
             mutated_pdb[col] = " "
-
+    logger.debug(f"[_process_amino_acid] Saving mutated PDB to {output_pdb_path}")
     # Write PDB file
     with open(output_pdb_path, "w") as pdb_file:
         for _, row in mutated_pdb.iterrows():
@@ -236,6 +241,11 @@ def _process_amino_acid(
             )
             pdb_file.write(pdb_line)
 
+    # Debug: verify mutated PDB file write
+    if os.path.exists(output_pdb_path):
+        logger.debug(f"[_process_amino_acid] Mutated PDB exists: {output_pdb_path}, size={os.path.getsize(output_pdb_path)} bytes")
+    else:
+        logger.error(f"[_process_amino_acid] Mutated PDB file not found after write: {output_pdb_path}")
     logger.debug(f"Saved mutated PDB to {output_pdb_path}")
 
     # Construct the output PDB base name including chain
@@ -258,13 +268,16 @@ def _process_amino_acid(
     )
 
     # Store the frustration data
-    logger.debug("Storing frustration data...")
     frustration_data_dir = os.path.join(
         pdb.job_dir,
         f"{output_pdb_base}.done",
         "FrustrationData",
     )
-
+    logger.debug(f"[_process_amino_acid] Expecting frustration data directory: {frustration_data_dir}")
+    if os.path.exists(frustration_data_dir):
+        logger.debug(f"[_process_amino_acid] FrustrationData contents: {os.listdir(frustration_data_dir)}")
+    else:
+        logger.error(f"[_process_amino_acid] FrustrationData directory missing: {frustration_data_dir}")
     mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
     frustra_mut_file = os.path.join(
         mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
@@ -298,16 +311,34 @@ def _process_amino_acid(
         )
 
     elif pdb.mode in ["configurational", "mutational"]:
+        # Construct the expected source filename *including* the chain suffix
+        src_pdb_base = f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}"
         src_frusta_file = os.path.join(
             frustration_data_dir,
-            f"{os.path.basename(output_pdb_path).split('.')[0]}.pdb_{pdb.mode}",
+            f"{src_pdb_base}.pdb_{pdb.mode}",
         )
+        # Debug: log expected source and destination frustration files
+        logger.debug(f"[_process_amino_acid] src_frusta_file: {src_frusta_file}")
         dst_frusta_file = os.path.join(
             mutations_dir,
-            f"{os.path.basename(output_pdb_path).split('.')[0]}.pdb_{pdb.mode}",
+            f"{src_pdb_base}.pdb_{pdb.mode}",
         )
-
+        logger.debug(f"[_process_amino_acid] dst_frusta_file: {dst_frusta_file}")
+        # Check if the source file exists before attempting to move
+        if not os.path.exists(src_frusta_file):
+            logger.error(f"Source frustration file for mutation not found: {src_frusta_file}")
+            # Additional debug: list contents of frustration_data_dir or its parent
+            if os.path.exists(frustration_data_dir):
+                logger.error(f"Contents of {frustration_data_dir}: {os.listdir(frustration_data_dir)}")
+            else:
+                parent_done = os.path.dirname(frustration_data_dir)
+                logger.error(f"Parent directory {parent_done} contents: {os.listdir(parent_done) if os.path.exists(parent_done) else 'N/A'}")
+            # Skip storing if missing
+            logger.warning(f"Skipping storage for {aa} due to missing file.")
+            return {"aa": aa, "frustra_mut_file": None, "pdb": pdb}
+        logger.debug(f"[_process_amino_acid] Moving file {src_frusta_file} to {dst_frusta_file}")
         shutil.move(src_frusta_file, dst_frusta_file)
+        logger.debug(f"[_process_amino_acid] Successfully moved to {dst_frusta_file}")
 
         frustra_table = pd.read_csv(
             dst_frusta_file,
@@ -364,6 +395,7 @@ def _process_amino_acid(
     }
 
     # Return both the mutation data and updated pdb object
+    logger.debug(f"[_process_amino_acid] Completed processing variant {aa}, frustra_mut_file: {frustra_mut_file}")
     return {
         "aa": aa,
         "frustra_mut_file": frustra_mut_file,
@@ -380,6 +412,7 @@ def mutate_res_parallel(
     pbar: Optional[tqdm] = None,
 ) -> "Pdb":
     """Parallel version of mutate_res that processes amino acid mutations concurrently."""
+    logger.debug(f"[mutate_res_parallel] Starting parallel mutations for residue {res_num}, chain {chain}")
     start_time = time.time()
     logger.info(f"\nAnalyzing mutations for residue {res_num} in chain {chain}")
 
@@ -405,6 +438,7 @@ def mutate_res_parallel(
     # Setup output directory and file
     mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
     os.makedirs(mutations_dir, exist_ok=True)
+    logger.debug(f"[mutate_res_parallel] Using MutationsData directory: {mutations_dir}")
     frustra_mut_file = os.path.join(
         mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
     )
@@ -482,6 +516,8 @@ def mutate_res_parallel(
     results = []
     try:
         for result in pool.imap_unordered(_process_amino_acid, args_list):
+            # Debug: log each mutation result
+            logger.debug(f"[mutate_res_parallel] Received result: aa={result.get('aa')}, frustra_mut_file={result.get('frustra_mut_file')}")
             results.append(result)
             # Update pdb object with mutation data from each result
             if "pdb" in result:
@@ -507,12 +543,19 @@ def mutate_res_parallel(
     pool.close()
     pool.join()
 
+    # Debug: inspect MutationsData directory after processing
+    try:
+        logger.debug(f"[mutate_res_parallel] Final MutationsData contents: {os.listdir(mutations_dir)}")
+    except Exception as e:
+        logger.error(f"[mutate_res_parallel] Could not list MutationsData directory: {e}", exc_info=True)
+
     total_time = time.time() - start_time
 
     # Log only the final storage location
     logger.info(
         f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
     )
+    logger.debug(f"[mutate_res_parallel] Completed in {total_time:.2f}s")
 
     return pdb
 
@@ -526,7 +569,6 @@ def mutate_res(
     debug: bool = False,
 ) -> "Pdb":
     """Serial version of amino acid mutation processing."""
-    logger = logging.getLogger(__name__)
     start_time = time.time()
     method = method.lower()
 
