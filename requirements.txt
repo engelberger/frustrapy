@@ -8,3 +8,4 @@ python-igraph
 leidenalg
 psutil  # optional, for memory logging
 kaleido  # optional, for static image export 
+py3Dmol==2.4.2
