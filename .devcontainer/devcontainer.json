@@ -13,10 +13,10 @@
 		"ghcr.io/devcontainers-contrib/features/zsh-plugins:0": {},
 		"ghcr.io/stuartleeks/dev-container-features/shell-history:0": {}
 	},
-	"runArgs": [
-		"--gpus",
-		"all"
-],
+//	"runArgs": [
+//		"--gpus",
+//		"all"
+//],
 "customizations": {
 	"vscode": {
 		"extensions": [
