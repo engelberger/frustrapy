@@ -72,4 +72,19 @@ def scale_radius(magnitude: float, min_magnitude: float, max_magnitude: float, m
     range_mag = max_magnitude - min_magnitude
     if range_mag == 0:
         return (min_rad + max_rad) / 2
-    return min_rad + (magnitude - min_magnitude) / range_mag * (max_rad - min_rad) 
+    return min_rad + (magnitude - min_magnitude) / range_mag * (max_rad - min_rad)
+
+
+def get_residue_name(pdb, chain: str, res_num: int) -> str:
+    """Get the three-letter code for a specific residue."""
+    try:
+        # Use the Pdb object's atom DataFrame
+        res_name = pdb.atom[
+            (pdb.atom['chain'] == chain) &
+            (pdb.atom['res_num'] == res_num) &
+            (pdb.atom['atom_name'] == 'CA')  # Use CA atom to get residue name
+        ]['res_name'].iloc[0]
+        return res_name
+    except (IndexError, KeyError):
+        # Return empty string if residue/chain/atom not found
+        return "" 
