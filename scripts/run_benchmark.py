@@ -3,10 +3,12 @@
 Command-line tool for benchmarking FrustraPy mutation analysis performance.
 
 Usage:
-    python run_benchmark.py --pdb_file 1m6k.pdb --chain A --residue 75 --cpus 1 2 4 8 --repeats 3
+    python run_benchmark.py --input_pdbs 1m6k.pdb 1nfi.pdb --chain A --residue 75 --cpus 1 2 4 8 --repeats 3
+    python run_benchmark.py --input_pdbs ./pdb_directory/ --chain A --residue 75 --cpus 1 2 4 8 --repeats 3
 """
 
 import os
+import glob
 import argparse
 import pandas as pd
 import frustrapy.benchmark as benchmark
@@ -28,12 +30,42 @@ console = Console()
 # Add the parent directory to the Python path
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+def process_input_path(path):
+    """Process an input path to find PDB files.
+    
+    Args:
+        path: A path to either a PDB file or a directory containing PDB files
+        
+    Returns:
+        List of absolute paths to PDB files
+    """
+    path = os.path.abspath(path)
+    
+    if os.path.isfile(path):
+        # Check if it's a PDB file
+        if path.lower().endswith(('.pdb', '.ent')):
+            return [path]
+        else:
+            console.print(f"[yellow]Warning: {path} is not a PDB file (must end with .pdb or .ent). Skipping.[/yellow]")
+            return []
+    elif os.path.isdir(path):
+        # Find all PDB files in the directory
+        pdb_files = glob.glob(os.path.join(path, "*.pdb"))
+        pdb_files.extend(glob.glob(os.path.join(path, "*.ent")))
+        if not pdb_files:
+            console.print(f"[yellow]Warning: No PDB files found in directory: {path}[/yellow]")
+        return pdb_files
+    else:
+        console.print(f"[yellow]Warning: Path does not exist: {path}[/yellow]")
+        return []
+
 def main():
     """Parse arguments and run benchmark with visualizations."""
     parser = argparse.ArgumentParser(
         description="Benchmark mutational analysis performance in FrustraPy."
     )
-    parser.add_argument('--pdb_file', required=True, help='Path to the PDB file')
+    parser.add_argument('--input_pdbs', nargs='+', required=True, 
+                        help='Path(s) to PDB file(s) or directories containing PDB files')
     parser.add_argument('--chain', required=True, help='Chain identifier')
     parser.add_argument('--residue', dest='residues', nargs='+', type=int, required=True, help='Residue number(s) to mutate')
     parser.add_argument('--results_dir', default='benchmark_results', help='Directory for benchmark results')
@@ -46,6 +78,16 @@ def main():
                         help='Disable cautious mode; rerun benchmarks even if data already recorded')
     args = parser.parse_args()
 
+    # Process input paths to get list of PDB files
+    all_pdb_files = []
+    for input_path in args.input_pdbs:
+        pdb_files = process_input_path(input_path)
+        all_pdb_files.extend(pdb_files)
+    
+    if not all_pdb_files:
+        console.print("[bold red]Error: No valid PDB files found in the provided input paths.[/bold red]")
+        sys.exit(1)
+    
     # Create directory structure
     results_dir = args.results_dir
     data_dir = os.path.join(results_dir, 'data')
@@ -73,7 +115,14 @@ def main():
     config_table = Table(box=box.SIMPLE, show_header=False)
     config_table.add_column("Parameter", style="bold cyan")
     config_table.add_column("Value", style="green")
-    config_table.add_row("PDB File", os.path.basename(args.pdb_file))
+    
+    # Format PDB file list for display
+    pdb_files_display = ", ".join([os.path.basename(f) for f in all_pdb_files[:5]])
+    if len(all_pdb_files) > 5:
+        pdb_files_display += f" and {len(all_pdb_files) - 5} more"
+    
+    config_table.add_row("PDB Files", pdb_files_display)
+    config_table.add_row("Number of PDB Files", str(len(all_pdb_files)))
     config_table.add_row("Chain", args.chain)
     config_table.add_row("Residues", ", ".join(map(str, args.residues)))
     config_table.add_row("CPU Configurations", ", ".join(map(str, args.cpus)))
@@ -86,43 +135,64 @@ def main():
     # Display benchmark start message
     console.print("\n[bold]Starting benchmark...[/bold]")
     
-    # Run the benchmark
-    console.print("[bold green]Running benchmark calculations...[/bold green]")
-    df = benchmark.run_benchmark(
-        pdb_file=args.pdb_file,
-        chain=args.chain,
-        residues=args.residues,
-        cpu_list=args.cpus,
-        results_dir=results_dir,
-        repeats=args.repeats,
-        cautious=args.cautious
-    )
-    console.print("[bold green]Benchmark calculations completed![/bold green]")
+    # Create a progress bar for PDB file processing
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(),
+        TextColumn("[bold green]{task.completed}/{task.total}"),
+        TimeElapsedColumn(),
+    ) as progress:
+        pdb_task = progress.add_task("[cyan]Processing PDB files...", total=len(all_pdb_files))
+        
+        # Run benchmarks for each PDB file and collect results
+        all_results = []
+        for pdb_file in all_pdb_files:
+            pdb_id = os.path.splitext(os.path.basename(pdb_file))[0]
+            progress.update(pdb_task, description=f"[cyan]Processing {pdb_id}...")
+            
+            # Create subdirectory for this PDB's results
+            pdb_results_dir = os.path.join(results_dir, pdb_id)
+            os.makedirs(pdb_results_dir, exist_ok=True)
+            
+            # Run the benchmark for this PDB
+            console.print(f"[bold green]Running benchmark calculations for {pdb_id}...[/bold green]")
+            df = benchmark.run_benchmark(
+                pdb_file=pdb_file,
+                chain=args.chain,
+                residues=args.residues,
+                cpu_list=args.cpus,
+                results_dir=pdb_results_dir,
+                repeats=args.repeats,
+                cautious=args.cautious
+            )
+            all_results.append(df)
+            progress.update(pdb_task, advance=1)
+    
+    # Combine all results into one DataFrame
+    console.print("[bold green]Combining results from all PDB files...[/bold green]")
+    df_combined = pd.concat(all_results, ignore_index=True)
     
     # Save aggregated data
     csv_path = os.path.join(data_dir, args.output_csv)
-    df.to_csv(csv_path, index=False)
-    
-    # Also save raw data
-    raw_path = os.path.join(data_dir, 'raw_benchmark_data.csv')
+    df_combined.to_csv(csv_path, index=False)
     
     # Create a file tree to show saved files
     file_tree = Tree("📁 [bold]Benchmark Results[/bold]")
     data_branch = file_tree.add("📁 [bold cyan]Data Files[/bold cyan]")
     data_branch.add(f"📊 [green]{os.path.basename(csv_path)}[/green] (Aggregated)")
-    if os.path.exists(raw_path):
-        data_branch.add(f"📊 [green]{os.path.basename(raw_path)}[/green] (Raw data)")
     
     # Print results table with Rich
     console.print("\n[bold cyan]Benchmark Results Summary:[/bold cyan]")
     results_table = Table(show_header=True, header_style="bold magenta", box=box.SIMPLE)
     
     # Define the columns to display
-    display_cols = ['residue', 'n_cpus', 'time_s', 'time_s_std', 'speedup', 'speedup_std', 'efficiency', 'efficiency_std']
-    display_cols = [col for col in display_cols if col in df.columns]
+    display_cols = ['pdb_id', 'residue', 'n_cpus', 'time_s', 'time_s_std', 'speedup', 'speedup_std', 'efficiency', 'efficiency_std']
+    display_cols = [col for col in display_cols if col in df_combined.columns]
     
     # Add column titles with better names
     col_titles = {
+        'pdb_id': "PDB ID",
         'residue': "Residue",
         'n_cpus': "CPU Cores",
         'time_s': "Time (s)",
@@ -136,10 +206,10 @@ def main():
     # Add columns to table with proper formatting
     for col in display_cols:
         fmt = ".3f" if col.endswith('_std') or col in ['time_s', 'speedup', 'efficiency'] else ""
-        results_table.add_column(col_titles.get(col, col), justify="center" if col == 'residue' else "right", no_wrap=True)
+        results_table.add_column(col_titles.get(col, col), justify="center" if col in ['pdb_id', 'residue'] else "right", no_wrap=True)
     
     # Add rows to the table
-    for _, row in df.iterrows():
+    for _, row in df_combined.iterrows():
         values = []
         for col in display_cols:
             val = row[col]
@@ -168,7 +238,7 @@ def main():
     console.print("\n[bold cyan]Generating visualization plots...[/bold cyan]")
 
     # Check if baseline data (n_cpus=1) is available for speedup/efficiency plots
-    baseline_exists = 1 in df['n_cpus'].values
+    baseline_exists = 1 in df_combined['n_cpus'].values
     if not baseline_exists:
         console.print(Panel(
             "[yellow]Baseline data (n_cpus=1) not found.\n"
@@ -187,80 +257,166 @@ def main():
         TextColumn("[bold green]{task.completed}/{task.total}"),
         TimeElapsedColumn(),
     ) as progress:
+        # Get unique PDB IDs
+        pdb_ids = df_combined['pdb_id'].unique()
+        
         # Calculate total number of plots to generate
-        plot_count = 1  # Execution time plot is always generated
+        # Base plots: combined plots (1 set)
+        base_plot_count = 1  # Execution time plot is always generated
         if baseline_exists:
-            plot_count += 2  # Add speedup and efficiency if baseline exists
+            base_plot_count += 2  # Add speedup and efficiency if baseline exists
+        
+        # Total plots: combined plots + individual PDB plots * number of PDBs
+        plot_count = base_plot_count * (len(pdb_ids) + 1)  # +1 for combined plots
         
         if args.plot_format == 'both':
             plot_count *= 2  # Double for both Plotly and Seaborn
             
         plot_task = progress.add_task("[cyan]Creating visualizations...", total=plot_count)
         
-        # Plotly plots
+        # Plotly plots branch in the file tree
         plots_branch = file_tree.add("📁 [bold cyan]Visualization Plots[/bold cyan]")
         
+        # Generate combined plots first
         if args.plot_format in ['plotly', 'both']:
             plotly_branch = plots_branch.add("📊 [bold]Plotly Interactive Plots[/bold]")
+            combined_plotly = plotly_branch.add("📊 [bold]Combined PDB Plots[/bold]")
+            
             if baseline_exists:
-                # Speedup plot
-                fig_su = benchmark.plot_speedup_linear(df, title=titles['speedup'])
-                fig_su.write_image(os.path.join(plots_dir, 'speedup_linear.png'), scale=2)
-                fig_su.write_html(os.path.join(plots_dir, 'speedup_linear.html'))
-                plotly_branch.add("📈 [green]speedup_linear.png/html[/green]")
+                # Combined speedup plot
+                fig_su = benchmark.plot_speedup_linear(df_combined, title=f"{titles['speedup']} - All PDBs")
+                fig_su.write_image(os.path.join(plots_dir, 'combined_speedup_linear.png'), scale=2)
+                fig_su.write_html(os.path.join(plots_dir, 'combined_speedup_linear.html'))
+                combined_plotly.add("📈 [green]combined_speedup_linear.png/html[/green]")
                 progress.update(plot_task, advance=1)
                 
-                # Efficiency plot
-                fig_eff = benchmark.plot_efficiency(df, title=titles['efficiency'])
-                fig_eff.write_image(os.path.join(plots_dir, 'efficiency.png'), scale=2)
-                fig_eff.write_html(os.path.join(plots_dir, 'efficiency.html'))
-                plotly_branch.add("📉 [green]efficiency.png/html[/green]")
+                # Combined efficiency plot
+                fig_eff = benchmark.plot_efficiency(df_combined, title=f"{titles['efficiency']} - All PDBs")
+                fig_eff.write_image(os.path.join(plots_dir, 'combined_efficiency.png'), scale=2)
+                fig_eff.write_html(os.path.join(plots_dir, 'combined_efficiency.html'))
+                combined_plotly.add("📉 [green]combined_efficiency.png/html[/green]")
                 progress.update(plot_task, advance=1)
             
-            # Execution time plot (always generated)
-            fig_time = benchmark.plot_execution_time(df, title=titles['time'])
-            fig_time.write_image(os.path.join(plots_dir, 'execution_time.png'), scale=2)
-            fig_time.write_html(os.path.join(plots_dir, 'execution_time.html'))
-            plotly_branch.add("⏱️ [green]execution_time.png/html[/green]")
+            # Combined execution time plot (always generated)
+            fig_time = benchmark.plot_execution_time(df_combined, title=f"{titles['time']} - All PDBs")
+            fig_time.write_image(os.path.join(plots_dir, 'combined_execution_time.png'), scale=2)
+            fig_time.write_html(os.path.join(plots_dir, 'combined_execution_time.html'))
+            combined_plotly.add("⏱️ [green]combined_execution_time.png/html[/green]")
             progress.update(plot_task, advance=1)
+            
+            # Generate individual PDB plots
+            for pdb_id in pdb_ids:
+                # Filter data for current PDB
+                df_pdb = df_combined[df_combined['pdb_id'] == pdb_id]
+                
+                # Create PDB-specific branch
+                pdb_plotly = plotly_branch.add(f"📊 [bold]{pdb_id} Plots[/bold]")
+                
+                if baseline_exists and 1 in df_pdb['n_cpus'].values:
+                    # Individual speedup plot
+                    fig_su = benchmark.plot_speedup_linear(df_pdb, title=f"{titles['speedup']} - {pdb_id}")
+                    fig_su.write_image(os.path.join(plots_dir, f'{pdb_id}_speedup_linear.png'), scale=2)
+                    fig_su.write_html(os.path.join(plots_dir, f'{pdb_id}_speedup_linear.html'))
+                    pdb_plotly.add(f"📈 [green]{pdb_id}_speedup_linear.png/html[/green]")
+                    progress.update(plot_task, advance=1)
+                    
+                    # Individual efficiency plot
+                    fig_eff = benchmark.plot_efficiency(df_pdb, title=f"{titles['efficiency']} - {pdb_id}")
+                    fig_eff.write_image(os.path.join(plots_dir, f'{pdb_id}_efficiency.png'), scale=2)
+                    fig_eff.write_html(os.path.join(plots_dir, f'{pdb_id}_efficiency.html'))
+                    pdb_plotly.add(f"📉 [green]{pdb_id}_efficiency.png/html[/green]")
+                    progress.update(plot_task, advance=1)
+                elif baseline_exists:
+                    # Skip speedup/efficiency plots if no baseline for this PDB
+                    progress.update(plot_task, advance=2)
+                
+                # Individual execution time plot
+                fig_time = benchmark.plot_execution_time(df_pdb, title=f"{titles['time']} - {pdb_id}")
+                fig_time.write_image(os.path.join(plots_dir, f'{pdb_id}_execution_time.png'), scale=2)
+                fig_time.write_html(os.path.join(plots_dir, f'{pdb_id}_execution_time.html'))
+                pdb_plotly.add(f"⏱️ [green]{pdb_id}_execution_time.png/html[/green]")
+                progress.update(plot_task, advance=1)
         
         # Seaborn plots
         if args.plot_format in ['seaborn', 'both']:
             seaborn_branch = plots_branch.add("📊 [bold]Seaborn Publication Plots[/bold]")
+            combined_seaborn = seaborn_branch.add("📊 [bold]Combined PDB Plots[/bold]")
+            
             if baseline_exists:
+                # Combined speedup plot
                 benchmark.plot_seaborn_speedup(
-                    df, 
-                    save_path=os.path.join(plots_dir, 'speedup_seaborn.png'),
-                    title=titles['speedup']
+                    df_combined, 
+                    save_path=os.path.join(plots_dir, 'combined_speedup_seaborn.png'),
+                    title=f"{titles['speedup']} - All PDBs"
                 )
-                seaborn_branch.add("📈 [green]speedup_seaborn.png[/green]")
+                combined_seaborn.add("📈 [green]combined_speedup_seaborn.png[/green]")
                 progress.update(plot_task, advance=1)
                 
+                # Combined efficiency plot
                 benchmark.plot_seaborn_efficiency(
-                    df, 
-                    save_path=os.path.join(plots_dir, 'efficiency_seaborn.png'),
-                    title=titles['efficiency']
+                    df_combined, 
+                    save_path=os.path.join(plots_dir, 'combined_efficiency_seaborn.png'),
+                    title=f"{titles['efficiency']} - All PDBs"
                 )
-                seaborn_branch.add("📉 [green]efficiency_seaborn.png[/green]")
+                combined_seaborn.add("📉 [green]combined_efficiency_seaborn.png[/green]")
                 progress.update(plot_task, advance=1)
-                
-            # Execution time plot (always generated)
+            
+            # Combined execution time plot
             benchmark.plot_seaborn_execution_time(
-                df, 
-                save_path=os.path.join(plots_dir, 'execution_time_seaborn.png'),
-                title=titles['time']
+                df_combined, 
+                save_path=os.path.join(plots_dir, 'combined_execution_time_seaborn.png'),
+                title=f"{titles['time']} - All PDBs"
             )
-            seaborn_branch.add("⏱️ [green]execution_time_seaborn.png[/green]")
+            combined_seaborn.add("⏱️ [green]combined_execution_time_seaborn.png[/green]")
             progress.update(plot_task, advance=1)
+            
+            # Generate individual PDB plots
+            for pdb_id in pdb_ids:
+                # Filter data for current PDB
+                df_pdb = df_combined[df_combined['pdb_id'] == pdb_id]
+                
+                # Create PDB-specific branch
+                pdb_seaborn = seaborn_branch.add(f"📊 [bold]{pdb_id} Plots[/bold]")
+                
+                if baseline_exists and 1 in df_pdb['n_cpus'].values:
+                    # Individual speedup plot
+                    benchmark.plot_seaborn_speedup(
+                        df_pdb, 
+                        save_path=os.path.join(plots_dir, f'{pdb_id}_speedup_seaborn.png'),
+                        title=f"{titles['speedup']} - {pdb_id}"
+                    )
+                    pdb_seaborn.add(f"📈 [green]{pdb_id}_speedup_seaborn.png[/green]")
+                    progress.update(plot_task, advance=1)
+                    
+                    # Individual efficiency plot
+                    benchmark.plot_seaborn_efficiency(
+                        df_pdb, 
+                        save_path=os.path.join(plots_dir, f'{pdb_id}_efficiency_seaborn.png'),
+                        title=f"{titles['efficiency']} - {pdb_id}"
+                    )
+                    pdb_seaborn.add(f"📉 [green]{pdb_id}_efficiency_seaborn.png[/green]")
+                    progress.update(plot_task, advance=1)
+                elif baseline_exists:
+                    # Skip speedup/efficiency plots if no baseline for this PDB
+                    progress.update(plot_task, advance=2)
+                
+                # Individual execution time plot
+                benchmark.plot_seaborn_execution_time(
+                    df_pdb, 
+                    save_path=os.path.join(plots_dir, f'{pdb_id}_execution_time_seaborn.png'),
+                    title=f"{titles['time']} - {pdb_id}"
+                )
+                pdb_seaborn.add(f"⏱️ [green]{pdb_id}_execution_time_seaborn.png[/green]")
+                progress.update(plot_task, advance=1)
     
     # Print file summary tree
     console.print(file_tree)
     
     # Final success message
     console.print(Panel.fit(
-        "[bold green]Benchmark completed successfully![/bold green]\n\n"
-        "[cyan]The plots are ready to be used in your manuscript or presentation.[/cyan]\n"
-        "[dim]Run with different CPU configurations to explore parallel scaling behavior.[/dim]",
+        f"[bold green]Benchmark completed successfully for {len(all_pdb_files)} PDB files![/bold green]\n\n"
+        "[cyan]Individual plots for each PDB and combined plots are available in the results directory.[/cyan]\n"
+        "[dim]The plots are ready to be used in your manuscript or presentation.[/dim]",
         border_style="green",
         title="✅ Complete",
         padding=(1, 2)
