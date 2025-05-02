@@ -29,6 +29,7 @@ from .config import FrustrationConfig
 from .exceptions import ValidationError, FileOperationError
 from ..utils.subprocess import run_subprocess
 from ..utils.file_utils import safe_copy, safe_move, ensure_file_exists
+from ..utils.ui import display_error, display_overwrite_warning, display_success
 
 logger = logging.getLogger(__name__)
 
@@ -150,8 +151,14 @@ class FrustrationCalculator:
                 self.pdb_file = job_pdb
                 logger.debug(f"Successfully copied PDB file to job directory: {job_pdb}")
             except FileOperationError as e:
-                logger.debug(f"Failed to copy PDB file: {e}")
-                raise
+                if "Destination file already exists" in str(e) and not self.overwrite:
+                    # Display specific overwrite warning
+                    display_overwrite_warning(e)
+                    sys.exit(1)
+                else:
+                    # Display general file operation error
+                    display_error(e, is_debug=self.debug)
+                    sys.exit(1)
 
             # Create PDB object with absolute paths
             pdb = self._create_pdb_object(job_dir, pdb_base)

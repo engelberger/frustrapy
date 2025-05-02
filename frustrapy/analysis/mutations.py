@@ -10,6 +10,7 @@ from ..core import Pdb, SingleResidueData
 from ..utils import log_execution_time
 import sys
 import datetime  # added for timestamping
+from ..utils.ui import display_success  # Add this import
 
 logger = logging.getLogger(__name__)
 
@@ -577,6 +578,10 @@ def mutate_res_parallel(
         f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
     )
     logger.debug(f"[mutate_res_parallel] Completed in {total_time:.2f}s")
+
+    # Success message
+    success_msg = f"Mutation analysis completed successfully for residue {chain}:{res_num}.\n{len(amino_acids)} mutations processed."
+    display_success(success_msg)
 
     return pdb
 
