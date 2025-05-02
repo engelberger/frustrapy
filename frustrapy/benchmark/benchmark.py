@@ -14,7 +14,7 @@ import json
 def run_benchmark(
     pdb_file: str, 
     chain: str, 
-    residue: int, 
+    residues: Union[int, List[int]], 
     cpu_list: list, 
     results_dir: str,
     repeats: int = 3,
@@ -26,7 +26,7 @@ def run_benchmark(
     Args:
         pdb_file: Path to the PDB file
         chain: Chain identifier
-        residue: Residue number to mutate
+        residues: Residue numbers to mutate
         cpu_list: List of CPU counts to test (e.g., [1, 2, 4, 8])
         results_dir: Directory for storing benchmark outputs
         repeats: Number of repetitions for each CPU configuration (default=3)
@@ -34,6 +34,7 @@ def run_benchmark(
         
     Returns:
         DataFrame with aggregated benchmark results containing:
+            - residue: Residue number that was mutated
             - n_cpus: Number of CPUs used
             - time_s: Mean execution time in seconds
             - time_s_std: Standard deviation of execution time
@@ -45,17 +46,24 @@ def run_benchmark(
             - efficiency: Mean parallel efficiency
             - efficiency_std: Standard deviation of efficiency
     """
+    # Normalize residues input to list
+    if not isinstance(residues, (list, tuple)):
+        residues = [residues]
     # Prepare output directory
     os.makedirs(results_dir, exist_ok=True)
     
     # Get PDB identifier from filename
     pdb_id = os.path.splitext(os.path.basename(pdb_file))[0]
     
-    # Run benchmarks for each CPU count (with cautious mode)
+    # Run benchmarks for each residue and CPU count (with cautious mode)
     raw_path = os.path.join(results_dir, 'raw_benchmark_data.csv')
     df_old = None
     if cautious and os.path.exists(raw_path):
-        df_old = pd.read_csv(raw_path)
+        df_temp = pd.read_csv(raw_path)
+        if 'residue' in df_temp.columns and 'n_cpus' in df_temp.columns:
+            df_old = df_temp
+        else:
+            print(f"Cautious mode enabled but raw benchmark file {raw_path} missing 'residue' or 'n_cpus' columns; ignoring cautious mode")
 
     all_results = []
     if df_old is not None:
@@ -98,47 +106,49 @@ def run_benchmark(
     except Exception:
         print(f'Warning: failed to save CPU specs to {spec_path}')
 
-    for ncpu in cpu_list:
-        # Determine how many previous runs exist for this CPU count
-        prev_runs = 0
-        if df_old is not None:
-            prev_data = df_old[df_old['n_cpus'] == ncpu]
-            if not prev_data.empty:
-                prev_runs = prev_data['run'].max()
+    for res in residues:
+        for ncpu in cpu_list:
+            # Determine how many previous runs exist for this CPU count
+            prev_runs = 0
+            if df_old is not None:
+                prev_data = df_old[(df_old['n_cpus'] == ncpu) & (df_old['residue'] == res)]
+                if not prev_data.empty:
+                    prev_runs = prev_data['run'].max()
 
-        # Calculate how many new runs to perform
-        runs_to_do = repeats if df_old is None else max(0, repeats - prev_runs)
-        if runs_to_do == 0:
-            continue
+            # Calculate how many new runs to perform
+            runs_to_do = repeats if df_old is None else max(0, repeats - prev_runs)
+            if runs_to_do == 0:
+                continue
 
-        cpu_results = []
-        for i in range(runs_to_do):
-            run_number = prev_runs + i + 1
-            # Create per-run directory
-            run_dir = os.path.join(results_dir, f"run_{ncpu}_cpus_{run_number}")
-            os.makedirs(run_dir, exist_ok=True)
+            cpu_results = []
+            for i in range(runs_to_do):
+                run_number = prev_runs + i + 1
+                # Create per-run directory
+                run_dir = os.path.join(results_dir, f"run_{ncpu}_cpus_{run_number}_res_{res}")
+                os.makedirs(run_dir, exist_ok=True)
 
-            # Run single-residue frustration analysis
-            pdb, plots, density, single_data = frustrapy.calculate_frustration(
-                pdb_file=pdb_file,
-                mode="singleresidue",
-                chain=chain,
-                residues={chain: [residue]},
-                results_dir=run_dir,
-                n_cpus=ncpu,
-                debug=False
-            )
+                # Run single-residue frustration analysis
+                pdb, plots, density, single_data = frustrapy.calculate_frustration(
+                    pdb_file=pdb_file,
+                    mode="singleresidue",
+                    chain=chain,
+                    residues={chain: [res]},
+                    results_dir=run_dir,
+                    n_cpus=ncpu,
+                    debug=False
+                )
 
-            # Extract metrics
-            metrics = getattr(pdb, 'MutationAnalysis', {}).copy()
-            metrics['n_cpus'] = ncpu
-            metrics['pdb_id'] = pdb_id
-            metrics['run'] = run_number
-            cpu_results.append(metrics)
+                # Extract metrics
+                metrics = getattr(pdb, 'MutationAnalysis', {}).copy()
+                metrics['residue'] = res
+                metrics['n_cpus'] = ncpu
+                metrics['pdb_id'] = pdb_id
+                metrics['run'] = run_number
+                cpu_results.append(metrics)
 
-        # Create DataFrame for this CPU configuration
-        df_cpu = pd.DataFrame(cpu_results)
-        all_results.append(df_cpu)
+            # Create DataFrame for this CPU configuration
+            df_cpu = pd.DataFrame(cpu_results)
+            all_results.append(df_cpu)
 
     # Combine all results
     df_raw = pd.concat(all_results, ignore_index=True)
@@ -150,30 +160,28 @@ def run_benchmark(
     # Save detailed raw results
     df_raw.to_csv(raw_path, index=False)
     
-    # Compute aggregated statistics (mean and std)
+    # Compute aggregated statistics (mean and std) per residue and CPU count
     stats = []
-    for cpu in cpu_list:
-        cpu_data = df_raw[df_raw['n_cpus'] == cpu]
-        
-        # Calculate mean and std for each metric
-        stats_dict = {'n_cpus': cpu, 'pdb_id': pdb_id}
-        
-        # Include CPU specs for reproducibility
-        stats_dict.update(cpu_specs)
-        
-        if 'time_s' in cpu_data.columns:
-            stats_dict['time_s'] = cpu_data['time_s'].mean()
-            stats_dict['time_s_std'] = cpu_data['time_s'].std()
-            
-        if 'time_per_aa' in cpu_data.columns:
-            stats_dict['time_per_aa'] = cpu_data['time_per_aa'].mean()
-            stats_dict['time_per_aa_std'] = cpu_data['time_per_aa'].std()
-        
-        # Add raw data paths
-        stats_dict['data_source'] = raw_path
-        stats_dict['n_repeats'] = repeats
-        
-        stats.append(stats_dict)
+    for res in residues:
+        for cpu in cpu_list:
+            cpu_data = df_raw[(df_raw['n_cpus'] == cpu) & (df_raw['residue'] == res)]
+            # Skip if no data for this combination
+            if cpu_data.empty:
+                continue
+            # Calculate mean and std for each metric
+            stats_dict = {'residue': res, 'n_cpus': cpu, 'pdb_id': pdb_id}
+            # Include CPU specs for reproducibility
+            stats_dict.update(cpu_specs)
+            if 'time_s' in cpu_data.columns:
+                stats_dict['time_s'] = cpu_data['time_s'].mean()
+                stats_dict['time_s_std'] = cpu_data['time_s'].std()
+            if 'time_per_aa' in cpu_data.columns:
+                stats_dict['time_per_aa'] = cpu_data['time_per_aa'].mean()
+                stats_dict['time_per_aa_std'] = cpu_data['time_per_aa'].std()
+            # Add raw data paths
+            stats_dict['data_source'] = raw_path
+            stats_dict['n_repeats'] = repeats
+            stats.append(stats_dict)
     
     df_stats = pd.DataFrame(stats)
     

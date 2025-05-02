@@ -580,7 +580,8 @@ def mutate_res_parallel(
 
     return pdb
 
-
+# This should be deprecated in favor of mutate_res_parallel
+# TODO: Deprecate this function
 def mutate_res(
     pdb: "Pdb",
     res_num: int,
