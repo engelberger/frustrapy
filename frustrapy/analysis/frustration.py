@@ -60,6 +60,10 @@ def calculate_frustration(
 
     # Combine external flag for nested mutation calls and singleresidue detection
     is_mutation_calculation = is_mutation_calculation or (mode == "singleresidue" and residues is not None)
+    
+    # Also check for environment variable set by mutation processing
+    if os.environ.get('FRUSTRAPY_MUTATION_CALCULATION') == 'True':
+        is_mutation_calculation = True
 
     # Only log protocol for main calculations, not individual mutations
     if is_mutation_calculation:
