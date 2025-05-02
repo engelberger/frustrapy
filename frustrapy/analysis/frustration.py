@@ -15,6 +15,8 @@ from ..utils import log_execution_time
 from tqdm.auto import tqdm  # Make sure to use tqdm.auto for better compatibility
 from .frustration_calculator import FrustrationCalculator, FrustrationDensityResults
 from ..utils.helpers import organize_single_residue_data, pdb_equivalences, renum_files
+from .exceptions import FileOperationError
+from ..utils.ui import display_error, display_overwrite_warning, display_success  # Import Rich display utils
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,7 @@ def calculate_frustration(
     visualization: bool = True,
     results_dir: Optional[str] = None,
     debug: bool = False,
+    overwrite: bool = False,
     n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
@@ -55,8 +58,8 @@ def calculate_frustration(
         n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
     """
 
-    # Set flag for mutation calculations to suppress logging
-    is_mutation_calculation = mode == "singleresidue" and residues is not None
+    # Combine external flag for nested mutation calls and singleresidue detection
+    is_mutation_calculation = is_mutation_calculation or (mode == "singleresidue" and residues is not None)
 
     # Only log protocol for main calculations, not individual mutations
     if is_mutation_calculation:
@@ -105,13 +108,33 @@ def calculate_frustration(
         visualization=visualization,
         results_dir=results_dir,
         debug=debug,
+        overwrite=overwrite,
         n_cpus=n_cpus,
         is_mutation_calculation=is_mutation_calculation,
     )
 
     logger.debug("Starting calculation")
-    pdb, plots, density_results = calculator.calculate()
-    logger.debug("Calculation completed")
+    try:
+        pdb, plots, density_results = calculator.calculate()
+        logger.debug("Calculation completed")
+        # Display success message
+        success_msg = f"Frustration calculation completed successfully for {pdb.pdb_base}.\nResults stored in: {pdb.job_dir}"
+        # Only show the rich success banner for top-level calculations
+        if not is_mutation_calculation:
+            display_success(success_msg)
+    except FileOperationError as e:
+        if "Destination file already exists" in e.message and not overwrite:
+            # Display specific overwrite warning
+            display_overwrite_warning(e)
+        else:
+            # Display general file operation error
+            display_error(e, is_debug=debug)
+        sys.exit(1)
+    except Exception as e:
+        # Display any other error
+        display_error(e, is_debug=debug)
+        logger.error(f"An unexpected error occurred during frustration calculation: {e}", exc_info=True)
+        raise
 
     single_residue_data = None
     # Save single residue data if in singleresidue mode

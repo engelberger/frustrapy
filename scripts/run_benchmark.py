@@ -21,7 +21,7 @@ def main():
     )
     parser.add_argument('--pdb_file', required=True, help='Path to the PDB file')
     parser.add_argument('--chain', required=True, help='Chain identifier')
-    parser.add_argument('--residue', type=int, required=True, help='Residue number to mutate')
+    parser.add_argument('--residue', dest='residues', nargs='+', type=int, required=True, help='Residue number(s) to mutate')
     parser.add_argument('--results_dir', default='benchmark_results', help='Directory for benchmark results')
     parser.add_argument('--cpus', nargs='+', type=int, default=[1,2,4,8], help='List of CPU counts to test')
     parser.add_argument('--repeats', type=int, default=3, help='Number of times to repeat each benchmark for statistical significance')
@@ -45,12 +45,12 @@ def main():
     # Run benchmark
     print(f"Running benchmark with {len(args.cpus)} CPU configurations: {args.cpus}")
     print(f"Each configuration will be repeated {args.repeats} times for statistical significance")
-    print(f"Cautious mode {'enabled: skipping already recorded runs' if args.cautious else 'disabled: rerunning all benchmarks'}")
+    print(f"Residues to mutate: {args.residues}")
     
     df = benchmark.run_benchmark(
         pdb_file=args.pdb_file,
         chain=args.chain,
-        residue=args.residue,
+        residues=args.residues,
         cpu_list=args.cpus,
         results_dir=results_dir,
         repeats=args.repeats,
@@ -69,7 +69,7 @@ def main():
     
     # Print results table
     print("\nBenchmark Results Summary:")
-    display_cols = ['n_cpus', 'time_s', 'time_s_std', 'speedup', 'speedup_std', 'efficiency', 'efficiency_std']
+    display_cols = ['residue', 'n_cpus', 'time_s', 'time_s_std', 'speedup', 'speedup_std', 'efficiency', 'efficiency_std']
     display_cols = [col for col in display_cols if col in df.columns]
     print(df[display_cols].to_string(index=False, float_format=lambda x: f"{x:.3f}"))
     
@@ -82,21 +82,29 @@ def main():
     
     # Generate plots
     print("\nGenerating plots...")
+
+    # Check if baseline data (n_cpus=1) is available for speedup/efficiency plots
+    baseline_exists = 1 in df['n_cpus'].values
+    if not baseline_exists:
+        print("\nWarning: Baseline data (n_cpus=1) not found.")
+        print("Speedup and efficiency plots require baseline data and will be skipped.")
+        print("Please include '--cpus 1' in your command to generate these plots.")
     
     # Plotly plots
     if args.plot_format in ['plotly', 'both']:
         print("Creating Plotly plots...")
-        # Speedup plot
-        fig_su = benchmark.plot_speedup_linear(df, title=titles['speedup'])
-        fig_su.write_image(os.path.join(plots_dir, 'speedup_linear.png'), scale=2)
-        fig_su.write_html(os.path.join(plots_dir, 'speedup_linear.html'))
+        if baseline_exists:
+            # Speedup plot
+            fig_su = benchmark.plot_speedup_linear(df, title=titles['speedup'])
+            fig_su.write_image(os.path.join(plots_dir, 'speedup_linear.png'), scale=2)
+            fig_su.write_html(os.path.join(plots_dir, 'speedup_linear.html'))
+            
+            # Efficiency plot
+            fig_eff = benchmark.plot_efficiency(df, title=titles['efficiency'])
+            fig_eff.write_image(os.path.join(plots_dir, 'efficiency.png'), scale=2)
+            fig_eff.write_html(os.path.join(plots_dir, 'efficiency.html'))
         
-        # Efficiency plot
-        fig_eff = benchmark.plot_efficiency(df, title=titles['efficiency'])
-        fig_eff.write_image(os.path.join(plots_dir, 'efficiency.png'), scale=2)
-        fig_eff.write_html(os.path.join(plots_dir, 'efficiency.html'))
-        
-        # Execution time plot
+        # Execution time plot (always generated)
         fig_time = benchmark.plot_execution_time(df, title=titles['time'])
         fig_time.write_image(os.path.join(plots_dir, 'execution_time.png'), scale=2)
         fig_time.write_html(os.path.join(plots_dir, 'execution_time.html'))
@@ -104,16 +112,19 @@ def main():
     # Seaborn plots
     if args.plot_format in ['seaborn', 'both']:
         print("Creating Seaborn plots...")
-        benchmark.plot_seaborn_speedup(
-            df, 
-            save_path=os.path.join(plots_dir, 'speedup_seaborn.png'),
-            title=titles['speedup']
-        )
-        benchmark.plot_seaborn_efficiency(
-            df, 
-            save_path=os.path.join(plots_dir, 'efficiency_seaborn.png'),
-            title=titles['efficiency']
-        )
+        if baseline_exists:
+            benchmark.plot_seaborn_speedup(
+                df, 
+                save_path=os.path.join(plots_dir, 'speedup_seaborn.png'),
+                title=titles['speedup']
+            )
+            benchmark.plot_seaborn_efficiency(
+                df, 
+                save_path=os.path.join(plots_dir, 'efficiency_seaborn.png'),
+                title=titles['efficiency']
+            )
+            
+        # Execution time plot (always generated)
         benchmark.plot_seaborn_execution_time(
             df, 
             save_path=os.path.join(plots_dir, 'execution_time_seaborn.png'),
@@ -124,10 +135,18 @@ def main():
     print("Summary of output files:")
     print(f"  - Aggregated results: {csv_path}")
     print(f"  - Raw data: {raw_path}")
-    if args.plot_format in ['plotly', 'both']:
-        print("  - Plotly plots: speedup_linear.png/html, efficiency.png/html, execution_time.png/html")
-    if args.plot_format in ['seaborn', 'both']:
-        print("  - Seaborn plots: speedup_seaborn.png, efficiency_seaborn.png, execution_time_seaborn.png")
+    # Update summary based on whether baseline exists
+    if baseline_exists:
+        if args.plot_format in ['plotly', 'both']:
+            print("  - Plotly plots: speedup_linear.png/html, efficiency.png/html, execution_time.png/html")
+        if args.plot_format in ['seaborn', 'both']:
+            print("  - Seaborn plots: speedup_seaborn.png, efficiency_seaborn.png, execution_time_seaborn.png")
+    else:
+        if args.plot_format in ['plotly', 'both']:
+            print("  - Plotly plots: execution_time.png/html (Speedup/Efficiency skipped due to missing baseline)")
+        if args.plot_format in ['seaborn', 'both']:
+            print("  - Seaborn plots: execution_time_seaborn.png (Speedup/Efficiency skipped due to missing baseline)")
+            
     print("\nUse these plots to demonstrate parallel scaling in your manuscript!")
 
 

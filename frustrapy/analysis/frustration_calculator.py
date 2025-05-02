@@ -24,6 +24,12 @@ from ..core.data_classes import FrustrationDensity, FrustrationDensityResults
 import sys
 import pickle
 
+# Added imports for configuration, custom exceptions, subprocess helper, and file utilities
+from .config import FrustrationConfig
+from .exceptions import ValidationError, FileOperationError
+from ..utils.subprocess import run_subprocess
+from ..utils.file_utils import safe_copy, safe_move, ensure_file_exists
+
 logger = logging.getLogger(__name__)
 
 
@@ -43,6 +49,7 @@ class FrustrationCalculator:
         visualization: bool = True,
         results_dir: Optional[str] = None,
         debug: bool = False,
+        overwrite: bool = False,
         n_cpus: Optional[int] = None,
         is_mutation_calculation: bool = False,
     ):
@@ -50,15 +57,43 @@ class FrustrationCalculator:
 
         Args:
             n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
+            overwrite (bool): Whether to overwrite existing intermediate files (default False).
         """
-        # Validate core inputs
-        self.validate_inputs(
-            pdb_file, pdb_id, electrostatics_k, seq_dist, mode, graphics, visualization
-        )
-        # Validate CPU core parameter
-        if n_cpus is not None and (not isinstance(n_cpus, int) or n_cpus <= 0):
-            raise ValueError("n_cpus must be a positive integer or None")
-
+        # Consolidate and validate configuration with dataclass
+        try:
+            self.config = FrustrationConfig(
+                pdb_file=pdb_file,
+                pdb_id=pdb_id,
+                chain=chain,
+                residues=residues,
+                electrostatics_k=electrostatics_k,
+                seq_dist=seq_dist,
+                mode=mode,
+                graphics=graphics,
+                visualization=visualization,
+                results_dir=results_dir,
+                debug=debug,
+                overwrite=overwrite,
+                n_cpus=n_cpus,
+            )
+        except ValidationError as e:
+            logger.error(f"Invalid configuration: {e}")
+            raise
+        # Assign validated parameters from config
+        pdb_file = self.config.pdb_file
+        pdb_id = self.config.pdb_id
+        chain = self.config.chain
+        residues = self.config.residues
+        electrostatics_k = self.config.electrostatics_k
+        seq_dist = self.config.seq_dist
+        mode = self.config.mode
+        graphics = self.config.graphics
+        visualization = self.config.visualization
+        results_dir = self.config.results_dir
+        debug = self.config.debug
+        overwrite = self.config.overwrite
+        n_cpus = self.config.n_cpus
+        
         # Store configuration
         self.pdb_file = pdb_file
         self.pdb_id = pdb_id
@@ -70,39 +105,12 @@ class FrustrationCalculator:
         self.graphics = graphics
         self.visualization = visualization
         self.debug = debug
+        self.overwrite = overwrite
         self.n_cpus = n_cpus
         self.results_dir = self._setup_results_dir(results_dir)
         self.temp_folder = tempfile.gettempdir()
         self.plots = {}
         self.is_mutation_calculation = is_mutation_calculation
-
-    def validate_inputs(
-        self,
-        pdb_file,
-        pdb_id,
-        electrostatics_k,
-        seq_dist,
-        mode,
-        graphics,
-        visualization,
-    ):
-        """Validate input parameters."""
-        if pdb_file is None and pdb_id is None:
-            raise ValueError("You must indicate PdbID or PdbFile!")
-
-        if electrostatics_k is not None and not isinstance(
-            electrostatics_k, (int, float)
-        ):
-            raise ValueError("Electrostatic_K must be a numeric value!")
-
-        if seq_dist not in [3, 12]:
-            raise ValueError("SeqDist must take the value 3 or 12!")
-
-        if mode.lower() not in ["configurational", "mutational", "singleresidue"]:
-            raise ValueError(f"{mode} frustration index doesn't exist!")
-
-        if not isinstance(graphics, bool) or not isinstance(visualization, bool):
-            raise ValueError("Graphics and visualization must be boolean values!")
 
     @log_execution_time
     def calculate(self) -> Tuple[Pdb, Dict, Optional[FrustrationDensityResults]]:
@@ -136,50 +144,13 @@ class FrustrationCalculator:
             job_pdb = os.path.join(job_dir, f"{pdb_base}.pdb")
             try:
                 logger.debug(f"Copying PDB file from {self.pdb_file} to {job_pdb}")
-                # Ensure job directory exists
-                os.makedirs(job_dir, exist_ok=True)
-
-                # Log current state
-                logger.debug(f"Source PDB exists: {os.path.exists(self.pdb_file)}")
-                logger.debug(f"Source PDB size: {os.path.getsize(self.pdb_file)}")
-                logger.debug(f"Job directory exists: {os.path.exists(job_dir)}")
-                logger.debug(
-                    f"Job directory contents before copy: {os.listdir(job_dir)}"
-                )
-
-                # Remove destination file if it exists
-                if os.path.exists(job_pdb):
-                    os.remove(job_pdb)
-
-                # Copy file with metadata preservation using absolute paths
-                shutil.copy2(self.pdb_file, job_pdb)
-
-                # Verify copy was successful
-                if not os.path.exists(job_pdb):
-                    raise FileNotFoundError(f"Failed to copy PDB file to: {job_pdb}")
-
-                logger.debug(
-                    f"Job directory contents after copy: {os.listdir(job_dir)}"
-                )
-                logger.debug(f"Copied PDB exists: {os.path.exists(job_pdb)}")
-                logger.debug(f"Copied PDB size: {os.path.getsize(job_pdb)}")
-
+                # Safely copy PDB file to job directory
+                safe_copy(self.pdb_file, job_pdb, overwrite=self.overwrite)
                 # Update pdb_file to use the copied version
                 self.pdb_file = job_pdb
-                logger.debug(
-                    f"Successfully copied PDB file to job directory: {job_pdb}"
-                )
-
-            except Exception as e:
-                logger.error(f"Failed to copy PDB file: {str(e)}")
-                logger.error(
-                    f"Source path (absolute): {os.path.abspath(self.pdb_file)}"
-                )
-                logger.error(f"Source exists: {os.path.exists(self.pdb_file)}")
-                logger.error(f"Source readable: {os.access(self.pdb_file, os.R_OK)}")
-                logger.error(f"Destination path (absolute): {os.path.abspath(job_pdb)}")
-                logger.error(f"Destination dir exists: {os.path.exists(job_dir)}")
-                logger.error(f"Destination writable: {os.access(job_dir, os.W_OK)}")
+                logger.debug(f"Successfully copied PDB file to job directory: {job_pdb}")
+            except FileOperationError as e:
+                logger.debug(f"Failed to copy PDB file: {e}")
                 raise
 
             # Create PDB object with absolute paths
@@ -211,17 +182,18 @@ class FrustrationCalculator:
             for src_name, dest_name in files_to_move:
                 src_path = os.path.join(job_dir, src_name)
                 dest_path = os.path.join(frustration_dir, dest_name)
-
-                # Check if file already exists in destination
+                # Skip if already moved
                 if os.path.exists(dest_path):
-                    logger.debug(f"File already exists in destination: {dest_path}")
+                    logger.debug(f"File already exists in FrustrationData: {dest_name}")
                     continue
-
-                # Only try to move if source exists
                 if os.path.exists(src_path):
-                    logger.debug(f"Moving {src_path} to {dest_path}")
-                    shutil.copy2(src_path, dest_path)
-                    os.remove(src_path)
+                    logger.debug(f"Moving file {src_name} to {dest_name}")
+                    try:
+                        safe_move(src_path, dest_path, overwrite=self.overwrite)
+                        logger.debug(f"Moved file {src_name} to {dest_name}")
+                    except FileOperationError as e:
+                        logger.debug(f"Failed to move file {src_name}: {e}")
+                        raise
 
             # Update pdb_file path
             self.pdb_file = os.path.join(frustration_dir, f"{pdb_base}.pdb")
@@ -242,14 +214,19 @@ class FrustrationCalculator:
             return pdb, self.plots, frustration_density_results
 
         except Exception as e:
-            logger.error(f"Frustration calculation failed: {str(e)}")
-            logger.error(f"Current working directory: {os.getcwd()}")
-            if hasattr(self, "pdb_file"):
-                logger.error(f"PDB file exists: {os.path.exists(self.pdb_file)}")
-            if "job_dir" in locals():
-                logger.error(f"Job directory contents: {os.listdir(job_dir)}")
-            if "frustration_dir" in locals() and os.path.exists(frustration_dir):
-                logger.error(f"FrustrationData contents: {os.listdir(frustration_dir)}")
+            # Log detailed context only in debug mode
+            if self.debug:
+                logger.debug(f"Frustration calculation failed: {str(e)}", exc_info=True)
+                logger.debug(f"Current working directory: {os.getcwd()}")
+                if hasattr(self, "pdb_file"):
+                    logger.debug(f"PDB file exists: {os.path.exists(self.pdb_file)}")
+                if "job_dir" in locals():
+                    logger.debug(f"Job directory contents: {os.listdir(job_dir)}")
+                if "frustration_dir" in locals() and os.path.exists(frustration_dir):
+                    logger.debug(f"FrustrationData contents: {os.listdir(frustration_dir)}")
+            else:
+                # Log simpler error message for INFO/WARN/ERROR levels
+                logger.error(f"Frustration calculation failed: {str(e)}")
             raise
 
     def _setup_results_dir(self, results_dir: Optional[str]) -> str:
@@ -267,18 +244,17 @@ class FrustrationCalculator:
         if self.pdb_file is None:
             logger.debug("Downloading PDB file...")
             pdb_url = f"https://files.rcsb.org/download/{self.pdb_id}.pdb"
-            subprocess.run(
-                [
-                    "wget",
-                    "--no-check-certificate",
-                    "-P",
-                    self.temp_folder,
-                    pdb_url,
-                    "-q",
-                    "--progress=bar:force:noscroll",
-                    "--show-progress",
-                ]
-            )
+            # Download PDB via subprocess helper
+            run_subprocess([
+                "wget",
+                "--no-check-certificate",
+                "-P",
+                self.temp_folder,
+                pdb_url,
+                "-q",
+                "--progress=bar:force:noscroll",
+                "--show-progress",
+            ], cwd=self.temp_folder)
             self.pdb_file = os.path.join(self.temp_folder, f"{self.pdb_id}.pdb")
         return self.pdb_file
 
@@ -446,18 +422,12 @@ class FrustrationCalculator:
             # Verify current working directory
             logger.debug(f"Current working directory: {os.getcwd()}")
 
-            # Run conversion script with detailed logging
+            # Run conversion script with helper
             logger.debug("Running LAMMPS conversion script...")
             cmd = ["sh", lammps_script, pdb.pdb_base, pdb.pdb_base, pdb.scripts_dir]
             logger.debug(f"Running command: {' '.join(cmd)}")
 
-            result = subprocess.run(
-                cmd,
-                check=True,
-                capture_output=True,
-                text=True,
-                cwd=pdb.job_dir,  # Ensure we're in the correct directory
-            )
+            result = run_subprocess(cmd, cwd=pdb.job_dir)
 
             if result.stdout:
                 logger.debug(f"Conversion script output:\n{result.stdout}")
@@ -480,9 +450,13 @@ class FrustrationCalculator:
             logger.debug(f"Found {len(dat_files)} DAT files to copy")
             for dat_file in dat_files:
                 dest_file = os.path.join(pdb.job_dir, os.path.basename(dat_file))
-                logger.debug(f"Copying {dat_file} to {dest_file}")
-                shutil.copy2(dat_file, dest_file)
-                assert os.path.exists(dest_file), f"Failed to copy {dat_file}"
+                logger.debug(f"Copying DAT file {dat_file} to {dest_file}")
+                try:
+                    safe_copy(dat_file, dest_file, overwrite=self.overwrite)
+                    logger.debug(f"Copied DAT file to {dest_file}")
+                except FileOperationError as e:
+                    logger.debug(f"Failed to copy DAT file {dat_file}: {e}")
+                    raise
 
             # List all files in job directory
             job_files = os.listdir(pdb.job_dir)
@@ -506,17 +480,15 @@ class FrustrationCalculator:
             # Configure options
             self._configure_options(pdb)
 
-        except subprocess.CalledProcessError as e:
-            logger.error(f"Failed to run LAMMPS conversion script: {e.stderr}")
-            logger.error(f"Command that failed: {e.cmd}")
-            logger.error(f"Return code: {e.returncode}")
-            raise
         except Exception as e:
-            logger.error(f"Failed to prepare calculation files: {str(e)}")
-            logger.error(f"Current working directory: {os.getcwd()}")
-            logger.error(
-                f"Job directory contents: {os.listdir(pdb.job_dir) if os.path.exists(pdb.job_dir) else 'Directory not found'}"
-            )
+            if self.debug:
+                logger.debug(f"Failed to prepare calculation files: {str(e)}", exc_info=True)
+                logger.debug(f"Current working directory: {os.getcwd()}")
+                logger.debug(
+                    f"Job directory contents: {os.listdir(pdb.job_dir) if os.path.exists(pdb.job_dir) else 'Directory not found'}"
+                )
+            else:
+                logger.error(f"Failed to prepare calculation files: {str(e)}")
             raise
 
     def _configure_options(self, pdb: Pdb) -> None:
@@ -571,9 +543,12 @@ class FrustrationCalculator:
                 self._configure_electrostatics(pdb)
 
         except Exception as e:
-            logger.error(f"Failed to configure options: {str(e)}")
-            logger.error(f"Current working directory: {os.getcwd()}")
-            logger.error(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+            if self.debug:
+                logger.debug(f"Failed to configure options: {str(e)}", exc_info=True)
+                logger.debug(f"Current working directory: {os.getcwd()}")
+                logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+            else:
+                logger.error(f"Failed to configure options: {str(e)}")
             raise
 
     def _configure_electrostatics(self, pdb: Pdb) -> None:
@@ -593,25 +568,21 @@ class FrustrationCalculator:
         )
 
         # Generate GRO file
-        subprocess.run(
-            [
-                "python3",
-                os.path.join(pdb.scripts_dir, "Pdb2Gro.py"),
-                f"{pdb.pdb_base}.pdb",
-                f"{pdb.pdb_base}.pdb.gro",
-            ]
-        )
+        run_subprocess([
+            "python3",
+            os.path.join(pdb.scripts_dir, "Pdb2Gro.py"),
+            f"{pdb.pdb_base}.pdb",
+            f"{pdb.pdb_base}.pdb.gro",
+        ], cwd=pdb.job_dir)
 
         # Generate charge file
-        subprocess.run(
-            [
-                "perl",
-                os.path.join(pdb.scripts_dir, "GenerateChargeFile.pl"),
-                f"{pdb.pdb_base}.pdb.gro",
-                ">",
-                os.path.join(pdb.job_dir, "charge_on_residues.dat"),
-            ]
-        )
+        run_subprocess([
+            "perl",
+            os.path.join(pdb.scripts_dir, "GenerateChargeFile.pl"),
+            f"{pdb.pdb_base}.pdb.gro",
+            "--output",
+            os.path.join(pdb.job_dir, "charge_on_residues.dat"),
+        ], cwd=pdb.job_dir)
 
     def _run_lammps_calculation(self, pdb: Pdb) -> None:
         """Run LAMMPS calculations."""
@@ -701,33 +672,21 @@ class FrustrationCalculator:
                     f"{pdb.pdb_base}.pdb_{pdb.mode}_5adens"
                 )
 
-            for src_name, dst_name in files_to_move.items():
+            for src_name, dest_name in files_to_move.items():
                 src_path = os.path.join(pdb.job_dir, src_name)
-                dst_path = os.path.join(frustration_dir, dst_name)
-
-                # TODO: Fix the logic here, the 5dens files should not be moved
-                # Skip if source doesn't exist (might already be in FrustrationData)
-                if not os.path.exists(src_path):
-                    # Check if file exists in destination
-                    if os.path.exists(dst_path):
-                        logger.debug(
-                            f"File already exists in FrustrationData: {dst_name}"
-                        )
-                        continue
-                    else:
-                        # Only log warning if file is actually needed for this mode
-                        if not (pdb.mode == "singleresidue" and "_5adens" in src_name):
-                            logger.warning(
-                                f"File not found in either location: {src_name}"
-                            )
+                dest_path = os.path.join(frustration_dir, dest_name)
+                # Skip if already moved
+                if os.path.exists(dest_path):
+                    logger.debug(f"File already exists in FrustrationData: {dest_name}")
                     continue
-
-                logger.debug(f"Moving {src_name} to FrustrationData directory")
-                # If file exists in destination, remove it first
-                if os.path.exists(dst_path):
-                    os.remove(dst_path)
-                shutil.copy2(src_path, dst_path)  # Use copy2 to preserve metadata
-                os.remove(src_path)  # Remove original after successful copy
+                if os.path.exists(src_path):
+                    logger.debug(f"Moving file {src_name} to {dest_name}")
+                    try:
+                        safe_move(src_path, dest_path, overwrite=self.overwrite)
+                        logger.debug(f"Moved file {src_name} to {dest_name}")
+                    except FileOperationError as e:
+                        logger.debug(f"Failed to move file {src_name}: {e}")
+                        raise
 
             # Verify files were moved successfully
             logger.debug(
@@ -735,11 +694,14 @@ class FrustrationCalculator:
             )
 
         except Exception as e:
-            logger.error(f"Failed to process results: {str(e)}")
-            logger.error(f"Job directory contents: {os.listdir(pdb.job_dir)}")
-            logger.error(
-                f"FrustrationData contents: {os.listdir(frustration_dir) if os.path.exists(frustration_dir) else 'Directory not found'}"
-            )
+            if self.debug:
+                logger.debug(f"Failed to process results: {str(e)}", exc_info=True)
+                logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+                logger.debug(
+                    f"FrustrationData contents: {os.listdir(frustration_dir) if os.path.exists(frustration_dir) else 'Directory not found'}"
+                )
+            else:
+                logger.error(f"Failed to process results: {str(e)}")
             raise
 
     def _generate_graphics(self, pdb: Pdb) -> None:
@@ -800,12 +762,15 @@ class FrustrationCalculator:
                 logger.debug(f"Successfully generated plots: {list(self.plots.keys())}")
 
             except Exception as e:
-                logger.error(f"Failed to generate plots: {str(e)}")
-                logger.error(f"Job directory contents: {os.listdir(pdb.job_dir)}")
-                logger.error(f"Images directory contents: {os.listdir(images_dir)}")
-                logger.error(
-                    f"FrustrationData contents: {os.listdir(pdb.frustration_dir)}"
-                )
+                if self.debug:
+                    logger.debug(f"Failed to generate plots: {str(e)}", exc_info=True)
+                    logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+                    logger.debug(f"Images directory contents: {os.listdir(images_dir)}")
+                    logger.debug(
+                        f"FrustrationData contents: {os.listdir(pdb.frustration_dir)}"
+                    )
+                else:
+                    logger.error(f"Failed to generate plots: {str(e)}")
                 raise
         else:
             self._generate_singleresidue_analysis(pdb)
@@ -864,23 +829,50 @@ class FrustrationCalculator:
 
         # Generate visualization scripts
         try:
-            subprocess.run(
-                [
+            # Find the auxiliar file in the job directory
+            auxiliar_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{pdb.mode}.pdb_auxiliar")
+            if not os.path.exists(auxiliar_file):
+                logger.warning(f"Auxiliar file not found at {auxiliar_file}, visualization may be incomplete")
+                # Check if it exists with a different name
+                for filename in os.listdir(pdb.job_dir):
+                    if filename.endswith("_auxiliar"):
+                        auxiliar_file = os.path.join(pdb.job_dir, filename)
+                        logger.debug(f"Found auxiliar file with different name: {auxiliar_file}")
+                        break
+            
+            if os.path.exists(auxiliar_file):
+                logger.debug(f"Using auxiliar file: {auxiliar_file}")
+                # First copy it to where the script expects it
+                aux_basename = os.path.basename(auxiliar_file)
+                parent_dir_aux_file = os.path.join(os.path.dirname(pdb.job_dir), aux_basename)
+                safe_copy(auxiliar_file, parent_dir_aux_file, overwrite=True)
+                
+                # Now run the script with the correct path
+                run_subprocess([
                     "perl",
                     os.path.join(pdb.scripts_dir, "GenerateVisualizations.pl"),
-                    f"{pdb.pdb_base}_{pdb.mode}.pdb_auxiliar",
+                    aux_basename,  # Use just the basename
                     pdb.pdb_base,
                     os.path.dirname(pdb.job_dir),
                     pdb.mode,
-                ],
-                check=True,
-                capture_output=True,
-            )
-        except subprocess.CalledProcessError as e:
-            logger.warning(
-                f"Visualization script generation warning: {e.stderr.decode()}"
-            )
-            # Continue execution as this is not critical
+                ], cwd=os.path.dirname(pdb.job_dir))  # Run from the parent directory
+                
+                # Clean up the copied file
+                if os.path.exists(parent_dir_aux_file) and parent_dir_aux_file != auxiliar_file:
+                    os.remove(parent_dir_aux_file)
+            else:
+                logger.warning("No suitable auxiliar file found for visualization generation")
+        except Exception as e:
+            if self.debug:
+                logger.debug(f"Failed to generate visualization scripts: {str(e)}", exc_info=True)
+                logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+                logger.debug(f"Images directory contents: {os.listdir(visualization_dir)}")
+                logger.debug(
+                    f"FrustrationData contents: {os.listdir(pdb.frustration_dir)}"
+                )
+            else:
+                logger.error(f"Failed to generate visualization scripts: {str(e)}")
+            raise
 
         # Move visualization files
         for ext in ["pml", "tcl", "jml"]:
@@ -961,12 +953,15 @@ class FrustrationCalculator:
                 names=["i", "j", "xi", "yi", "zi", "xj", "yj", "zj", "f_ij"],
             )
         except Exception as e:
-            logger.error(f"Failed to read contacts file: {e}")
-            logger.error(f"Working directory: {os.getcwd()}")
-            logger.error(f"Job directory contents: {os.listdir(pdb.job_dir)}")
-            logger.error(
-                f"FrustrationData contents: {os.listdir(os.path.join(pdb.job_dir, 'FrustrationData'))}"
-            )
+            if self.debug:
+                logger.debug(f"Failed to read contacts file: {e}", exc_info=True)
+                logger.debug(f"Working directory: {os.getcwd()}")
+                logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
+                logger.debug(
+                    f"FrustrationData contents: {os.listdir(os.path.join(pdb.job_dir, 'FrustrationData'))}"
+                )
+            else:
+                logger.error(f"Failed to read contacts file: {e}")
             raise
 
         # Calculate contact point coordinates
@@ -1062,7 +1057,10 @@ class FrustrationCalculator:
                 pickle.dump(results, f)
             logger.debug("Successfully saved density results")
         except Exception as e:
-            logger.error(f"Failed to save density results: {str(e)}")
+            if self.debug:
+                logger.debug(f"Failed to save density results: {str(e)}", exc_info=True)
+            else:
+                logger.error(f"Failed to save density results: {str(e)}")
             raise
 
         return results
