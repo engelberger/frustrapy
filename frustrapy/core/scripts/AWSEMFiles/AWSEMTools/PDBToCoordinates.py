@@ -12,6 +12,9 @@
 import sys
 from VectorAlgebra import *
 
+# Define required backbone atoms
+REQUIRED_ATOMS = ['N', 'CA', 'C', 'O']
+
 an = 0.4831806
 bn = 0.7032820
 cn = -0.1864262
@@ -68,46 +71,46 @@ def print_array(a):
         print(ia)
 
 class PDB_Atom:
-	no = 0
-	ch = 0
-	ty = ''
-	res = 'UNK'
-	res_no = 0
-	x = 0.0
-	y = 0.0
-	z = 0.0
-	atm = 'C'
-	
-	def __init__(self, no, ty, ch, res, res_no, x, y, z, atm):
-		self.no = no
-		self.ty = ty
-		self.ch = ch
-		self.res = res
-		self.res_no = res_no
-		self.x = x
-		self.y = y
-		self.z = z
-		self.atm = atm
-		
-	def write_(self, f):
-		f.write('ATOM')
-		f.write(('       '+str(self.no))[-7:])
-		f.write('  ')
-		f.write((self.ty+'    ')[:4])
-		f.write(self.res)
-		f.write(' ')
-		f.write('T')
-		f.write(('    '+str(self.res_no))[-4:])
-		f.write(('            '+str(round(self.x,3)))[-12:])
-		f.write(('        '+str(round(self.y,3)))[-8:])
-		f.write(('        '+str(round(self.z,3)))[-8:])
-		f.write('  1.00')
-		f.write('  0.00')
-		f.write(('            '+self.atm)[-12:]+'  ')
-		f.write('\n')
-	
-	def print_(self):
-		pass
+    no = 0
+    ch = 0
+    ty = ''
+    res = 'UNK'
+    res_no = 0
+    x = 0.0
+    y = 0.0
+    z = 0.0
+    atm = 'C'
+    
+    def __init__(self, no, ty, ch, res, res_no, x, y, z, atm):
+        self.no = no
+        self.ty = ty
+        self.ch = ch
+        self.res = res
+        self.res_no = res_no
+        self.x = x
+        self.y = y
+        self.z = z
+        self.atm = atm
+        
+    def write_(self, f):
+        f.write('ATOM')
+        f.write(('       '+str(self.no))[-7:])
+        f.write('  ')
+        f.write((self.ty+'    ')[:4])
+        f.write(self.res)
+        f.write(' ')
+        f.write('T')
+        f.write(('    '+str(self.res_no))[-4:])
+        f.write(('            '+str(round(self.x,3)))[-12:])
+        f.write(('        '+str(round(self.y,3)))[-8:])
+        f.write(('        '+str(round(self.z,3)))[-8:])
+        f.write('  1.00')
+        f.write('  0.00')
+        f.write(('            '+self.atm)[-12:]+'  ')
+        f.write('\n')
+    
+    def print_(self):
+        pass
 
 def three2one(prot):
     """ translate a protein sequence from 3 to 1 letter code"""
@@ -153,6 +156,9 @@ if output_fn!="" and not splite:
     out = open( (output_fn+".coord"), 'w' )
     se_out = open( (output_fn+".seq"), 'w' )
 
+# List to track all missing atoms for user feedback
+missing_atoms = []
+
 ichain = 0
 s = p.get_structure(struct_id, filename)
 chains = s[0].get_list()
@@ -163,7 +169,7 @@ for ch in chains:
     iatom = 0
     ichain = ichain + 1
     if output_fn!="":
-	    pass
+        pass
 #        if not splite:
 #            out.write("Chain: ")
 #            out.write(ch.get_id())
@@ -171,6 +177,19 @@ for ch in chains:
     else:
         print("Chain:", ch.get_id())
     for res in ch:
+        # Check for all required backbone atoms
+        missing_backbone = False
+        for atom_name in REQUIRED_ATOMS:
+            if atom_name not in res:
+                missing_backbone = True
+                res_id = res.get_id()[1]
+                missing_atoms.append((res_id, ch.get_id(), atom_name))
+                print(f"WARNING: Residue {res_id} (Chain {ch.get_id()}) is missing required backbone atom: {atom_name}")
+        
+        # Skip residue entirely if any backbone atom is missing
+        if missing_backbone:
+            continue
+            
         is_regular_res = res.has_id('N') and res.has_id('CA') and res.has_id('C')
         res_id = res.get_id()[0]
         if (res_id==' ' or res_id=='H_MSE' or res_id=='H_M3L' or res_id=='H_CAS') and is_regular_res:
@@ -178,22 +197,31 @@ for ch in chains:
             resname = res.get_resname() 
             if res:
                 sequance.append(resname)
+            
+            # Get coordinates of required backbone atoms
             xyz_N = res['N'].get_coord()
             xyz_CA = res['CA'].get_coord()
             xyz_C = res['C'].get_coord()
             xyz_O = res['O'].get_coord()
+            
+            # Handle CB atom or GLY special case
             if resname != 'GLY':
-              if not res.has_id('CB'):
-                print(ires, resname, "missing CB atom!")
-                print("Abort!")
-                exit()
-              xyz_CB = res['CB'].get_coord()
+                if not res.has_id('CB'):
+                    print(f"WARNING: Residue {res.get_id()[1]} (Chain {ch.get_id()}) is missing CB atom")
+                    missing_atoms.append((res.get_id()[1], ch.get_id(), 'CB'))
+                    # Skip CB atom but continue with backbone
+                    has_cb = False
+                else:
+                    xyz_CB = res['CB'].get_coord()
+                    has_cb = True
             else:
+                # GLY has no CB, calculate H position instead
                 xyz_H = [0.0, 0.0, 0.0]
                 xyz_H[0] = aH*xyz_N[0] + bH*xyz_CA[0] + cH*xyz_C[0]
                 xyz_H[1] = aH*xyz_N[1] + bH*xyz_CA[1] + cH*xyz_C[1]
                 xyz_H[2] = aH*xyz_N[2] + bH*xyz_CA[2] + cH*xyz_C[2]
             
+            # Add backbone atoms
             iatom = iatom + 1
             atom = Atom(iatom, ichain, 'N', xyz_N[0], xyz_N[1], xyz_N[2], 'N')
             atoms.append(atom)
@@ -210,10 +238,12 @@ for ch in chains:
             atom = Atom(iatom, ichain, 'O', xyz_O[0], xyz_O[1], xyz_O[2], 'O')
             atoms.append(atom)
             
-            if res.has_id('CB'):
-                iatom = iatom + 1
-                atom = Atom(iatom, ichain, 'C', xyz_CB[0], xyz_CB[1], xyz_CB[2], 'C-Beta')
-                atoms.append(atom)
+            # Add CB atom for non-GLY residues or H for GLY
+            if resname != 'GLY':
+                if has_cb:
+                    iatom = iatom + 1
+                    atom = Atom(iatom, ichain, 'C', xyz_CB[0], xyz_CB[1], xyz_CB[2], 'C-Beta')
+                    atoms.append(atom)
             else:            
                 iatom = iatom + 1
                 atom = Atom(iatom, ichain, 'H', xyz_N[0], xyz_H[1], xyz_H[2], 'H-Beta')
@@ -245,3 +275,24 @@ for ch in chains:
 if output_fn!="" and not splite:
     out.close()
     se_out.close()
+
+# Print summary of missing atoms if any were found
+if missing_atoms:
+    print("\nWARNING: Some residues had missing atoms and were skipped from the analysis")
+    print("Missing atoms summary:")
+    
+    # Group by residue for cleaner output
+    missing_by_residue = {}
+    for res_id, chain_id, atom_name in missing_atoms:
+        key = f"Residue {res_id} (Chain {chain_id})"
+        if key not in missing_by_residue:
+            missing_by_residue[key] = []
+        missing_by_residue[key].append(atom_name)
+    
+    # Print summary
+    for residue, atoms in missing_by_residue.items():
+        print(f"  - {residue}: missing {', '.join(atoms)}")
+    
+    # This script successfully created a coord file but with warnings
+    print("\nOutput files were created but may be incomplete due to missing atoms.")
+    sys.exit(0)  # Success but with warnings
