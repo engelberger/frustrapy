@@ -167,7 +167,7 @@ def view_config_contacts_py3dmol(
         if not pt:
             continue
         # More informative label with magnitude
-        label = f"{resname}_{resnum}{ch}\n({state.capitalize()})\n|{mag:.2f}|"
+        label = f"{resname}{resnum}{ch}\n({state.capitalize()})\n|{mag:.2f}|"
         view.addLabel(label, {
             'position': {'x': pt[0], 'y': pt[1], 'z': pt[2]},
             'backgroundColor': 'black',

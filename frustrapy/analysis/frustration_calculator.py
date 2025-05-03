@@ -26,7 +26,7 @@ import pickle
 
 # Added imports for configuration, custom exceptions, subprocess helper, and file utilities
 from .config import FrustrationConfig
-from .exceptions import ValidationError, FileOperationError
+from .exceptions import ValidationError, FileOperationError, MissingBackboneAtomError
 from ..utils.subprocess import run_subprocess
 from ..utils.file_utils import safe_copy, safe_move, ensure_file_exists
 from ..utils.ui import display_error, display_overwrite_warning, display_success
@@ -338,61 +338,46 @@ class FrustrationCalculator:
         return Pdb(job_dir, pdb_base, self.mode, df, equivalences)
 
     def _read_and_filter_pdb(self) -> pd.DataFrame:
-        """Read and filter PDB data."""
-        df = pd.read_csv(
-            self.pdb_file,
-            sep="\s+",
-            header=None,
-            skiprows=0,
-            names=[
-                "ATOM",
-                "atom_num",
-                "atom_name",
-                "res_name",
-                "chain",
-                "res_num",
-                "x",
-                "y",
-                "z",
-                "occupancy",
-                "b_factor",
-                "element",
-            ],
-        )
-
+        """Read and filter PDB data using Biopython for robust parsing."""
+        from Bio.PDB import PDBParser
+        parser = PDBParser(QUIET=True)
+        structure = parser.get_structure("structure", self.pdb_file)
+        records = []
+        for model in structure:
+            for chain in model:
+                for residue in chain:
+                    # Skip hetero/water residues
+                    if residue.get_id()[0] != ' ':
+                        continue
+                    for atom in residue:
+                        records.append({
+                            "ATOM": "ATOM",
+                            "atom_num": atom.get_serial_number(),
+                            "atom_name": atom.get_name(),
+                            "res_name": residue.get_resname(),
+                            "chain": chain.get_id(),
+                            "res_num": residue.get_id()[1],
+                            "x": atom.get_coord()[0],
+                            "y": atom.get_coord()[1],
+                            "z": atom.get_coord()[2],
+                            "occupancy": atom.get_occupancy(),
+                            "b_factor": atom.get_bfactor(),
+                            "element": atom.element.strip(),
+                        })
+        df = pd.DataFrame(records)
         # Standardize residue names
         residue_mappings = {"MSE": "MET", "HIE": "HIS", "CYX": "CYS", "CY1": "CYS"}
         for old, new in residue_mappings.items():
             df.loc[df["res_name"] == old, "res_name"] = new
-
         # Filter for standard protein residues
         protein_res = [
-            "ALA",
-            "ARG",
-            "ASN",
-            "ASP",
-            "CYS",
-            "GLN",
-            "GLU",
-            "GLY",
-            "HIS",
-            "ILE",
-            "LEU",
-            "LYS",
-            "MET",
-            "PHE",
-            "PRO",
-            "SER",
-            "THR",
-            "TRP",
-            "TYR",
-            "VAL",
+            "ALA","ARG","ASN","ASP","CYS","GLN","GLU","GLY",
+            "HIS","ILE","LEU","LYS","MET","PHE","PRO","SER",
+            "THR","TRP","TYR","VAL",
         ]
         df = df[df["res_name"].isin(protein_res)]
-
         # Set default chain if missing
         df.loc[df["chain"].isna(), "chain"] = "A"
-
         return df
 
     def _prepare_calculation_files(self, pdb: Pdb) -> None:
@@ -440,6 +425,53 @@ class FrustrationCalculator:
                 logger.debug(f"Conversion script output:\n{result.stdout}")
             if result.stderr:
                 logger.warning(f"Conversion script warnings:\n{result.stderr}")
+            
+            # Check for empty or missing output files immediately after conversion
+            coord_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}.coord")
+            data_file = os.path.join(pdb.job_dir, f"data.{pdb.pdb_base}")
+            input_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}.in")
+            
+            # Parse warnings from stderr to extract information about missing atoms
+            missing_atoms = []
+            if result.warnings:
+                for warning in result.warnings:
+                    if "missing required backbone atom" in warning.lower():
+                        # Try to extract residue, chain and atom information from warning
+                        parts = warning.split()
+                        for i, part in enumerate(parts):
+                            if part == "Residue":
+                                try:
+                                    res_id = int(parts[i + 1])
+                                    chain_id = parts[i + 3].strip("()")
+                                    atom_name = parts[i + 7]
+                                    missing_atoms.append((res_id, chain_id, atom_name))
+                                except (IndexError, ValueError):
+                                    # If we can't parse the exact format, just store the warning
+                                    missing_atoms.append(warning)
+            
+            # Verify critical files exist and are not empty
+            for file_path, desc in [
+                (coord_file, ".coord file"),
+                (data_file, "LAMMPS data file"),
+                (input_file, "LAMMPS input file")
+            ]:
+                if not os.path.exists(file_path):
+                    error_msg = f"Failed to generate {desc}: {file_path} not found"
+                    logger.error(error_msg)
+                    if missing_atoms:
+                        raise MissingBackboneAtomError(error_msg, missing_atoms)
+                    else:
+                        raise FileNotFoundError(error_msg)
+                    
+                if os.path.getsize(file_path) == 0:
+                    error_msg = f"Generated {desc} is empty: {file_path}"
+                    logger.error(error_msg)
+                    if missing_atoms:
+                        raise MissingBackboneAtomError(error_msg, missing_atoms)
+                    else:
+                        raise FileOperationError(error_msg, dst=file_path)
+                
+                logger.debug(f"Verified {desc} exists and is not empty: {os.path.getsize(file_path)} bytes")
 
             # Log commands
             commands_file = os.path.join(pdb.job_dir, "commands.help")

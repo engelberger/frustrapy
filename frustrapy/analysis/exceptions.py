@@ -50,4 +50,25 @@ class FileOperationError(FrustraPyError):
             parts.append(f"Source: {self.src}")
         if self.dst:
             parts.append(f"Destination: {self.dst}")
+        return "\n".join(parts)
+
+class MissingBackboneAtomError(FrustraPyError):
+    """Error raised when PDB file is missing required backbone atoms."""
+    def __init__(self, message: str, missing_atoms: list = None):
+        self.message = message
+        self.missing_atoms = missing_atoms or []
+        super().__init__(self.__str__())
+    
+    def __str__(self):
+        if not self.missing_atoms:
+            return self.message
+            
+        parts = [self.message]
+        parts.append("Missing backbone atoms:")
+        for item in self.missing_atoms:
+            if isinstance(item, tuple) and len(item) == 3:
+                residue, chain, atom = item
+                parts.append(f"  - Residue {residue} (Chain {chain}): missing {atom} atom")
+            else:
+                parts.append(f"  - {item}")
         return "\n".join(parts) 

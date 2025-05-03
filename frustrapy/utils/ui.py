@@ -2,7 +2,7 @@ import sys
 from rich.console import Console
 from rich.panel import Panel
 from rich.text import Text
-from ..analysis.exceptions import FileOperationError, SubprocessError, ValidationError
+from ..analysis.exceptions import FileOperationError, SubprocessError, ValidationError, MissingBackboneAtomError
 
 console = Console()
 
@@ -41,6 +41,18 @@ def display_error(exception: Exception, is_debug: bool = False) -> None:
         if exception.value is not None:
              message.append(f"  Value:     {exception.value!r}\n")
         message.append("\nSuggestion: Please check your input parameters.", style="yellow")
+    elif isinstance(exception, MissingBackboneAtomError):
+        title = "Missing Backbone Atom Error"
+        message.append(f"Error: {exception.message}\n", style=style)
+        if exception.missing_atoms:
+            message.append("Missing backbone atoms:\n")
+            for atom in exception.missing_atoms:
+                if isinstance(atom, tuple) and len(atom) == 3:
+                    residue, chain, atom_name = atom
+                    message.append(f"  - Residue {residue} (Chain {chain}): missing {atom_name} atom\n")
+                else:
+                    message.append(f"  - {atom}\n")
+        message.append("\nSuggestion: Please check your PDB file for completeness or repair missing atoms.", style="yellow")
     else:
         # Generic error
         message.append(f"An unexpected error occurred: {exception}", style=style)
@@ -51,6 +63,17 @@ def display_error(exception: Exception, is_debug: bool = False) -> None:
              message.append("\nSuggestion: Run with debug=True for a full traceback.", style="yellow")
 
     console.print(Panel(message, title=title, border_style="red"))
+
+def display_warning(message: str, title: str = "Warning", suggestions: list = None) -> None:
+    """Display a warning message using Rich."""
+    text = Text(message, style="yellow")
+    
+    if suggestions:
+        text.append("\n\nSuggestions:", style="bold yellow")
+        for suggestion in suggestions:
+            text.append(f"\n  - {suggestion}")
+    
+    console.print(Panel(text, title=title, border_style="yellow"))
 
 def display_overwrite_warning(exception: FileOperationError) -> None:
     """Display a specific message for FileOperationError when overwrite is False."""

@@ -15,8 +15,8 @@ from ..utils import log_execution_time
 from tqdm.auto import tqdm  # Make sure to use tqdm.auto for better compatibility
 from .frustration_calculator import FrustrationCalculator, FrustrationDensityResults
 from ..utils.helpers import organize_single_residue_data, pdb_equivalences, renum_files
-from .exceptions import FileOperationError
-from ..utils.ui import display_error, display_overwrite_warning, display_success  # Import Rich display utils
+from .exceptions import FileOperationError, MissingBackboneAtomError
+from ..utils.ui import display_error, display_overwrite_warning, display_success, display_warning  # Import Rich display utils
 
 
 logger = logging.getLogger(__name__)
@@ -126,6 +126,26 @@ def calculate_frustration(
         # Only show the rich success banner for top-level calculations
         if not is_mutation_calculation:
             display_success(success_msg)
+    except MissingBackboneAtomError as e:
+        # For missing backbone atoms, display a warning
+        warning_message = str(e)
+        suggestions = [
+            "Try to repair your PDB file by adding missing atoms with software like PyMOL or MODELLER.",
+            "You can also remove the problematic residues from your PDB file if they're not critical.",
+            "For automated repairs, tools like PDB-tools (https://github.com/haddocking/pdb-tools) can help."
+        ]
+        
+        # Show the warning message
+        display_warning(warning_message, title="Missing Backbone Atoms", suggestions=suggestions)
+        
+        # Log the error with full context if in debug mode
+        if debug:
+            logger.debug(f"Frustration calculation failed due to missing backbone atoms: {e}", exc_info=True)
+        else:
+            logger.error(f"Frustration calculation failed due to missing backbone atoms: {e}")
+        
+        # Exit with error
+        sys.exit(1)
     except FileOperationError as e:
         if "Destination file already exists" in e.message and not overwrite:
             # Display specific overwrite warning
