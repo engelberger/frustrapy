@@ -16,7 +16,9 @@ def view_config_contacts_py3dmol(
     central_res: int,
     width: int = 800,
     height: int = 600,
-    title: str = None
+    title: str = None,
+    show_neutral_labels: bool = True,
+    show_neutral_contacts: bool = True
 ) -> None:
     """
     Visualize configurational contacts for a given residue using py3Dmol.
@@ -33,6 +35,8 @@ def view_config_contacts_py3dmol(
         width: Width of the viewer in pixels (default: 800)
         height: Height of the viewer in pixels (default: 600)
         title: Custom title for the visualization (default: auto-generated)
+        show_neutral_labels: Whether to display labels for neutrally frustrated contacts (default: True)
+        show_neutral_contacts: Whether to display cylinders for neutrally frustrated contacts (default: True)
     """
     import os
     import pandas as pd
@@ -46,6 +50,9 @@ def view_config_contacts_py3dmol(
         scale_radius,
         get_residue_name,
     )
+
+    # Import seq1 for one-letter code conversion
+    from Bio.SeqUtils import seq1
 
     # locate files based on pdb object
     frust_file = os.path.join(
@@ -63,14 +70,19 @@ def view_config_contacts_py3dmol(
     contacts, contact_residues, res_names = load_config_contacts(
         frust_file, central_chain, central_res
     )
-    central_resname = res_names.get((central_chain, central_res), '')
-    central_label = f"{central_resname}_{central_res}{central_chain}"
+    # Get central residue name directly from PDB object for reliability
+    central_resname = get_residue_name(pdb, central_chain, central_res)
+    try:
+        central_resname_one = seq1(central_resname)
+    except KeyError:
+        central_resname_one = central_resname # Fallback to 3-letter if non-standard
+    central_label = f"{central_resname_one}{central_res}" # Removed chain
     
     # Set descriptive title and caption
     if title is None:
         # Auto-generate descriptive titles
-        table_caption = f"Contact {pdb.mode} frustration for residue {central_res} chain {central_chain} ({central_resname})"
-        viewer_title = f"{central_resname}_{central_res}{central_chain} ({pdb.mode} frustration)"
+        table_caption = f"Contact {pdb.mode} frustration for residue {central_resname_one}{central_res} ({central_resname})"
+        viewer_title = f"{central_resname_one}{central_res} ({pdb.mode} frustration)" # Removed chain
     else:
         table_caption = title
         viewer_title = title
@@ -149,6 +161,12 @@ def view_config_contacts_py3dmol(
         pt = ca_map.get((ch, resnum))
         if not pt:
             continue
+        # Check if we should skip drawing neutral contacts
+        state_lower = state.lower()
+        is_neutral = 'highly' not in state_lower and 'minimally' not in state_lower
+        if is_neutral and not show_neutral_contacts:
+            continue # Skip adding cylinder for neutral contacts if flag is False
+
         col = next((c for k, c in color_map.items() if k in state.lower()), 'black')
         rad = scale_radius(mag, min_mag, max_mag)
         view.addCylinder({
@@ -166,11 +184,34 @@ def view_config_contacts_py3dmol(
         pt = ca_map.get((ch, resnum))
         if not pt:
             continue
+        # Determine label color based on frustration state
+        state_lower = state.lower()
+        if 'highly' in state_lower:
+            label_font_color = 'red'
+        elif 'minimally' in state_lower:
+            label_font_color = 'lightgreen' # Or just 'green'?
+        else:
+            # Handle neutral state based on the flag
+            if not show_neutral_labels:
+                continue # Skip adding label for neutral contacts if flag is False
+            label_background_color = 'gray' # Or 'lightblue' to match cartoon?
+
+        # Set background color based on state
+        if 'highly' in state_lower:
+            label_background_color = 'red'
+        elif 'minimally' in state_lower:
+            label_background_color = 'green' 
+        else:
+             # Handle neutral state based on the flag for visibility
+             if not show_neutral_labels:
+                 continue # Skip adding label for neutral contacts if flag is False
+             label_background_color = 'gray'
+
         # More informative label with magnitude
-        label = f"{resname}{resnum}{ch}\n({state.capitalize()})\n|{mag:.2f}|"
+        label = f"{resname}{resnum}\n({state.capitalize()[:1]})\n|{mag:.2f}|" # Removed chain (ch)
         view.addLabel(label, {
             'position': {'x': pt[0], 'y': pt[1], 'z': pt[2]},
-            'backgroundColor': 'black',
+            'backgroundColor': label_background_color,
             'fontColor': 'white',
             'fontSize': 12,
             'backgroundOpacity': 0.6,
@@ -178,7 +219,7 @@ def view_config_contacts_py3dmol(
         })
 
     # label central residue
-    central_desc = f"{central_resname}_{central_res}{central_chain}\n(Center)"
+    central_desc = f"{central_resname_one}{central_res}\n(Center)" # Use 1-letter code, removed chain
     view.addLabel(
         central_desc,
         {'position': {'x': ctr[0], 'y': ctr[1], 'z': ctr[2]},
@@ -211,7 +252,9 @@ def view_mutate_contacts_py3dmol(
     method: str = "threading",
     width: int = 800,
     height: int = 600,
-    delta_threshold: float = 1.0
+    delta_threshold: float = 1.0,
+    show_neutral_labels: bool = True,
+    show_neutral_contacts: bool = True
 ) -> None:
     """
     Visualize the *change* in configurational contact frustration upon mutation,
@@ -232,6 +275,8 @@ def view_mutate_contacts_py3dmol(
         height: Viewer height in pixels.
         delta_threshold: Absolute threshold for coloring contacts red/blue.
                          Contacts with |Delta Frst| > threshold are colored.
+        show_neutral_labels: Whether to display labels for neutral delta frustration contacts (default: True).
+        show_neutral_contacts: Whether to display cylinders for neutral delta frustration contacts (default: True).
     """
     import os
     import py3Dmol
@@ -242,6 +287,22 @@ def view_mutate_contacts_py3dmol(
     from Bio.SeqUtils import seq1
 
     logger = logging.getLogger(__name__)
+
+    # --- 0. Load Base WT Frustration Data Once ---
+    base_frust_file = os.path.join(pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}")
+    if not os.path.exists(base_frust_file):
+        raise FileNotFoundError(f"Base WT frustration file not found: {base_frust_file}")
+    try:
+        # Load the entire WT frustration file
+        wt_base_df = pd.read_csv(base_frust_file, sep='\s+')
+        # Basic validation of columns (adjust based on actual file format)
+        required_wt_cols = {'Res1', 'Res2', 'ChainRes1', 'ChainRes2', 'FrstIndex'}
+        if not required_wt_cols.issubset(wt_base_df.columns):
+            raise ValueError(f"Base WT file {base_frust_file} missing required columns (needs: {required_wt_cols})")
+        logger.debug(f"Successfully loaded base WT frustration data from {base_frust_file}")
+    except Exception as e:
+        logger.error(f"Error loading base WT frustration file {base_frust_file}: {e}")
+        raise
 
     # --- 1. Input Validation and Data Loading --- 
     if not hasattr(pdb, 'Mutations'):
@@ -299,34 +360,16 @@ def view_mutate_contacts_py3dmol(
 
         # Load all mutation data for this position
         try:
-            df = pd.read_csv(mut_file, sep='\t')
+            df = pd.read_csv(mut_file, sep='\s+')
             
-            # If file has AA1, AA2 columns, determine the single relevant column
-            # as some older formats used to have "Central_AA" for all rows
-            if 'Central_AA' not in df.columns:
-                if res_pos in df['Res1'].unique():
-                    central_key = 'AA1'
-                    contact_key = 'AA2'
-                    central_res = 'Res1'
-                    contact_res = 'Res2'
-                    central_chain = 'ChainRes1'
-                    contact_chain = 'ChainRes2'
-                else:
-                    central_key = 'AA2'
-                    contact_key = 'AA1'
-                    central_res = 'Res2'
-                    contact_res = 'Res1'
-                    central_chain = 'ChainRes2'
-                    contact_chain = 'ChainRes1'
-            
-            # Create new Central_AA column for consistent reference
-            # Filter DataFrame for rows where central residue matches our target
-            df = df[df[central_res] == res_pos]
-            df = df[df[central_chain] == chain]
-            df['Central_AA'] = df[central_key]
-            df['Contact_Res'] = df[contact_res].astype(str)
-            df['Contact_Chain'] = df[contact_chain]
-            df['Contact_AA'] = df[contact_key]
+            # Create new Central_AA and contact mapping, including cases where residue is in Res1 or Res2
+            mask1 = (df['Res1'] == res_pos) & (df['ChainRes1'] == chain)
+            mask2 = (df['Res2'] == res_pos) & (df['ChainRes2'] == chain)
+            df = df[mask1 | mask2].copy()
+            df['Central_AA'] = np.where(mask1, df['AA1'], df['AA2'])
+            df['Contact_Res'] = np.where(mask1, df['Res2'], df['Res1']).astype(int)
+            df['Contact_Chain'] = np.where(mask1, df['ChainRes2'], df['ChainRes1'])
+            df['Contact_AA'] = np.where(mask1, df['AA2'], df['AA1'])
             
             # Print debugging information
             logger.debug(f"Loaded {mut_file}. Columns: {df.columns.tolist()}")
@@ -350,24 +393,56 @@ def view_mutate_contacts_py3dmol(
             continue
         logger.debug(f"Converted native residue to one-letter code: {native_aa}")
 
-        # Get WT frustration data using one-letter code
-        wt_data = df[df['Central_AA'] == native_aa].set_index(['Contact_Chain', 'Contact_Res'])
-        logger.debug(f"Is WT data empty for {native_aa}? {wt_data.empty}")
-        if wt_data.empty:
-            logger.warning(f"Could not find WT ({native_aa}) data in {mut_file}. Cannot calculate deltas.")
+        # Filter the BASE WT data for contacts involving the current res_pos and chain
+        wt_contacts_df = wt_base_df[
+            ((wt_base_df['Res1'] == res_pos) & (wt_base_df['ChainRes1'] == chain)) |
+            ((wt_base_df['Res2'] == res_pos) & (wt_base_df['ChainRes2'] == chain))
+        ].copy()
+
+        if wt_contacts_df.empty:
+            logger.warning(f"No WT contacts found for residue {res_pos}{chain} in the base frustration file. Skipping delta calculation for this residue.")
             continue
 
-        wt_frustration_map = wt_data['FrstIndex'].to_dict()
+        # Create the WT frustration map { (contact_chain, contact_res_num): frustration_index }
+        wt_frustration_map = {}
+        for _, row in wt_contacts_df.iterrows():
+            if row['Res1'] == res_pos and row['ChainRes1'] == chain:
+                contact_key = (row['ChainRes2'], row['Res2'])
+            else:
+                contact_key = (row['ChainRes1'], row['Res1'])
+            wt_frustration_map[contact_key] = row['FrstIndex']
+
+        logger.debug(f"Created WT frustration map for {res_pos}{chain} with {len(wt_frustration_map)} entries.")
 
         # --- 3. Process Each Mutation Variant --- 
-        mutation_variants = sorted([aa for aa in df['Central_AA'].unique() if aa != native_aa])
+        mutation_variants = sorted([aa for aa in df['Central_AA'].unique()]) # Keep WT in the list for now
         logger.debug(f"Found {len(mutation_variants)} mutation variants to compare against WT ({native_aa}). Variants: {mutation_variants}")
 
         for mut_aa in mutation_variants:
+            # Skip comparing WT to itself
+            if mut_aa == native_aa:
+                continue
+
             mut_data = df[df['Central_AA'] == mut_aa]
             if mut_data.empty:
                 logger.debug(f"No data found for mutation {mut_aa}")
                 continue
+
+            # Debug: Inspect mut_data before creating the map, specifically for I175
+            if mut_aa == 'Y' and res_pos == 178:
+                logger.debug(f"--- Inspecting mut_data for A->Y at {res_pos}{chain} ---")
+                i175_contact_data = mut_data[(mut_data['Contact_Chain'] == 'F') & (mut_data['Contact_Res'] == 175)]
+                logger.debug(f"Data for contact I175 in mut_data:\n{i175_contact_data.to_string()}")
+
+            # Create a map for the specific mutant's frustration values
+            mut_frustration_map = mut_data.set_index(['Contact_Chain', 'Contact_Res'])['FrstIndex'].to_dict()
+
+            # Get the union of contact keys from WT and this mutant
+            wt_contact_keys = set(wt_frustration_map.keys())
+            mut_contact_keys = set(mut_frustration_map.keys())
+            all_relevant_contact_keys = wt_contact_keys.union(mut_contact_keys)
+
+            logger.debug(f"Total relevant contacts for {native_aa}->{mut_aa}: {len(all_relevant_contact_keys)}")
 
             # Create a new viewer for this specific mutation comparison
             view = py3Dmol.view(width=width, height=height)
@@ -386,19 +461,30 @@ def view_mutate_contacts_py3dmol(
             rendered_contacts = 0
 
             # Calculate and draw delta frustration contacts
-            for _, row in mut_data.iterrows():
-                contact_key = (row['Contact_Chain'], row['Contact_Res'])
-                mut_frst = row['FrstIndex']
+            for contact_key in all_relevant_contact_keys:
+                contact_chain, contact_res = contact_key
+                mut_frst = mut_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in MUTANT
                 wt_frst = wt_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in WT
                 delta_frst = mut_frst - wt_frst
 
-                # Determine color based on delta
-                if delta_frst < -delta_threshold:
-                    color = 'red' # Frustration increased
-                elif delta_frst > delta_threshold:
-                    color = 'blue' # Frustration decreased
+                # Special debug for I175 contact
+                if contact_res == 175 and contact_chain == 'F':
+                    print(f"DEBUG: Contact I175-{chain}{res_pos} for {native_aa}->{mut_aa}")
+                    print(f"  WT frustration: {wt_frst}")
+                    print(f"  Mutant frustration: {mut_frst}")
+                    print(f"  Delta frustration: {delta_frst}")
+                    print(f"  Comparison with plot_mutate_res: state based on FrstIndex={mut_frst}")
+                    print(f"  State based on delta threshold: {'Red' if delta_frst <= -delta_threshold else 'Green' if delta_frst >= delta_threshold else 'Gray'}")
+
+                # Determine state and color based on delta thresholds
+                if delta_frst <= -delta_threshold:
+                    state_str = 'highly'
+                elif delta_frst >= delta_threshold:
+                    state_str = 'minimally'
                 else:
-                    color = 'gray' # Neutral change
+                    state_str = 'neutral'
+                color_map = {'highly': 'red', 'minimally': 'green', 'neutral': 'gray'}
+                color = color_map[state_str]
 
                 # Determine radius based on magnitude of delta
                 max_possible_delta = 8 # Assuming FrstIndex ranges roughly from -4 to 4
@@ -409,50 +495,68 @@ def view_mutate_contacts_py3dmol(
                 end_coords = ca_map.get(contact_key)
 
                 if not start_coords or not end_coords:
-                    # logger.warning(f"Missing coordinates for contact: {chain}{res_pos} <-> {contact_key}")
                     continue
 
-                # Draw cylinder
-                view.addCylinder({
-                    'start': {'x': start_coords[0], 'y': start_coords[1], 'z': start_coords[2]},
-                    'end': {'x': end_coords[0], 'y': end_coords[1], 'z': end_coords[2]},
-                    'radius': radius,
-                    'color': color,
-                    'dashed': True,
-                    'fromCap': 2, 
-                    'toCap': 2
-                })
-                
+                # Skip drawing cylinder if neutral and flag is False
+                if state_str == 'neutral' and not show_neutral_contacts:
+                    pass # Don't draw cylinder, but might still draw label later
+                else:
+                    # Draw cylinder
+                    view.addCylinder({
+                        'start': {'x': start_coords[0], 'y': start_coords[1], 'z': start_coords[2]},
+                        'end':   {'x': end_coords[0], 'y': end_coords[1], 'z': end_coords[2]},
+                        'radius': radius,
+                        'color': color,
+                        'dashed': True,
+                        'fromCap': 1, # Rounded caps
+                        'toCap': 1   # Rounded caps
+                    })
+
                 # Get contact residue name using PDB object
                 try:
                     contact_aa_name = pdb.atom[
-                        (pdb.atom['chain'] == row['Contact_Chain']) &
-                        (pdb.atom['res_num'] == row['Contact_Res']) &
+                        (pdb.atom['chain'] == contact_chain) &
+                        (pdb.atom['res_num'] == contact_res) &
                         (pdb.atom['atom_name'] == 'CA')
                     ]['res_name'].iloc[0]
                 except IndexError:
-                    contact_aa_name = row['Contact_AA'] # Fallback to name from file
+                    # Try to get from mut_data if available, otherwise use generic name
+                    contact_aa_name = mut_data.loc[mut_data['Contact_Res'] == contact_res, 'Contact_AA'].iloc[0] if contact_key in mut_contact_keys else "UNK" 
                 
-                # Add label to contact residue (show delta)
-                label_text = f"{contact_aa_name}{row['Contact_Res']}{row['Contact_Chain']}\nΔFrst: {delta_frst:+.2f}"
+                # Add label to contact residue (show delta) with state-based background
+                # Determine label background color based on delta_frst
+                if delta_frst <= -delta_threshold:
+                    label_background_color = 'red'
+                elif delta_frst >= delta_threshold:
+                    label_background_color = 'green'
+                else:
+                    label_background_color = 'gray'
+                    # Skip adding label if neutral and flag is False
+                    if not show_neutral_labels:
+                        continue # Skip to next contact in the loop
+
+                # Adjust label opacity based on significance
+                label_opacity = 0.7 if state_str != 'neutral' else 0.5
+
+                label_text = f"{contact_aa_name}{contact_res}\nΔFrst: {delta_frst:+.2f}"
                 view.addLabel(label_text, {
                     'position': {'x': end_coords[0], 'y': end_coords[1], 'z': end_coords[2]},
-                    'backgroundColor': 'black',
+                    'backgroundColor': label_background_color,
                     'fontColor': 'white',
                     'fontSize': 10,
-                    'backgroundOpacity': 0.6,
+                    'backgroundOpacity': label_opacity,
                     'inFront': True
                 })
 
-                # Style contact residue based on MUTANT frustration state
-                if mut_frst < -1.0:
-                     contact_cartoon_color = 'salmon'
-                elif mut_frst > 0.78:
-                     contact_cartoon_color = 'lightgreen'
+                # Style contact residue based on DELTA frustration state (to match cylinders/labels)
+                if delta_frst <= -delta_threshold:
+                     contact_cartoon_color = 'red' # Or 'salmon' if preferred
+                elif delta_frst >= delta_threshold:
+                     contact_cartoon_color = 'green' # Or 'lightgreen'
                 else:
-                     contact_cartoon_color = 'lightblue'
+                     contact_cartoon_color = 'gray' # Or 'lightblue'
                 view.setStyle(
-                    {'chain': row['Contact_Chain'], 'resi': row['Contact_Res']},
+                    {'chain': contact_chain, 'resi': contact_res},
                     {'stick': {'radius': 0.1}, 'cartoon': {'color': contact_cartoon_color, 'opacity': 0.8}}
                 )
                 
@@ -476,26 +580,26 @@ def view_mutate_contacts_py3dmol(
             legend_x_start = center_coords[0] - 15 if center_coords else 0
             view.addLabel("ΔFrst Legend:", {
                 'position': {'x': legend_x_start, 'y': legend_y_start, 'z': center_coords[2] if center_coords else 0},
-                'backgroundColor': 'white', 'fontColor': 'black', 'fontSize': 12, 'backgroundOpacity': 0.7
+                'backgroundColor': 'white', 'fontColor': 'black', 'fontSize': 12, 'backgroundOpacity': 0.7, 'borderColor': 'lightgrey', 'borderWidth': 1
             })
             view.addLabel(f"  Increased (Δ < {-delta_threshold:.1f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 2, 'z': center_coords[2] if center_coords else 0},
-                'fontColor': 'red', 'fontSize': 10
+                'backgroundColor': 'red', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
-            view.addLabel(f"  Decreased (Δ > {delta_threshold:.1f})", {
+            view.addLabel(f"  Decreased (Δ ≥ {delta_threshold:.1f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 4, 'z': center_coords[2] if center_coords else 0},
-                'fontColor': 'blue', 'fontSize': 10
+                'backgroundColor': 'green', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
             view.addLabel("  Neutral", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 6, 'z': center_coords[2] if center_coords else 0},
-                'fontColor': 'gray', 'fontSize': 10
+                'backgroundColor': 'gray', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
 
 
             # Zoom and Show
             zoom_selection = {'or': [{'chain': chain, 'resi': res_pos}]}
-            for _, row in mut_data.iterrows(): # Include all contacts for this mutation in zoom
-                zoom_selection['or'].append({'chain': row['Contact_Chain'], 'resi': row['Contact_Res']})
+            for contact_key in all_relevant_contact_keys:
+                zoom_selection['or'].append({'chain': contact_key[0], 'resi': contact_key[1]})
             
             if rendered_contacts > 0:
                 print(f"    Rendered {rendered_contacts} contacts showing delta frustration.")
