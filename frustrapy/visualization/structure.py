@@ -219,7 +219,7 @@ def view_config_contacts_py3dmol(
         })
 
     # label central residue
-    central_desc = f"{central_resname_one}{central_res}\n(Center)" # Use 1-letter code, removed chain
+    central_desc = f"{central_resname_one}{central_res}" # Use 1-letter code, removed chain
     view.addLabel(
         central_desc,
         {'position': {'x': ctr[0], 'y': ctr[1], 'z': ctr[2]},
@@ -299,7 +299,6 @@ def view_mutate_contacts_py3dmol(
         required_wt_cols = {'Res1', 'Res2', 'ChainRes1', 'ChainRes2', 'FrstIndex'}
         if not required_wt_cols.issubset(wt_base_df.columns):
             raise ValueError(f"Base WT file {base_frust_file} missing required columns (needs: {required_wt_cols})")
-        logger.debug(f"Successfully loaded base WT frustration data from {base_frust_file}")
     except Exception as e:
         logger.error(f"Error loading base WT frustration file {base_frust_file}: {e}")
         raise
@@ -371,9 +370,6 @@ def view_mutate_contacts_py3dmol(
             df['Contact_Chain'] = np.where(mask1, df['ChainRes2'], df['ChainRes1'])
             df['Contact_AA'] = np.where(mask1, df['AA2'], df['AA1'])
             
-            # Print debugging information
-            logger.debug(f"Loaded {mut_file}. Columns: {df.columns.tolist()}")
-            logger.debug(f"Unique Central_AA values found: {sorted(df['Central_AA'].unique().tolist())}")
         except Exception as e:
             logger.error(f"Error loading data from {mut_file}: {e}")
             continue
@@ -383,7 +379,6 @@ def view_mutate_contacts_py3dmol(
         if not native_three:
             logger.error(f"Could not determine native residue for {res_pos}{chain} from PDB object. Skipping.")
             continue
-        logger.debug(f"Identified native residue from PDB: {native_three}")
 
         # Convert three-letter code to one-letter code
         try:
@@ -391,7 +386,6 @@ def view_mutate_contacts_py3dmol(
         except KeyError:
             logger.error(f"Could not convert native residue {native_three} to one-letter code. Skipping.")
             continue
-        logger.debug(f"Converted native residue to one-letter code: {native_aa}")
 
         # Filter the BASE WT data for contacts involving the current res_pos and chain
         wt_contacts_df = wt_base_df[
@@ -412,11 +406,8 @@ def view_mutate_contacts_py3dmol(
                 contact_key = (row['ChainRes1'], row['Res1'])
             wt_frustration_map[contact_key] = row['FrstIndex']
 
-        logger.debug(f"Created WT frustration map for {res_pos}{chain} with {len(wt_frustration_map)} entries.")
-
         # --- 3. Process Each Mutation Variant --- 
         mutation_variants = sorted([aa for aa in df['Central_AA'].unique()]) # Keep WT in the list for now
-        logger.debug(f"Found {len(mutation_variants)} mutation variants to compare against WT ({native_aa}). Variants: {mutation_variants}")
 
         for mut_aa in mutation_variants:
             # Skip comparing WT to itself
@@ -425,14 +416,7 @@ def view_mutate_contacts_py3dmol(
 
             mut_data = df[df['Central_AA'] == mut_aa]
             if mut_data.empty:
-                logger.debug(f"No data found for mutation {mut_aa}")
                 continue
-
-            # Debug: Inspect mut_data before creating the map, specifically for I175
-            if mut_aa == 'Y' and res_pos == 178:
-                logger.debug(f"--- Inspecting mut_data for A->Y at {res_pos}{chain} ---")
-                i175_contact_data = mut_data[(mut_data['Contact_Chain'] == 'F') & (mut_data['Contact_Res'] == 175)]
-                logger.debug(f"Data for contact I175 in mut_data:\n{i175_contact_data.to_string()}")
 
             # Create a map for the specific mutant's frustration values
             mut_frustration_map = mut_data.set_index(['Contact_Chain', 'Contact_Res'])['FrstIndex'].to_dict()
@@ -441,8 +425,6 @@ def view_mutate_contacts_py3dmol(
             wt_contact_keys = set(wt_frustration_map.keys())
             mut_contact_keys = set(mut_frustration_map.keys())
             all_relevant_contact_keys = wt_contact_keys.union(mut_contact_keys)
-
-            logger.debug(f"Total relevant contacts for {native_aa}->{mut_aa}: {len(all_relevant_contact_keys)}")
 
             # Create a new viewer for this specific mutation comparison
             view = py3Dmol.view(width=width, height=height)
@@ -466,15 +448,6 @@ def view_mutate_contacts_py3dmol(
                 mut_frst = mut_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in MUTANT
                 wt_frst = wt_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in WT
                 delta_frst = mut_frst - wt_frst
-
-                # Special debug for I175 contact
-                if contact_res == 175 and contact_chain == 'F':
-                    print(f"DEBUG: Contact I175-{chain}{res_pos} for {native_aa}->{mut_aa}")
-                    print(f"  WT frustration: {wt_frst}")
-                    print(f"  Mutant frustration: {mut_frst}")
-                    print(f"  Delta frustration: {delta_frst}")
-                    print(f"  Comparison with plot_mutate_res: state based on FrstIndex={mut_frst}")
-                    print(f"  State based on delta threshold: {'Red' if delta_frst <= -delta_threshold else 'Green' if delta_frst >= delta_threshold else 'Gray'}")
 
                 # Determine state and color based on delta thresholds
                 if delta_frst <= -delta_threshold:
