@@ -449,14 +449,14 @@ def view_mutate_contacts_py3dmol(
                 wt_frst = wt_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in WT
                 delta_frst = mut_frst - wt_frst
 
-                # Determine state and color based on delta thresholds
-                if delta_frst <= -delta_threshold:
-                    state_str = 'highly'
-                elif delta_frst >= delta_threshold:
-                    state_str = 'minimally'
+                # Determine state and color based on mutant frustration value thresholds
+                if mut_frst <= -delta_threshold:
+                    state_str = 'high_frustration'
+                elif mut_frst >= delta_threshold:
+                    state_str = 'low_frustration'
                 else:
                     state_str = 'neutral'
-                color_map = {'highly': 'red', 'minimally': 'green', 'neutral': 'gray'}
+                color_map = {'high_frustration': 'red', 'low_frustration': 'green', 'neutral': 'gray'}
                 color = color_map[state_str]
 
                 # Determine radius based on magnitude of delta
@@ -497,16 +497,15 @@ def view_mutate_contacts_py3dmol(
                     contact_aa_name = mut_data.loc[mut_data['Contact_Res'] == contact_res, 'Contact_AA'].iloc[0] if contact_key in mut_contact_keys else "UNK" 
                 
                 # Add label to contact residue (show delta) with state-based background
-                # Determine label background color based on delta_frst
-                if delta_frst <= -delta_threshold:
+                # Determine label background color based on mutant frustration value
+                if mut_frst <= -delta_threshold:
                     label_background_color = 'red'
-                elif delta_frst >= delta_threshold:
+                elif mut_frst >= delta_threshold:
                     label_background_color = 'green'
                 else:
                     label_background_color = 'gray'
-                    # Skip adding label if neutral and flag is False
                     if not show_neutral_labels:
-                        continue # Skip to next contact in the loop
+                        continue
 
                 # Adjust label opacity based on significance
                 label_opacity = 0.7 if state_str != 'neutral' else 0.5
@@ -521,13 +520,13 @@ def view_mutate_contacts_py3dmol(
                     'inFront': True
                 })
 
-                # Style contact residue based on DELTA frustration state (to match cylinders/labels)
-                if delta_frst <= -delta_threshold:
-                     contact_cartoon_color = 'red' # Or 'salmon' if preferred
-                elif delta_frst >= delta_threshold:
-                     contact_cartoon_color = 'green' # Or 'lightgreen'
+                # Style contact residue based on mutant frustration state (to match cylinders/labels)
+                if mut_frst <= -delta_threshold:
+                    contact_cartoon_color = 'red'
+                elif mut_frst >= delta_threshold:
+                    contact_cartoon_color = 'green'
                 else:
-                     contact_cartoon_color = 'gray' # Or 'lightblue'
+                    contact_cartoon_color = 'gray'
                 view.setStyle(
                     {'chain': contact_chain, 'resi': contact_res},
                     {'stick': {'radius': 0.1}, 'cartoon': {'color': contact_cartoon_color, 'opacity': 0.8}}
@@ -551,19 +550,19 @@ def view_mutate_contacts_py3dmol(
             # Add Legend
             legend_y_start = center_coords[1] - 15 if center_coords else 0
             legend_x_start = center_coords[0] - 15 if center_coords else 0
-            view.addLabel("ΔFrst Legend:", {
+            view.addLabel("Mutant Frustration Legend:", {
                 'position': {'x': legend_x_start, 'y': legend_y_start, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'white', 'fontColor': 'black', 'fontSize': 12, 'backgroundOpacity': 0.7, 'borderColor': 'lightgrey', 'borderWidth': 1
             })
-            view.addLabel(f"  Increased (Δ < {-delta_threshold:.1f})", {
+            view.addLabel(f"  Maximally frustrated (Frst ≤ {-delta_threshold:.1f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 2, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'red', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
-            view.addLabel(f"  Decreased (Δ ≥ {delta_threshold:.1f})", {
+            view.addLabel(f"  Minimally frustrated (Frst ≥ {delta_threshold:.1f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 4, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'green', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
-            view.addLabel("  Neutral", {
+            view.addLabel(f"  Neutral (|Frst| < {delta_threshold:.1f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 6, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'gray', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
