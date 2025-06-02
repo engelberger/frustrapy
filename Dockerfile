@@ -1,7 +1,22 @@
 FROM us-docker.pkg.dev/colab-images/public/runtime
-RUN apt update -y
-RUN apt install wget mc r-base python3 python3-pip pymol libmagick++-dev libcurl4-openssl-dev libssl-dev libgit2-dev -y
-RUN apt install libcurl4-gnutls-dev libxml2-dev -y
+RUN echo 'Acquire::ForceIPv4 "true";' > /etc/apt/apt.conf.d/99force-ipv4
+RUN sed -i 's/http:\\/\\/archive.ubuntu.com/https:\\/\\/archive.ubuntu.com/g' /etc/apt/sources.list && \
+    sed -i 's/http:\\/\\/security.ubuntu.com/https:\\/\\/security.ubuntu.com/g' /etc/apt/sources.list
+RUN rm -rf /var/lib/apt/lists/* && \
+    apt-get update -y
+RUN apt-get install --fix-missing -y \
+    wget \
+    mc \
+    r-base \
+    python3 \
+    python3-pip \
+    pymol \
+    libmagick++-dev \
+    libcurl4-openssl-dev \
+    libssl-dev \
+    libgit2-dev \
+    libcurl4-gnutls-dev \
+    libxml2-dev
 RUN python3 -m pip install numpy biopython leidenalg
 RUN apt install software-properties-common -y
 RUN wget https://salilab.org/modeller/9.25/modeller_9.25-1_amd64.deb
