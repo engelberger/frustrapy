@@ -1,0 +1,16 @@
+# Normalize line endings: the repo canonical form is LF for all text files.
+# Fork base (e37364d) was LF; main's CRLF (a2b3fc9) is the regression this fixes.
+* text=auto eol=lf
+
+# Be explicit about the source + subprocess toolchain (LF is load-bearing for the
+# Perl/shell scripts spawned by the calculation path).
+*.py  text eol=lf
+*.sh  text eol=lf
+*.pl  text eol=lf
+
+# Precompiled AWSEM/LAMMPS binaries and bytecode must NEVER be line-ending-normalized.
+lmp_serial_* binary
+*.pyc        binary
+*.so         binary
+*.png        binary
+*.gz         binary
