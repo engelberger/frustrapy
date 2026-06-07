@@ -15,7 +15,10 @@ And the optional-extra demotion:
     frustrapy`` must succeed without them.
 """
 
-import tomllib
+try:
+    import tomllib  # Python 3.11+
+except ModuleNotFoundError:  # Python 3.10
+    import tomli as tomllib
 from pathlib import Path
 
 import pytest

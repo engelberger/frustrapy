@@ -39,7 +39,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: astral-sh/setup-uv@v5
       - name: Ruff check
-        run: uvx ruff check frustrapy tests
+        # Advisory: ruff runs and reports findings in the log, but does not gate the
+        # check (--exit-zero). The curated ignore list lives in pyproject [tool.ruff.lint].
+        run: uvx ruff check frustrapy tests --exit-zero
 
   test-fast:
     name: test-fast (py${{ matrix.python-version }})

@@ -155,5 +155,14 @@ markers = [
 line-length = 100
 target-version = "py310"
 
+[tool.ruff.lint]
+# Keep the real-bug checks (pyflakes F-codes: undefined names, unused imports) and
+# ignore the pervasive legacy stylistic codes so the advisory lint stays signal, not
+# noise. These reflect existing code style across the package, not defects:
+#   E402 module import not at top  (the public __init__ imports after a version guard)
+#   E501 line too long             (long docstrings / data tables)
+#   E701 multiple statements (colon), E722 bare except, E741 ambiguous name
+ignore = ["E402", "E501", "E701", "E722", "E741"]
+
 [tool.uv]
 # Bare specifiers by design — uv.lock does the exact pinning.
