@@ -2,6 +2,7 @@ from dataclasses import dataclass
 from typing import Dict, List, Optional, Set, Union, Tuple
 from pathlib import Path
 import logging
+import math
 import numpy as np
 import pandas as pd
 from .exceptions import FrustraEvoError
@@ -348,52 +349,76 @@ class InformationContentCalculator:
             return "MAX"
         return "NEU"
 
+    # Expected (background) frustration-state probabilities used by the ORIGINAL
+    # FrustraEvo IC computation (Scripts/IC_Conts_Conf.py::information_content):
+    # pMIN=0.4, pMAX=0.1, pNEU=0.5. h_background is COMPUTED with math.log(p, 2)
+    # (NOT a truncated literal, NOT math.log2) so the float is bit-for-bit identical
+    # to the original: -(0.4*log2(0.4) + 0.1*log2(0.1) + 0.5*log2(0.5))
+    #               = 1.360964047443681
+    _H_BACKGROUND = -(
+        0.4 * math.log(0.4, 2)
+        + 0.1 * math.log(0.1, 2)
+        + 0.5 * math.log(0.5, 2)
+    )
+
+    @staticmethod
+    def _h_term(p: float):
+        """Shannon term H = -(p*log2(p)) for p>0, else int 0.
+
+        Mirrors the original Hmin/Hmax/Hneu EXACTLY: uses math.log(p, 2) and
+        returns the int 0 (not 0.0) when p == 0 — so str() prints "0" for an
+        absent state and "-0.0" for a fully conserved state (p == 1.0 gives
+        -(1.0*0.0) = -0.0). These exact reprs are required for byte parity.
+        """
+        if p > 0:
+            return -(p * math.log(p, 2))
+        return 0
+
     def _calculate_contact_stats(self, values: List[float]) -> Dict:
-        """Calculate statistics for a set of contact values"""
+        """Per-contact IC stats, byte-identical to the original FrustraEvo
+        IC_Conts_Conf.py. NO probability rounding, NO entropy/IC rounding, NO
+        max(0, ..) clamp (IC may be negative) — the original writes str(float)
+        verbatim and its R annotation step pastes the strings unchanged."""
         if len(values) <= 1:
             return {}
 
-        # Legacy uses fixed background entropy value
-        h_background = 1.36096404744368
-
         # Count states
         states = [self._calculate_frustration_state(v) for v in values]
-        counts = {"MIN": 0, "NEU": 0, "MAX": 0}
+        num = {"MIN": 0, "NEU": 0, "MAX": 0}
         for state in states:
-            counts[state] += 1
+            num[state] += 1
 
-        total = len(values)
-        # Round probabilities to match legacy format
-        probs = {state: round(count / total, 2) for state, count in counts.items()}
+        conts = len(values)
+        p_neu = float(num["NEU"]) / float(conts)
+        p_min = float(num["MIN"]) / float(conts)
+        p_max = float(num["MAX"]) / float(conts)
 
-        # Calculate entropy terms exactly as legacy does
-        h_terms = {
-            state: round(self._calculate_entropy_term(prob), 15) if prob > 0 else 0.0
-            for state, prob in probs.items()
-        }
-        h_total = round(sum(h_terms.values()), 15)
+        h_neu = self._h_term(p_neu)
+        h_min = self._h_term(p_min)
+        h_max = self._h_term(p_max)
+        # Original sum order: HMIN + HMAX + HNEU
+        h_total = h_min + h_max + h_neu
 
-        # Calculate IC using legacy formula
-        ic_total = round(max(0.0, h_background - h_total), 15)
-        ic_terms = {
-            state: round(ic_total * prob, 15) if prob > 0 else 0.0
-            for state, prob in probs.items()
-        }
+        ic_total = self._H_BACKGROUND - h_total  # no clamp, no round
+        ic_min = ic_total * p_min
+        ic_max = ic_total * p_max
+        ic_neu = ic_total * p_neu
 
-        # Determine conserved state using legacy rules
-        if counts["NEU"] >= max(counts["MIN"], counts["MAX"]):
-            conserved_state = "NEU"
-        elif counts["MIN"] >= counts["MAX"]:
+        # Conserved state — original tie order MIN > NEU > MAX
+        mx = max(num["MIN"], num["NEU"], num["MAX"])
+        if mx == num["MIN"]:
             conserved_state = "MIN"
+        elif mx == num["NEU"]:
+            conserved_state = "NEU"
         else:
             conserved_state = "MAX"
 
         return {
-            "counts": counts,
-            "probabilities": probs,
-            "entropy_terms": h_terms,
+            "counts": num,
+            "probabilities": {"NEU": p_neu, "MIN": p_min, "MAX": p_max},
+            "entropy_terms": {"NEU": h_neu, "MIN": h_min, "MAX": h_max},
             "h_total": h_total,
-            "ic_terms": ic_terms,
+            "ic_terms": {"NEU": ic_neu, "MIN": ic_min, "MAX": ic_max},
             "ic_total": ic_total,
             "conserved_state": conserved_state,
         }
