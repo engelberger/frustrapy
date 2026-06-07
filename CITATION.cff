@@ -1,0 +1,95 @@
+cff-version: 1.2.0
+title: FrustraPy
+message: >-
+  FrustraPy is an unofficial Python reimplementation of the Protein
+  Frustratometer / frustratometeR. If you use it in your research, please
+  cite the references listed below.
+type: software
+authors:
+  - family-names: Engelberger
+    given-names: Felipe
+repository-code: "https://github.com/engelberger/frustrapy"
+license: GPL-3.0-or-later
+# doi: 10.5281/zenodo.XXXXXXX   # add the Zenodo concept DOI after the first release
+references:
+  - type: article
+    title: >-
+      Protein Frustratometer 2: a tool to localize energetic frustration in
+      protein molecules, now with electrostatics
+    authors:
+      - family-names: Parra
+        given-names: R. Gonzalo
+      - family-names: Schafer
+        given-names: Nicholas P.
+      - family-names: Radusky
+        given-names: Leandro G.
+      - family-names: Tsai
+        given-names: Min-Yeh
+      - family-names: Guzovsky
+        given-names: A. Brenda
+      - family-names: Wolynes
+        given-names: Peter G.
+      - family-names: Ferreiro
+        given-names: Diego U.
+    journal: Nucleic Acids Research
+    volume: 44
+    issue: W1
+    start: W356
+    end: W360
+    year: 2016
+    publisher:
+      name: Oxford University Press
+  - type: article
+    title: >-
+      Protein frustratometer: a tool to localize energetic frustration in
+      protein molecules
+    authors:
+      - family-names: Jenik
+        given-names: Michael
+      - family-names: Parra
+        given-names: R. Gonzalo
+      - family-names: Radusky
+        given-names: Leandro G.
+      - family-names: Turjanski
+        given-names: Adrian
+      - family-names: Wolynes
+        given-names: Peter G.
+      - family-names: Ferreiro
+        given-names: Diego U.
+    journal: Nucleic Acids Research
+    volume: 40
+    issue: W1
+    start: W348
+    end: W351
+    year: 2012
+    publisher:
+      name: Oxford University Press
+  - type: article
+    title: >-
+      FrustratometeR: an R-package to compute local frustration in protein
+      structures, point mutants and MD simulations
+    authors:
+      - family-names: Rausch
+        given-names: Atilio O.
+      - family-names: Freiberger
+        given-names: Maria I.
+      - family-names: Leonetti
+        given-names: Cesar O.
+      - family-names: Luna
+        given-names: Diego M.
+      - family-names: Radusky
+        given-names: Leandro G.
+      - family-names: Wolynes
+        given-names: Peter G.
+      - family-names: Ferreiro
+        given-names: Diego U.
+      - family-names: Parra
+        given-names: R. Gonzalo
+    journal: Bioinformatics
+    volume: 37
+    issue: 18
+    start: 3038
+    end: 3040
+    year: 2021
+    publisher:
+      name: Oxford University Press

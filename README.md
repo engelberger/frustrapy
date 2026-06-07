@@ -1,8 +1,10 @@
 # FrustraPy: A Python Implementation of the Protein Frustratometer
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/engelberger/frustrapy/blob/main/frustrapy_colab.ipynb)
-[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![CI](https://github.com/engelberger/frustrapy/actions/workflows/ci.yml/badge.svg)](https://github.com/engelberger/frustrapy/actions/workflows/ci.yml)
+[![PyPI](https://img.shields.io/pypi/v/frustrapy.svg)](https://pypi.org/project/frustrapy/)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/engelberger/frustrapy/blob/main/frustrapy_colab.ipynb)
 
 FrustraPy is an unofficial, parallelized Python reimplementation of the
 [frustratometeR package](https://github.com/proteinphysiologylab/frustratometeR)
@@ -12,7 +14,7 @@ FrustraPy is an unofficial, parallelized Python reimplementation of the
 computing **local energetic frustration** in protein structures. It adds interactive
 Plotly visualizations and parallel mutation analysis on top of the original method.
 
-⚠️ **Disclaimer**: This is an unofficial reimplementation. Use at your own risk and
+**Disclaimer:** This is an unofficial reimplementation. Use at your own risk and
 verify results against the original frustratometeR when possible.
 
 ## How it works (the one fact that matters)
@@ -208,24 +210,63 @@ use a distinct minimally cutoff of `0.58`, matching frustratometeR's visualizati
   download-on-first-use delivery (to slim the wheel) is planned.
 - On Apple Silicon the macOS binaries require Rosetta 2.
 
+## Roadmap
+
+The following are planned and **not yet implemented**. Each will be parity-gated
+against the `lammps` reference (FrstIndex agreement, CPU/GPU determinism) before any
+speedup is claimed:
+
+- **Pluggable compute backends.** Refactor the engine behind a `FrustrationBackend`
+  interface so the current AWSEM/LAMMPS path (`lammps`, the numerical reference) can be
+  swapped for alternative implementations behind one public API.
+- **Native GPU backend.** A C++ core with two device paths — CUDA (NVIDIA) and Apple
+  MPS/Metal (Apple Silicon) — plus a CPU fallback, exposed to Python, computing the
+  AWSEM energy, decoy ensemble and 5 Å density reductions on the device.
+- **FrustraMPNN.** Integrate the message-passing-network frustration model as a
+  first-class module with full parity against its reference outputs.
+
+A separate, browser-native WebGPU engine and an interactive web demo are tracked in
+their own repository, outside this Python package.
+
 ## Citation
 
-If you use FrustraPy, please cite the original Frustratometer papers:
+If you use FrustraPy in your research, please cite the following papers:
 
 ```bibtex
-@article{rausch2021frustratometer,
-  title={FrustratometeR: an R-package to compute local frustration in protein structures, point mutants and MD simulations},
-  author={Rausch, Atilio O and Freiberger, Maria I and Leonetti, Cesar O and Luna, Diego M and Radusky, Leandro G and Wolynes, Peter G and Ferreiro, Diego U and Parra, R Gonzalo},
-  journal={Bioinformatics}, volume={37}, number={18}, pages={3038--3040}, year={2021},
-  publisher={Oxford University Press}
-}
 @article{parra2016protein,
   title={Protein Frustratometer 2: a tool to localize energetic frustration in protein molecules, now with electrostatics},
   author={Parra, R Gonzalo and Schafer, Nicholas P and Radusky, Leandro G and Tsai, Min-Yeh and Guzovsky, A Brenda and Wolynes, Peter G and Ferreiro, Diego U},
-  journal={Nucleic acids research}, volume={44}, number={W1}, pages={W356--W360}, year={2016},
+  journal={Nucleic acids research},
+  volume={44},
+  number={W1},
+  pages={W356--W360},
+  year={2016},
+  publisher={Oxford University Press}
+}
+@article{jenik2012protein,
+  title={Protein frustratometer: a tool to localize energetic frustration in protein molecules},
+  author={Jenik, Michael and Parra, R Gonzalo and Radusky, Leandro G and Turjanski, Adrian and Wolynes, Peter G and Ferreiro, Diego U},
+  journal={Nucleic acids research},
+  volume={40},
+  number={W1},
+  pages={W348--W351},
+  year={2012},
+  publisher={Oxford University Press}
+}
+@article{rausch2021frustratometer,
+  title={FrustratometeR: an R-package to compute local frustration in protein structures, point mutants and MD simulations},
+  author={Rausch, Atilio O and Freiberger, Maria I and Leonetti, Cesar O and Luna, Diego M and Radusky, Leandro G and Wolynes, Peter G and Ferreiro, Diego U and Parra, R Gonzalo},
+  journal={Bioinformatics},
+  volume={37},
+  number={18},
+  pages={3038--3040},
+  year={2021},
   publisher={Oxford University Press}
 }
 ```
+
+A Zenodo DOI for FrustraPy itself will be added here with the first tagged release.
+See [`CITATION.cff`](CITATION.cff) for machine-readable citation metadata.
 
 ## License
 
