@@ -329,20 +329,31 @@ def dir_frustration(
             debug=debug,
         )
 
-        import multiprocessing
-
-        cores = multiprocessing.cpu_count()
-        n_procs_eff = (
-            1 if not n_procs
-            else max(1, min(int(n_procs), len(order_list), cores))
+        from ..utils.concurrency import (
+            cpu_budget,
+            get_pool_context,
+            pool_worker_initializer,
+            resolve_concurrency,
         )
 
+        cores = cpu_budget()
+        # Default stays serial (n_procs falsy => one structure at a time, byte-for-
+        # byte the historical path). When batch parallelism is requested, the
+        # single shared budget splits `cores` into outer = concurrent structures
+        # and inner = CPUs each structure's inner mutation pool may use, with
+        # outer * inner <= cores.
+        if not n_procs:
+            n_procs_eff, inner_cpus = 1, max(1, cores)
+        else:
+            n_procs_eff, inner_cpus = resolve_concurrency(
+                n_procs, len(order_list), cores
+            )
+
         if n_procs_eff > 1:
-            # Lever 2: outer batch parallelism. Enforce the shared core budget so
-            # the outer pool and each inner mutation pool together never exceed
-            # `cores` workers (never `cores²`). cf. CLAUDE.md / ROADMAP "never stack
-            # two cpu_count() pools".
-            inner_cpus = max(1, cores // n_procs_eff)
+            # Lever 2: outer batch parallelism. The shared budget above keeps the
+            # outer pool and each inner mutation pool together within `cores`
+            # workers (never `cores²`). cf. CLAUDE.md / ROADMAP "never stack two
+            # cpu_count() pools".
             logger.info(
                 f"- Parallel batch: {n_procs_eff} structures concurrent x "
                 f"{inner_cpus} inner CPU(s) (budget {cores} cores)"
@@ -357,7 +368,11 @@ def dir_frustration(
                 }
                 for pf in order_list
             ]
-            with ProcessPoolExecutor(max_workers=n_procs_eff) as ex:
+            with ProcessPoolExecutor(
+                max_workers=n_procs_eff,
+                mp_context=get_pool_context(),
+                initializer=pool_worker_initializer,
+            ) as ex:
                 for pdb_base, plots, density_results in ex.map(
                     _dir_frustration_worker, jobs
                 ):
