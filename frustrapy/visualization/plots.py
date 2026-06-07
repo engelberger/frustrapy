@@ -614,9 +614,10 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=Fal
             "This graph is only available for singleresidue mode. Run calculate_frustration() with mode='singleresidue'"
         )
     method = method.lower()
-    if method not in ["threading", "modeller"]:
+    if method not in ["threading", "modeller", "pyrosetta"]:
         raise ValueError(
-            f"{method} is not a valid mutation method. Available methods are: threading or modeller"
+            f"{method} is not a valid mutation method. Available methods are: "
+            "threading, modeller, or pyrosetta"
         )
 
     # Check if mutation data exists
@@ -855,8 +856,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
     if show not in [True, False]:
         raise ValueError("Show must be a boolean value!")
     method = method.lower()
-    if method not in ["threading", "modeller"]:
-        raise ValueError(f"{method} is not a valid mutation method. Available methods are: threading or modeller")
+    if method not in ["threading", "modeller", "pyrosetta"]:
+        raise ValueError(f"{method} is not a valid mutation method. Available methods are: threading, modeller, or pyrosetta")
 
     mutation_key = f"Res_{res_num}_{chain}"
     if method not in pdb.Mutations or mutation_key not in pdb.Mutations[method]:

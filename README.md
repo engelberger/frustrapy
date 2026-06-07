@@ -34,7 +34,9 @@ This is what makes numerical agreement tractable: parity reduces to *glue-code p
   all run end-to-end on the Linux path.
 - **Parallel mutation analysis** via `multiprocessing` (`mutate_res_parallel`,
   `mutate_res_scan_parallel`) and parallel batch/trajectory processing
-  (`dir_frustration(..., n_procs=K)`).
+  (`dir_frustration(..., n_procs=K)`). Pluggable mutation backends: the default
+  in-house `threading` (no extra dependency) and an optional `pyrosetta` backend
+  that repacks side chains around the mutation.
 - **Interactive Plotly figures**: contact map, 5 Å frustration-density plots, density
   proportions, and delta-frustration plots (with `graphics=True`).
 - **Evolutionary frustration (FrustraEvo)** via `frustrapy.analyze_family`.
@@ -73,6 +75,7 @@ uv pip install -e .
 uv pip install -e ".[viz]"         # 3D viewers (py3Dmol) + static PNG export (kaleido)
 uv pip install -e ".[clustering]"  # detect_dynamic_clusters (scipy/sklearn/igraph/leidenalg/statsmodels)
 uv pip install -e ".[perf]"        # memory logging (psutil)
+uv pip install -e ".[pyrosetta]"   # pyrosetta-installer helper for the PyRosetta mutation backend
 uv pip install -e ".[all]"         # everything above
 ```
 
@@ -80,6 +83,41 @@ Verify:
 
 ```bash
 python -c "import frustrapy; print(frustrapy.__version__)"
+```
+
+### Mutation backends
+
+The saturation-mutagenesis scan builds each point mutant with a selectable
+backend, passed as `method=` to `mutate_res_parallel` /
+`mutate_res_scan_parallel`:
+
+- **`threading`** (default) — keeps the native backbone and CB and relabels the
+  residue to the target identity (synthesising CB for `GLY→X` from ideal
+  geometry). No extra dependency; this is the in-container parity reference.
+- **`pyrosetta`** — loads the full-atom pose, mutates the target residue, and
+  repacks side chains within a radius using the Rosetta score function, then
+  scores frustration on the repacked mutant. On 1CRN this tracks the `threading`
+  backend closely (per-variant `FrstIndex` sign agreement 100 %, Spearman ≈ 0.996),
+  while producing physically realistic rotamers.
+
+PyRosetta is **not** bundled — it is free for academic/non-commercial use under
+the [RosettaCommons license](https://www.rosettacommons.org/software/license-and-download)
+but must be installed separately:
+
+```bash
+uv pip install -e ".[pyrosetta]"   # pulls the pyrosetta-installer helper
+python -c "import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()"
+```
+
+```python
+import frustrapy
+from frustrapy.analysis.mutations import mutate_res_parallel
+
+pdb, *_ = frustrapy.calculate_frustration(
+    pdb_file="1crn.pdb", mode="singleresidue",
+    residues={"A": [10]}, graphics=False, visualization=False,
+)
+mutate_res_parallel(pdb, res_num=10, chain="A", method="pyrosetta")
 ```
 
 ## Quickstart

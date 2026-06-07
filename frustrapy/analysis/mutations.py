@@ -34,7 +34,10 @@ def _process_amino_acid(
             split (bool): Whether to split chains
             debug (bool): Debug mode flag
             is_glycine (bool): Whether the residue is glycine
-            method (str): Mutation method ('threading' or 'modeller')
+            method (str): Mutation backend ('threading', 'modeller', or
+                'pyrosetta'). 'threading'/'modeller' build the mutant by keeping
+                the native backbone+CB and relabelling the residue; 'pyrosetta'
+                loads the full-atom pose, mutates and repacks side chains.
 
     Returns:
         Dict[str, Any]: Results of processing the amino acid mutation
@@ -48,6 +51,30 @@ def _process_amino_acid(
     if logger.getEffectiveLevel() <= logging.DEBUG:
         logger.debug(
             f"Processing variant {aa} for residue {res_num} in chain '{chain}'"
+        )
+
+    # Output path for the mutant PDB (hoisted ahead of the backend dispatch so
+    # both the geometric and PyRosetta backends write to the same location).
+    if split:
+        output_pdb_path = os.path.join(
+            pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}.pdb"
+        )
+    else:
+        output_pdb_path = os.path.join(
+            pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}.pdb"
+        )
+
+    # Backend dispatch: PyRosetta builds a repacked full-atom mutant; the
+    # geometric (threading/modeller) path keeps the native backbone + CB and
+    # relabels the residue. Everything downstream (the LAMMPS frustration calc and
+    # the parsing/move/cleanup) is identical regardless of how the mutant was built.
+    if method == "pyrosetta":
+        from .mutation_backends import build_pyrosetta_mutant
+
+        logger.debug(f"[_process_amino_acid] PyRosetta mutant {aa} -> {output_pdb_path}")
+        build_pyrosetta_mutant(pdb, res_num, chain, aa, output_pdb_path)
+        return _score_mutant(
+            pdb, res_num, chain, aa, method, output_pdb_path, debug
         )
 
     # Get indices of atoms for the residue to mutate
@@ -197,16 +224,8 @@ def _process_amino_acid(
     # Sort by atom number to maintain proper order
     mutated_pdb = mutated_pdb.sort_index()
 
-    # Save the mutated PDB
+    # Save the mutated PDB (output_pdb_path was resolved at the top of the function)
     logger.debug(f"[_process_amino_acid] Preparing to save mutated PDB for variant {aa}")
-    if split:
-        output_pdb_path = os.path.join(
-            pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}.pdb"
-        )
-    else:
-        output_pdb_path = os.path.join(
-            pdb.job_dir, f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}.pdb"
-        )
 
     # Ensure correct data types
     mutated_pdb["res_name"] = mutated_pdb["res_name"].astype(str)
@@ -259,6 +278,29 @@ def _process_amino_acid(
     else:
         logger.error(f"[_process_amino_acid] Mutated PDB file not found after write: {output_pdb_path}")
     logger.debug(f"Saved mutated PDB to {output_pdb_path}")
+
+    return _score_mutant(pdb, res_num, chain, aa, method, output_pdb_path, debug)
+
+
+def _score_mutant(
+    pdb: "Pdb",
+    res_num: int,
+    chain: str,
+    aa: str,
+    method: str,
+    output_pdb_path: str,
+    debug: bool,
+) -> Dict[str, Any]:
+    """Run the frustration calc on a built mutant PDB and harvest its row(s).
+
+    Shared tail of every mutation backend: once ``output_pdb_path`` holds a mutant
+    structure (built by the geometric or PyRosetta path), this runs
+    ``calculate_frustration`` on it, extracts the target residue's row(s) into a
+    per-variant ``.part`` file, and cleans up. Returns the small status dict the
+    pool collects. Keeping this backend-agnostic is what makes the parity spine
+    hold regardless of how the mutant coordinates were produced.
+    """
+    logger = logging.getLogger(__name__)
 
     # Construct the output PDB base name including chain
     output_pdb_base = f"{pdb.pdb_base}_{int(res_num)}_{aa}_{chain}"
@@ -496,10 +538,21 @@ def mutate_res_scan_parallel(
     """
     if not isinstance(split, bool):
         raise ValueError("Split must be a boolean value!")
-    if method not in ["threading", "modeller"]:
-        raise ValueError("Method must be 'threading' or 'modeller'.")
+    if method not in ["threading", "modeller", "pyrosetta"]:
+        raise ValueError(
+            "Method must be 'threading', 'modeller', or 'pyrosetta'."
+        )
     if method == "modeller" and not split:
         raise ValueError("Complex modeling with Modeller is not available!")
+    if method == "pyrosetta":
+        from .mutation_backends import pyrosetta_available
+
+        if not pyrosetta_available():
+            raise ImportError(
+                "method='pyrosetta' requires the optional PyRosetta package "
+                "(not installed). See frustrapy.analysis.mutation_backends for "
+                "install instructions, or use method='threading'."
+            )
 
     mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
     os.makedirs(mutations_dir, exist_ok=True)
@@ -656,11 +709,14 @@ def mutate_res(
         logger.error("Split must be a boolean value!")
         raise ValueError("Split must be a boolean value!")
 
-    if method not in ["threading", "modeller"]:
+    if method not in ["threading", "modeller", "pyrosetta"]:
         logger.error(
-            f"Invalid method '{method}'. Available methods: 'threading', 'modeller'."
+            f"Invalid method '{method}'. Available methods: 'threading', "
+            "'modeller', 'pyrosetta'."
         )
-        raise ValueError("Method must be 'threading' or 'modeller'.")
+        raise ValueError(
+            "Method must be 'threading', 'modeller', or 'pyrosetta'."
+        )
 
     if not ((pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)).any():
         logger.error(f"Residue number {res_num} in chain '{chain}' does not exist!")
