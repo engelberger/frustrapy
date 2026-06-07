@@ -583,6 +583,62 @@ class InformationContentCalculator:
             logger.error(f"Calculation failed: {str(e)}")
             raise FrustraEvoError(f"Information content calculation failed: {str(e)}")
 
+    def _write_sequence_ic(self) -> Path:
+        """Write the per-column sequence Shannon entropy table (SeqIC).
+
+        Faithful port of the original FrustraEvo ``Scripts/Seq_IC.py``: the
+        original computes Shannon entropy for every column of
+        ``OutPutFiles/MSA_<JobId>.fasta``, which is the **reference-gap-stripped**
+        alignment (every column where the reference sequence has a gap is
+        dropped, the rest renumbered ``1..N``). Our ``MSA_Final.fasta`` keeps
+        those reference-gap columns (and lists the reference first), so we strip
+        them here to land on the same column set.
+
+        Entropy is order-independent per column, so the differing sequence order
+        between the two tools does not matter. Values are written with bare
+        ``str()`` on the NumPy ``float64`` result exactly as the original does,
+        preserving the ``-0.0`` / full-precision reprs byte-for-byte.
+
+        Returns:
+            Path to the written ``SeqIC_<reference_pdb>.tab`` file.
+        """
+
+        def shannon_entropy(column):
+            # Mirror Seq_IC.py:shannon_entropy exactly (NumPy unique + log2).
+            _, counts = np.unique(list(column), return_counts=True)
+            probabilities = counts / len(column)
+            return -np.sum(probabilities * np.log2(probabilities))
+
+        final_msa = self.msa_dir / "MSA_Final.fasta"
+        if not final_msa.exists():
+            raise FileNotFoundError(f"Final MSA file not found: {final_msa}")
+
+        records = list(SeqIO.parse(final_msa, "fasta"))
+        if not records:
+            raise FrustraEvoError("MSA_Final.fasta is empty; cannot compute SeqIC")
+
+        ids = [r.id for r in records]
+        if self.reference_pdb not in ids:
+            raise ValueError(
+                f"Reference sequence {self.reference_pdb} not found in MSA_Final"
+            )
+        sequences = [str(r.seq) for r in records]
+        reference = sequences[ids.index(self.reference_pdb)]
+
+        # Reference-gap strip: keep only columns where the reference is not a gap.
+        kept_columns = [j for j in range(len(reference)) if reference[j] != "-"]
+        alignment = np.array([list(s) for s in sequences])
+
+        output_file = self.results_dir / f"SeqIC_{self.reference_pdb}.tab"
+        with output_file.open("w") as out:
+            out.write("Position\tEntropy\n")
+            for position, col_index in enumerate(kept_columns):
+                entropy = shannon_entropy(alignment[:, col_index])
+                out.write(f"{position + 1}\t{entropy}\n")
+
+        logger.debug(f"Wrote sequence IC table: {output_file}")
+        return output_file
+
     def _calculate_entropy_term(self, probability: float) -> float:
         """Calculate Shannon entropy term"""
         if probability <= 0:
