@@ -88,6 +88,72 @@ def globin_family(tmp_path_factory):
     return {"result": result, "results_dir": results_dir}
 
 
+def test_build_positions_strips_reference_gaps():
+    """The shared coordinate drops every alignment column where the REFERENCE is a
+    gap, renumbers the survivors 1..N, and maps each to the structure's real
+    frustration residue number (parity with FrustraEvo's FinalAlign).
+
+    Regression for the coordinate-convention bug: the old code renumbered PDB_pos
+    from a 1-based counter and kept reference-gap columns, which crashed (KeyError)
+    on any reference that starts at a residue != 1 or has a leading alignment gap.
+    """
+    from frustrapy.evolution.information_content import InformationContentCalculator
+
+    # Reference has a LEADING gap (col 0) and starts at PDB residue 2.
+    ref_aln = "-LSP"
+    sr_lines = [
+        "Res ChainRes DensityRes AA NativeEnergy DecoyEnergy SDEnergy FrstIndex\n",
+        "2 A 0.0 L -1 -1 1 0.9\n",
+        "3 A 0.0 S -1 -1 1 0.1\n",
+        "4 A 0.0 P -1 -1 1 -2.0\n",
+    ]
+
+    # A structure identical to the reference -> the leading gap is stripped and the
+    # three survivors map to the real PDB numbers 2, 3, 4 (NOT 1, 2, 3).
+    pos = InformationContentCalculator._build_positions(ref_aln, "-LSP", sr_lines)
+    assert pos == ["2", "3", "4"]
+
+    # A structure missing the middle residue (only L,P, numbered 2,3 in its own
+    # frustration output) -> 'G' placeholder at the gap, real resnums otherwise.
+    sr_two = [
+        "Res ChainRes DensityRes AA NativeEnergy DecoyEnergy SDEnergy FrstIndex\n",
+        "2 A 0.0 L -1 -1 1 0.9\n",
+        "3 A 0.0 P -1 -1 1 -2.0\n",
+    ]
+    pos_gap = InformationContentCalculator._build_positions(ref_aln, "-L-P", sr_two)
+    assert pos_gap == ["2", "G", "3"]
+
+
+def test_equivalences_use_real_resnums_and_strip_gaps(tmp_path):
+    """The written equivalence file carries reference-gap-stripped MSA columns
+    (1..N) against the structure's real frustration residue numbers, with N/A for
+    structure gaps — the convention the IC table's NumRes*_Ref columns rely on."""
+    from frustrapy.evolution.information_content import InformationContentCalculator
+
+    calc = InformationContentCalculator.__new__(InformationContentCalculator)
+    # Structure missing the reference's middle residue: its own frustration output
+    # numbers the two residues it has (L, P) as 2 and 3.
+    sr_lines = [
+        "Res ChainRes DensityRes AA NativeEnergy DecoyEnergy SDEnergy FrstIndex\n",
+        "2 A 0.0 L -1 -1 1 0.9\n",
+        "3 A 0.0 P -1 -1 1 -2.0\n",
+    ]
+    out = tmp_path / "Equival_x.txt"
+    calc._save_structure_equivalences(
+        structure_id="x-A",
+        msa_seq="-L-P",
+        ref_aln_seq="-LSP",
+        sr_lines=sr_lines,
+        output_file=out,
+    )
+    rows = [ln.rstrip("\n").split("\t") for ln in out.read_text().splitlines()]
+    assert rows[0] == ["MSA_pos", "PDB_pos", "Residue", "Chain", "Structure"]
+    # MSA col 1 -> real resnum 2 (L); col 2 -> N/A (structure gap); col 3 -> 3 (P).
+    assert rows[1][:3] == ["1", "2", "L"]
+    assert rows[2][:2] == ["2", "N/A"]
+    assert rows[3][:3] == ["3", "3", "P"]
+
+
 def test_result_dict_shape(globin_family):
     """The result dict has the advertised structure."""
     res = globin_family["result"]

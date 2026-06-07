@@ -78,8 +78,19 @@ class InformationContentCalculator:
         self.mode = mode
         self.pdb_dir = pdb_dir
 
+        # Identifiers (in MSA order) that passed the sequence check against
+        # their PDB. Populated by _validate_sequences; the original FrustraEvo
+        # drives every downstream step off this validated set, not the raw MSA
+        # (e.g. for Alpha-globins it drops 1fsx-A and keeps the 20 that match).
+        self.valid_ids: List[str] = []
+
         # Initialize paths
         self.frustration_dir = self.results_dir / "Frustration"
+        # Singleresidue frustration is computed separately and drives the
+        # residue equivalences (the original FrustraEvo always runs a
+        # singleresidue pass for FinalAlign/Equivalences); keep it in its own
+        # results tree so it does not collide with the contact-mode .done dir.
+        self.frustration_sr_dir = self.results_dir / "Frustration_SR"
         self.equivalences_dir = self.results_dir / "equivalences"
         self.msa_dir = self.results_dir / "msa"
         self.data_dir = self.results_dir / "data"
@@ -124,6 +135,7 @@ class InformationContentCalculator:
             error_log = self.logs_dir / "ErrorSeq.log"
 
             valid_sequences = []
+            self.valid_ids = []
             with error_log.open("w") as out_log:
                 for record in SeqIO.parse(self.msa_data.fasta_file, "fasta"):
                     seq_id = record.id
@@ -139,6 +151,7 @@ class InformationContentCalculator:
                     pdb_sequence = self._get_pdb_sequence(pdb_file)
                     if sequence == pdb_sequence:
                         valid_sequences.append(record)
+                        self.valid_ids.append(seq_id)
                     else:
                         out_log.write(f"Sequence mismatch for {seq_id}\n")
 
@@ -150,45 +163,52 @@ class InformationContentCalculator:
             logger.error(f"Failed to validate sequences: {e}")
             raise FrustraEvoError("Sequence validation failed") from e
 
-    def _get_pdb_sequence(self, pdb_file: Path) -> str:
-        """Extract sequence from PDB file"""
-        AA_CODES = {
-            "ALA": "A",
-            "ARG": "R",
-            "ASN": "N",
-            "ASP": "D",
-            "CYS": "C",
-            "GLN": "Q",
-            "GLU": "E",
-            "GLY": "G",
-            "HIS": "H",
-            "ILE": "I",
-            "LEU": "L",
-            "LYS": "K",
-            "MET": "M",
-            "PHE": "F",
-            "PRO": "P",
-            "SER": "S",
-            "THR": "T",
-            "TRP": "W",
-            "TYR": "Y",
-            "VAL": "V",
-        }
+    # One-letter codes for the 20 standard residues, in the exact dict used by
+    # the original FrustraEvo (Functions.py::obtain_seq).
+    _AA_CODES = {
+        "ALA": "A", "ARG": "R", "ASN": "N", "ASP": "D", "CYS": "C",
+        "GLN": "Q", "GLU": "E", "GLY": "G", "HIS": "H", "ILE": "I",
+        "LEU": "L", "LYS": "K", "MET": "M", "PHE": "F", "PRO": "P",
+        "SER": "S", "THR": "T", "TRP": "W", "TYR": "Y", "VAL": "V",
+    }
 
-        sequence = []
-        prev_res_num = None
+    def _get_pdb_residues(self, pdb_file: Path) -> List[Tuple[int, str, str]]:
+        """Extract ordered residues from a PDB, byte-faithful to the original
+        FrustraEvo ``obtain_seq`` (Functions.py:150-164).
 
+        The original takes the FIRST ``ATOM`` record of each new residue number
+        (not specifically the CA), and only counts it when the alternate-location
+        indicator (col 17, ``line[16]``) and insertion code (col 27,
+        ``line[26]``) are both blank and the residue is one of the 20 standard
+        types. The residue counter ``nn`` advances on every ATOM line, so a
+        residue whose first atom carries an altLoc/insertion code is skipped
+        entirely — this selection is what decides which structures pass the
+        sequence check, and it differs from a CA-only scan (which mis-selected
+        the family members and broke parity).
+
+        Returns a list of ``(resnum, chain, one_letter)`` in structure order.
+        """
+        residues: List[Tuple[int, str, str]] = []
+        nn = -100
         with pdb_file.open() as f:
-            for line in f:
-                if line.startswith("ATOM") and line[12:16].strip() == "CA":
-                    res_name = line[17:20].strip()
-                    res_num = int(line[22:26])
+            for lpdb in f:
+                if lpdb[0:4] == "ATOM" and len(lpdb) > 60:
+                    res_num = int(lpdb[22:26])
+                    aa = lpdb[17:20]
+                    if (
+                        nn != res_num
+                        and lpdb[16] == " "
+                        and lpdb[26] == " "
+                        and aa in self._AA_CODES
+                    ):
+                        residues.append((res_num, lpdb[21], self._AA_CODES[aa]))
+                    nn = res_num
+        return residues
 
-                    if res_num != prev_res_num and res_name in AA_CODES:
-                        sequence.append(AA_CODES[res_name])
-                        prev_res_num = res_num
-
-        return "".join(sequence)
+    def _get_pdb_sequence(self, pdb_file: Path) -> str:
+        """Extract the one-letter sequence from a PDB file (see
+        :meth:`_get_pdb_residues` for the exact selection rule)."""
+        return "".join(r[2] for r in self._get_pdb_residues(pdb_file))
 
     def _load_equivalences(self, structure_id: str) -> Dict[int, ResidueEquivalence]:
         """Load residue equivalences for a structure"""
@@ -218,10 +238,11 @@ class InformationContentCalculator:
     def _load_contact_matrices(self) -> List[ContactMatrix]:
         """Load frustration contact matrices for all structures using legacy approach"""
         matrices = []
-        total_structures = len(self.msa_data.identifiers)
+        structure_ids = self.valid_ids or self.msa_data.identifiers
+        total_structures = len(structure_ids)
         logger.info(f"Loading {total_structures} contact matrices")
 
-        for structure_id in self.msa_data.identifiers:
+        for structure_id in structure_ids:
             try:
                 # Debug structure processing
                 logger.debug(f"Processing structure: {structure_id}")
@@ -235,6 +256,11 @@ class InformationContentCalculator:
                     next(f)  # Skip header
                     for line in f:
                         fields = line.strip().split("\t")
+                        # Reference-gap-stripped columns where this structure has
+                        # a gap are written with PDB_pos == "N/A" (mirroring the
+                        # original Equivalences step); they map to no contact.
+                        if fields[1] == "N/A":
+                            continue
                         msa_pos, pdb_pos = int(fields[0]), int(fields[1])
                         equiv_map[msa_pos] = pdb_pos
                         rev_equiv_map[pdb_pos] = msa_pos
@@ -441,51 +467,55 @@ class InformationContentCalculator:
             if not matrices:
                 raise FrustraEvoError("No valid contact matrices found")
 
-            # Get reference PDB sequence
-            ref_pdb_file = self.pdb_dest_dir / f"{self.reference_pdb}.pdb"
-            ref_sequence = self._get_pdb_sequence(ref_pdb_file)
+            total = len(matrices)
 
-            # Process all contact pairs
+            # Reference equivalences map the shared coordinate (MSA_pos, 1..N
+            # over reference-non-gap columns) to the reference's real ATOM
+            # residue number, residue and chain. Loaded ONCE.
+            ref_equiv = self._load_equivalences(self.reference_pdb)
+            ref_n = len(ref_equiv)
+
+            # Process all reference contact pairs, in MSA-column order. The
+            # original FrustraEvo iterates over the reference's positions but
+            # counts a contact across ALL structures that have it (the
+            # reference need not be one of them); the contact is emitted with
+            # the reference's residue/number labels.
             results = []
-            for i in range(self.msa_data.length):
-                for j in range(i + 1, self.msa_data.length):
-                    # Collect values for this contact pair.
-                    # Contacts are stored 1-based (MSA_pos starts at 1 in the
-                    # equivalence files, see _save_structure_equivalences), so the
-                    # 0-based loop indices i, j must be shifted by +1 to read the
-                    # correct cell — matching the 1-based ref_equiv[i + 1] lookup
-                    # below. Use `is not None` so legitimate 0.0 frustration
-                    # contacts are not dropped by a truthiness test.
+            for i in range(1, ref_n + 1):
+                for j in range(i + 1, ref_n + 1):
+                    # Collect values across all structures that share the
+                    # contact (use `is not None` so a legitimate 0.0 frustration
+                    # value is not dropped by a truthiness test).
                     values = []
                     for matrix in matrices:
-                        if (value := matrix.get_contact(i + 1, j + 1)) is not None:
+                        if (value := matrix.get_contact(i, j)) is not None:
                             values.append(value)
 
-                    # Only process if multiple contacts exist
+                    # A single occurrence carries no information content.
                     if len(values) > 1:
                         stats = self._calculate_contact_stats(values)
 
-                        # Get reference PDB information
-                        ref_equiv = self._load_equivalences(self.reference_pdb)
-                        ref_res1 = ref_equiv[i + 1]
-                        ref_res2 = ref_equiv[j + 1]
+                        ref_res1 = ref_equiv[i]
+                        ref_res2 = ref_equiv[j]
 
-                        # Format result row matching legacy output
+                        # Coordinate convention (matches the original's
+                        # add_ref_Cmaps annotation, Functions.py:799-830):
+                        #   Res1/Res2       = shared MSA columns i, j
+                        #   NumRes*_Ref     = reference REAL ATOM residue numbers
+                        #   AA*             = reference residues
                         results.append(
                             {
-                                "Res1": ref_res1.pdb_pos,
-                                "Res2": ref_res2.pdb_pos,
-                                "AA1": ref_sequence[
-                                    ref_res1.pdb_pos - 1
-                                ],  # -1 for 0-based index
-                                "AA2": ref_sequence[ref_res2.pdb_pos - 1],
-                                "NumRes1_Ref": i + 1,
+                                "Res1": i,
+                                "Res2": j,
+                                "AA1": ref_res1.residue,
+                                "AA2": ref_res2.residue,
+                                "NumRes1_Ref": ref_res1.pdb_pos,
                                 "Chain1_Ref": ref_res1.chain,
-                                "NumRes2_Ref": j + 1,
+                                "NumRes2_Ref": ref_res2.pdb_pos,
                                 "Chain2_Ref": ref_res2.chain,
                                 "Prot_Ref": self.reference_pdb,
                                 "NoContacts": len(values),
-                                "FreqConts": len(values) / len(matrices),
+                                "FreqConts": len(values) / total,
                                 "pNEU": stats["probabilities"]["NEU"],
                                 "pMIN": stats["probabilities"]["MIN"],
                                 "pMAX": stats["probabilities"]["MAX"],
@@ -500,9 +530,6 @@ class InformationContentCalculator:
                                 "FstConserved": stats["conserved_state"],
                             }
                         )
-
-            # Convert to DataFrame and save
-            df = pd.DataFrame(results)
 
             # Ensure columns are in correct order
             column_order = [
@@ -530,13 +557,25 @@ class InformationContentCalculator:
                 "ICtotal",
                 "FstConserved",
             ]
-            df = df[column_order]
 
             output_file = (
                 self.results_dir
                 / f"IC_{self.mode.capitalize()}_{self.reference_pdb}.csv"
             )
-            df.to_csv(output_file, sep="\t", index=False)
+            # Write byte-for-byte like the original: every value is str()'d and
+            # tab-joined. This preserves the original's exact int-vs-float reprs
+            # (e.g. "0" for an absent state, "-0.0" for a fully conserved one,
+            # "0.0" for a float zero) that pandas.to_csv would homogenize away.
+            with output_file.open("w") as out:
+                out.write("\t".join(column_order) + "\n")
+                for row in results:
+                    out.write(
+                        "\t".join(str(row[col]) for col in column_order) + "\n"
+                    )
+
+            # Return a DataFrame for the public API / summary counts (the file
+            # on disk is the authoritative, parity-gated artifact).
+            df = pd.DataFrame(results, columns=column_order)
 
             return df
 
@@ -793,8 +832,19 @@ class InformationContentCalculator:
             equiv_dir = self.results_dir / "equivalences"
             equiv_dir.mkdir(exist_ok=True)
 
-            # Process each sequence in MSA
-            for seq_id in self.msa_data.identifiers:
+            # Reference aligned sequence defines the shared coordinate: the
+            # original FrustraEvo strips every alignment column where the
+            # reference has a gap and renumbers the survivors 1..N (long.txt).
+            try:
+                ref_idx = self.msa_data.identifiers.index(self.reference_pdb)
+            except ValueError:
+                raise FrustraEvoError(
+                    f"Reference {self.reference_pdb} not found in the MSA"
+                )
+            ref_aln_seq = self.msa_data.sequences[ref_idx]
+
+            # Process each validated sequence
+            for seq_id in (self.valid_ids or self.msa_data.identifiers):
                 try:
                     # Get PDB file path
                     pdb_file = self.pdb_dest_dir / f"{seq_id}.pdb"
@@ -806,10 +856,20 @@ class InformationContentCalculator:
                     msa_idx = self.msa_data.identifiers.index(seq_id)
                     msa_seq = self.msa_data.sequences[msa_idx]
 
+                    # Singleresidue frustration provides the residue numbering
+                    # and per-residue index used to build the equivalences (the
+                    # original derives PDB_pos from the frustration output, not
+                    # the raw PDB — they differ for altLoc/insertion residues).
+                    sr_lines = self._run_singleresidue(seq_id, pdb_file)
+
                     # Calculate equivalences
                     equiv_file = equiv_dir / f"Equival_{seq_id}.txt"
                     self._save_structure_equivalences(
-                        pdb_file=pdb_file, msa_seq=msa_seq, output_file=equiv_file
+                        structure_id=seq_id,
+                        msa_seq=msa_seq,
+                        ref_aln_seq=ref_aln_seq,
+                        sr_lines=sr_lines,
+                        output_file=equiv_file,
                     )
                     logger.debug(f"Saved equivalences for {seq_id}")
 
@@ -830,37 +890,131 @@ class InformationContentCalculator:
             logger.error(f"Failed to calculate equivalences: {str(e)}")
             raise FrustraEvoError("Equivalence calculation failed") from e
 
+    def _run_singleresidue(self, structure_id: str, pdb_file: Path) -> List[str]:
+        """Run singleresidue frustration for a structure and return the lines of
+        its ``.pdb_singleresidue`` table (line 0 is the header). This is the
+        residue list the original FrustraEvo's FinalAlign/Equivalences walk over.
+        """
+        sr_file = (
+            self.frustration_sr_dir
+            / f"{structure_id}.done/FrustrationData/{structure_id}.pdb_singleresidue"
+        )
+        if not sr_file.exists():
+            calculate_frustration(
+                pdb_file=str(pdb_file),
+                mode="singleresidue",
+                results_dir=str(self.frustration_sr_dir),
+                graphics=False,
+                debug=True,
+            )
+        with sr_file.open() as f:
+            return f.readlines()
+
+    @staticmethod
+    def _build_positions(ref_aln_seq: str, msa_seq: str, sr_lines: List[str]) -> List[str]:
+        """Port of the original FrustraEvo ``FinalAlign`` per-structure walk
+        (Functions.py:500-552). Strips every alignment column where the
+        *reference* has a gap and, for the survivors, emits this structure's
+        singleresidue residue number (``splitres[0]``), ``'G'`` where the
+        structure has a gap, or ``'Z'`` for an unknown residue. The counter
+        ``q`` advances over the structure's residues (including in reference-gap
+        columns) to index the singleresidue table."""
+        vector = [0 if ch in ("-", "Z") else 1 for ch in ref_aln_seq]
+        positions: List[str] = []
+        q = 0
+        for j, cj in enumerate(msa_seq):
+            if j >= len(vector):
+                break
+            if vector[j] == 0:  # reference gap column -> stripped
+                if cj != "-":
+                    q += 1
+            else:  # reference-non-gap column -> emit one token
+                if cj == "Z" or cj == "X":
+                    q += 1
+                    positions.append("Z")
+                elif cj == "-":
+                    positions.append("G")
+                else:
+                    q += 1
+                    sp = sr_lines[q].split() if q < len(sr_lines) else []
+                    positions.append(sp[0] if sp else "G")
+        return positions
+
     def _save_structure_equivalences(
-        self, pdb_file: Path, msa_seq: str, output_file: Path
+        self,
+        structure_id: str,
+        msa_seq: str,
+        ref_aln_seq: str,
+        sr_lines: List[str],
+        output_file: Path,
     ) -> None:
         """
-        Save residue equivalences for a single structure.
+        Save residue equivalences for a single structure in the shared,
+        reference-gap-stripped coordinate, byte-faithful to the original
+        FrustraEvo ``FinalAlign`` + ``Equivalences`` (Functions.py:481-610).
 
-        Args:
-            pdb_file: Path to PDB file
-            msa_seq: Sequence from MSA
-            output_file: Output file path
+        Column 0 (``MSA_pos``) numbers 1..N over the alignment columns where the
+        *reference* is not a gap. Column 1 (``PDB_pos``) is this structure's
+        residue number taken from the **singleresidue frustration output**
+        (resynced by matching residue numbers, which is what lets altLoc /
+        insertion residues — e.g. 2b7h-A's D74 — line up), or ``N/A`` where the
+        structure has a gap. The downstream IC reads only columns 0–3, so the
+        per-row frustration value/state the original also stores are folded into
+        residue/chain here.
         """
         try:
-            # Get PDB sequence
-            pdb_seq = self._get_pdb_sequence(pdb_file)
+            positions = self._build_positions(ref_aln_seq, msa_seq, sr_lines)
 
-            # Map MSA positions to PDB positions
-            equivalences = []
-            pdb_pos = 1
+            # Equivalences walk (Functions.py:562-610): re-read the singleresidue
+            # table line by line, resyncing on the residue number so the row for
+            # MSA column `ter` carries the matching frustration residue.
+            rows: List[Tuple[str, str, str, str]] = []  # (msa, pdb, aa, chain)
+            cur = sr_lines[0] if sr_lines else ""
+            splitres = cur.split()
+            sr_ptr = 0
+            ter = 0
+            n = len(positions)
+            while ter < n:
+                ter += 1
+                token = positions[ter - 1]
+                chain = splitres[1] if len(splitres) > 1 else "A"
+                if token in ("G", "Z"):
+                    rows.append((str(ter), "N/A", "N/A", chain))
+                    continue
+                sr_ptr += 1
+                cur = sr_lines[sr_ptr].rstrip("\n") if sr_ptr < len(sr_lines) else ""
+                splitres = cur.split()
+                if cur == "":
+                    continue
+                if len(splitres) < 7 and (len(splitres) < 5 or splitres[4] != "Missing"):
+                    break
+                if splitres and int(splitres[0]) < int(token):
+                    while True:
+                        sr_ptr += 1
+                        cur = (
+                            sr_lines[sr_ptr].rstrip("\n")
+                            if sr_ptr < len(sr_lines)
+                            else ""
+                        )
+                        splitres = cur.split()
+                        if (splitres and splitres[0] == token) or len(cur) < 1:
+                            break
+                if len(splitres) == 6:
+                    ter -= 1
+                if splitres and splitres[0] == token and len(splitres) > 7:
+                    rows.append((str(ter), splitres[0], splitres[3], splitres[1]))
 
-            for msa_pos, aa in enumerate(msa_seq, start=1):
-                if aa != "-":  # Skip gaps
-                    if pdb_pos <= len(pdb_seq):
-                        equivalences.append((msa_pos, pdb_pos, aa))
-                        pdb_pos += 1
-
-            # Write equivalences
+            # Write equivalences in FrustraPy's own 5-column layout (the
+            # downstream loaders read MSA_pos, PDB_pos, Residue, Chain).
             with output_file.open("w") as f:
                 f.write("MSA_pos\tPDB_pos\tResidue\tChain\tStructure\n")
-                for msa_pos, pdb_pos, aa in equivalences:
-                    f.write(f"{msa_pos}\t{pdb_pos}\t{aa}\tA\t{pdb_file.stem}\n")
+                for msa_pos, pdb_pos, aa, chain in rows:
+                    f.write(
+                        f"{msa_pos}\t{pdb_pos}\t{aa}\t{chain}\t{structure_id}\n"
+                    )
 
         except Exception as e:
-            logger.error(f"Failed to save equivalences for {pdb_file.stem}: {str(e)}")
+            logger.error(
+                f"Failed to save equivalences for {structure_id}: {str(e)}"
+            )
             raise
