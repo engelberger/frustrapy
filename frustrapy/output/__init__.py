@@ -42,6 +42,12 @@ from .store import (
     family_group_path,
     require_h5py,
 )
+from .benchmark import (
+    BenchmarkResult,
+    benchmark_text_vs_hdf5,
+    count_inodes,
+    tree_size_bytes,
+)
 
 __all__ = [
     "ColumnSpec",
@@ -72,4 +78,8 @@ __all__ = [
     "dataset_path",
     "family_group_path",
     "require_h5py",
+    "BenchmarkResult",
+    "benchmark_text_vs_hdf5",
+    "count_inodes",
+    "tree_size_bytes",
 ]
