@@ -1,6 +1,7 @@
 import time
 import logging
 from functools import wraps
+from ..analysis.exceptions import FileOperationError
 
 
 def log_execution_time(func):
@@ -15,6 +16,9 @@ def log_execution_time(func):
             execution_time = time.time() - start_time
             logger.debug(f"{func.__name__} completed in {execution_time:.2f} seconds")
             return result
+        except FileOperationError:
+            # Suppress logging for FileOperationError; let caller display the error
+            raise
         except Exception as e:
             execution_time = time.time() - start_time
             logger.error(f"{func.__name__} failed after {execution_time:.2f} seconds")

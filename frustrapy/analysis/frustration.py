@@ -15,6 +15,8 @@ from ..utils import log_execution_time
 from tqdm.auto import tqdm  # Make sure to use tqdm.auto for better compatibility
 from .frustration_calculator import FrustrationCalculator, FrustrationDensityResults
 from ..utils.helpers import organize_single_residue_data, pdb_equivalences, renum_files
+from .exceptions import FileOperationError, MissingBackboneAtomError
+from ..utils.ui import display_error, display_overwrite_warning, display_success, display_warning  # Import Rich display utils
 
 
 logger = logging.getLogger(__name__)
@@ -33,6 +35,8 @@ def calculate_frustration(
     visualization: bool = True,
     results_dir: Optional[str] = None,
     debug: bool = False,
+    overwrite: bool = False,
+    n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
 ) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults], Optional[Dict]]:
@@ -51,10 +55,19 @@ def calculate_frustration(
         visualization (bool): Make visualizations, including pymol.
         results_dir (str): Path to the folder where results will be stored.
         debug (bool): Debug mode flag.
+        n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
     """
 
-    # Set flag for mutation calculations to suppress logging
-    is_mutation_calculation = mode == "singleresidue" and residues is not None
+    # Combine external flag for nested mutation calls and singleresidue detection
+    is_mutation_calculation = is_mutation_calculation or (mode == "singleresidue" and residues is not None)
+    
+    # Also check for environment variable set by mutation processing.
+    # FIXME (fix-on-merge flag): this FRUSTRAPY_MUTATION_CALCULATION env-var is a
+    # process-global side channel for suppressing the success banner on nested
+    # mutation calls. It is fragile under parallelism (shared across workers/runs);
+    # prefer threading the `is_mutation_calculation` argument explicitly instead.
+    if os.environ.get('FRUSTRAPY_MUTATION_CALCULATION') == 'True':
+        is_mutation_calculation = True
 
     # Only log protocol for main calculations, not individual mutations
     if is_mutation_calculation:
@@ -103,12 +116,55 @@ def calculate_frustration(
         visualization=visualization,
         results_dir=results_dir,
         debug=debug,
+        overwrite=overwrite,
+        n_cpus=n_cpus,
         is_mutation_calculation=is_mutation_calculation,
     )
 
     logger.debug("Starting calculation")
-    pdb, plots, density_results = calculator.calculate()
-    logger.debug("Calculation completed")
+    try:
+        pdb, plots, density_results = calculator.calculate()
+        logger.debug("Calculation completed")
+        # Display success message
+        success_msg = f"Frustration calculation completed successfully for {pdb.pdb_base}.\nResults stored in: {pdb.job_dir}"
+        # Only show the rich success banner for top-level calculations
+        if not is_mutation_calculation:
+            display_success(success_msg)
+    except MissingBackboneAtomError as e:
+        # For missing backbone atoms, display a warning
+        warning_message = str(e)
+        suggestions = [
+            "Try to repair your PDB file by adding missing atoms with software like PyMOL or MODELLER.",
+            "You can also remove the problematic residues from your PDB file if they're not critical.",
+            "For automated repairs, tools like PDB-tools (https://github.com/haddocking/pdb-tools) can help."
+        ]
+        
+        # Show the warning message
+        display_warning(warning_message, title="Missing Backbone Atoms", suggestions=suggestions)
+        
+        # Log the error with full context if in debug mode
+        if debug:
+            logger.debug(f"Frustration calculation failed due to missing backbone atoms: {e}", exc_info=True)
+        else:
+            logger.error(f"Frustration calculation failed due to missing backbone atoms: {e}")
+
+        # Library code must not call sys.exit(): propagate so the caller decides
+        # how to handle it (CLAUDE.md §8). The warning has already been displayed.
+        raise
+    except FileOperationError as e:
+        if "Destination file already exists" in e.message and not overwrite:
+            # Display specific overwrite warning
+            display_overwrite_warning(e)
+        else:
+            # Display general file operation error
+            display_error(e, is_debug=debug)
+        # Library code must not call sys.exit(): propagate the error (CLAUDE.md §8).
+        raise
+    except Exception as e:
+        # Display any other error
+        display_error(e, is_debug=debug)
+        logger.error(f"An unexpected error occurred during frustration calculation: {e}", exc_info=True)
+        raise
 
     single_residue_data = None
     # Save single residue data if in singleresidue mode
@@ -152,7 +208,7 @@ def dir_frustration(
     pdbs_dir: str,
     order_list: Optional[List[str]] = None,
     chain: Optional[Union[str, List[str]]] = None,
-    residues: Optional[Dict[str, List[int]]] = None,  # Add residues parameter
+    residues: Optional[Dict[str, List[int]]] = None,
     electrostatics_k: Optional[float] = None,
     seq_dist: int = 12,
     mode: str = "configurational",
@@ -160,6 +216,7 @@ def dir_frustration(
     visualization: bool = True,
     results_dir: str = None,
     debug: bool = False,
+    n_cpus: Optional[int] = None,
 ) -> Tuple[Dict, Optional[FrustrationDensityResults]]:
     """Calculate local energy frustration for all protein structures in one directory."""
 
@@ -227,8 +284,8 @@ def dir_frustration(
         if mode in modes:
             calculation_enabled = False
 
-    # Initialize before the loop so the function ALWAYS returns a 2-tuple, even when
-    # the calculation is skipped (mode already logged) or order_list is empty (P0-6/P0-7).
+    # P0-7: initialize before the loop so an empty order_list (or a skipped
+    # calculation) cannot raise UnboundLocalError on the return below.
     plots_dir_dict = {}
     density_results = None
 
@@ -244,7 +301,7 @@ def dir_frustration(
             pdb, plots, density_results, single_res_data = calculate_frustration(
                 pdb_file=pdb_path,
                 chain=chain,
-                residues=residues,  # Pass residues parameter
+                residues=residues,
                 electrostatics_k=electrostatics_k,
                 seq_dist=seq_dist,
                 mode=mode,
@@ -252,6 +309,7 @@ def dir_frustration(
                 visualization=visualization,
                 results_dir=results_dir,
                 debug=debug,
+                n_cpus=n_cpus,
             )
             # Add the plots to the dictionary
             plots_dir_dict[pdb.pdb_base] = plots
@@ -264,6 +322,8 @@ def dir_frustration(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
 
+    # P0-6: always return a 2-tuple, including when the mode was already logged
+    # (calculation skipped) — the pre-fix code fell through and returned None.
     return plots_dir_dict, density_results
 
 
@@ -279,7 +339,7 @@ def dynamic_frustration(
     results_dir: Optional[str] = None,
 ) -> "Dynamic":
     """
-    Calculates local energetic frustration for a dynamic.
+    Calculates local energetic frustration for a trajectory.
 
     Args:
         pdbs_dir (str): Directory containing all protein structures. The full path to the file is needed.

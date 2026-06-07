@@ -3,12 +3,15 @@
 numpy
 pandas
 biopython
-plotly
+plotly<6          # plotly 6.x removed the `titlefont` property the plot path uses
 scipy
 scikit-learn
 python-igraph
 leidenalg
 tqdm
+rich              # utils/ui.py Rich display, imported by the core engine
+matplotlib        # benchmark/plotting.py (seaborn/matplotlib benchmark figures)
+seaborn           # benchmark/plotting.py
 # Optional (see pyproject [project.optional-dependencies]):
 psutil      # perf: memory logging
 kaleido     # viz: static image export

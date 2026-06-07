@@ -2,6 +2,7 @@ import multiprocessing
 import logging
 import os
 import shutil
+import warnings
 import pandas as pd
 from typing import Dict, Any, Tuple, Optional
 import time
@@ -9,6 +10,9 @@ from tqdm import tqdm
 from ..core import Pdb, SingleResidueData
 from ..utils import log_execution_time
 import sys
+import datetime  # added for timestamping
+from ..utils.ui import display_success  # Add this import
+from Bio.PDB import PDBParser, PDBIO
 
 logger = logging.getLogger(__name__)
 
@@ -217,30 +221,38 @@ def _process_amino_acid(
         else:
             mutated_pdb[col] = " "
     logger.debug(f"[_process_amino_acid] Saving mutated PDB to {output_pdb_path}")
-    # Write PDB file
+    # Write mutated PDB to file via manual formatting
     with open(output_pdb_path, "w") as pdb_file:
         for _, row in mutated_pdb.iterrows():
             pdb_line = (
-                f"{row['ATOM']:<6}"  # Record name, columns 1-6
-                f"{int(row['atom_num']):>5}"  # Atom serial number, columns 7-11
-                f" {row['atom_name']:<4}"  # Atom name, columns 13-16
-                f"{row['alt_loc']:<1}"  # Alternate location indicator, column 17
-                f"{row['res_name']:<3}"  # Residue name, columns 18-20
-                f" {row['chain']:<1}"  # Chain ID, column 22
-                f"{int(row['res_num']):>4}"  # Residue sequence number, columns 23-26
-                f"{row['insertion_code']:<1}"  # Insertion code, column 27
-                f"   "  # Empty columns 28-30
-                f"{float(row['x']):>8.3f}"  # X coordinate, columns 31-38
-                f"{float(row['y']):>8.3f}"  # Y coordinate, columns 39-46
-                f"{float(row['z']):>8.3f}"  # Z coordinate, columns 47-54
-                f"{float(row['occupancy']):>6.2f}"  # Occupancy, columns 55-60
-                f"{float(row['b_factor']):>6.2f}"  # Temperature factor, columns 61-66
-                f"          "  # Empty columns 67-76
-                f"{row['element']:<2}"  # Element symbol, columns 77-78
+                f"{row['ATOM']:<6}"
+                f"{int(row['atom_num']):>5}"
+                f" {row['atom_name']:<4}"
+                f"{row['alt_loc']:<1}"
+                f"{row['res_name']:<3}"
+                f" {row['chain']:<1}"
+                f"{int(row['res_num']):>4}"
+                f"{row['insertion_code']:<1}"
+                f"   "
+                f"{float(row['x']):>8.3f}"
+                f"{float(row['y']):>8.3f}"
+                f"{float(row['z']):>8.3f}"
+                f"{float(row['occupancy']):>6.2f}"
+                f"{float(row['b_factor']):>6.2f}"
+                f"          "
+                f"{row['element']:<2}"
                 f"\n"
             )
             pdb_file.write(pdb_line)
-
+    # Reformat the PDB file using Biopython to enforce fixed-width columns.
+    # FIXME (Phase 6 hot-loop risk): this full parse+re-save runs once per variant
+    # (20 amino acids x N residues), re-reading the whole structure each time. It is
+    # a candidate for the flatten/caching lever — keep an eye on it when profiling.
+    parser2 = PDBParser(QUIET=True)
+    structure2 = parser2.get_structure("reformat", output_pdb_path)
+    io = PDBIO()
+    io.set_structure(structure2)
+    io.save(output_pdb_path)
     # Debug: verify mutated PDB file write
     if os.path.exists(output_pdb_path):
         logger.debug(f"[_process_amino_acid] Mutated PDB exists: {output_pdb_path}, size={os.path.getsize(output_pdb_path)} bytes")
@@ -417,9 +429,10 @@ def mutate_res_parallel(
     chain: str,
     split: bool = True,
     method: str = "threading",
+    n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
 ) -> "Pdb":
-    """Parallel version of mutate_res that processes amino acid mutations concurrently."""
+    """Parallel version of mutate_res with n_cpus parameter."""
     logger.debug(f"[mutate_res_parallel] Starting parallel mutations for residue {res_num}, chain {chain}")
     start_time = time.time()
     logger.info(f"\nAnalyzing mutations for residue {res_num} in chain {chain}")
@@ -511,7 +524,13 @@ def mutate_res_parallel(
     process_start = time.time()
 
     # Create process pool
-    n_processes = multiprocessing.cpu_count()
+    # Determine number of processes
+    if n_cpus is not None:
+        if not isinstance(n_cpus, int) or n_cpus <= 0:
+            raise ValueError("n_cpus must be a positive integer or None")
+        n_processes = min(n_cpus, multiprocessing.cpu_count())
+    else:
+        n_processes = multiprocessing.cpu_count()
     pool = multiprocessing.Pool(processes=n_processes)
 
     # Create arguments list
@@ -574,14 +593,30 @@ def mutate_res_parallel(
 
     total_time = time.time() - start_time
 
+    # Record runtime metrics for benchmarking
+    end_time = time.time()
+    start_iso = datetime.datetime.fromtimestamp(start_time).isoformat()
+    end_iso = datetime.datetime.fromtimestamp(end_time).isoformat()
+    metrics = {
+        "n_cpus": n_processes,
+        "time_s": total_time,
+        "time_per_aa": total_time / len(amino_acids),
+        "start_time": start_iso,
+        "end_time": end_iso,
+    }
+    pdb.MutationAnalysis = metrics
+
     # Log only the final storage location
     logger.info(
         f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
     )
     logger.debug(f"[mutate_res_parallel] Completed in {total_time:.2f}s")
 
-    return pdb
+    # Success message
+    success_msg = f"Mutation analysis completed successfully for residue {chain}:{res_num}.\n{len(amino_acids)} mutations processed."
+    display_success(success_msg)
 
+    return pdb
 
 def mutate_res(
     pdb: "Pdb",
@@ -591,7 +626,17 @@ def mutate_res(
     method: str = "threading",
     debug: bool = False,
 ) -> "Pdb":
-    """Serial version of amino acid mutation processing."""
+    """Serial version of amino acid mutation processing.
+
+    .. deprecated::
+        Use :func:`mutate_res_parallel` instead. This serial path is retained only
+        for backwards compatibility; the calculation engine no longer calls it.
+    """
+    warnings.warn(
+        "mutate_res() is deprecated; use mutate_res_parallel() instead.",
+        DeprecationWarning,
+        stacklevel=2,
+    )
     start_time = time.time()
     method = method.lower()
 
