@@ -64,6 +64,9 @@ def analyze_family(
         # Sequence information content (per-column Shannon entropy, SeqIC)
         seqic_file = calculator._write_sequence_ic()
 
+        # Single-residue frustration information content (IC_SingleRes)
+        singleres_ic_file = calculator._write_singleres_ic()
+
         # Generate visualizations if requested
         if contact_maps:
             from .generator import HistogramGenerator
@@ -86,6 +89,7 @@ def analyze_family(
             "files": {
                 "data": str(results_dir / f"IC_Configurational_{reference_pdb}.csv"),
                 "sequence_ic": str(seqic_file),
+                "single_residue_ic": str(singleres_ic_file),
                 "contact_maps": (
                     str(results_dir / "plots" / "contact_map.png")
                     if contact_maps
