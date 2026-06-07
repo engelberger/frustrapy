@@ -10,7 +10,6 @@
 # ----------------------------------------------------------------------
 
 import sys
-from VectorAlgebra import *
 
 # Define required backbone atoms
 REQUIRED_ATOMS = ['N', 'CA', 'C', 'O']
