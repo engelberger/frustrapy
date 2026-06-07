@@ -171,7 +171,7 @@ for ch in chains:
     else:
         print("Chain:", ch.get_id())
     for res in ch:
-        is_regular_res = res.has_id('N') and res.has_id('CA') and res.has_id('C')
+        is_regular_res = res.has_id('N') and res.has_id('CA') and res.has_id('C') and res.has_id('O')
         res_id = res.get_id()[0]
         if (res_id==' ' or res_id=='H_MSE' or res_id=='H_M3L' or res_id=='H_CAS') and is_regular_res:
             ires = ires + 1
@@ -214,9 +214,9 @@ for ch in chains:
                 iatom = iatom + 1
                 atom = Atom(iatom, ichain, 'C', xyz_CB[0], xyz_CB[1], xyz_CB[2], 'C-Beta')
                 atoms.append(atom)
-            else:            
+            else:
                 iatom = iatom + 1
-                atom = Atom(iatom, ichain, 'H', xyz_N[0], xyz_H[1], xyz_H[2], 'H-Beta')
+                atom = Atom(iatom, ichain, 'H', xyz_H[0], xyz_H[1], xyz_H[2], 'H-Beta')
                 atoms.append(atom)
             
     if output_fn!="":

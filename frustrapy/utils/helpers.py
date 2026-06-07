@@ -74,10 +74,26 @@ def complete_backbone(pdb: "Pdb") -> bool:
     if not check_backbone_complete(pdb):
         missing_atoms_script = os.path.join(pdb.scripts_dir, "MissingAtoms.py")
         pdb_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}.pdb")
-        subprocess.run(["python3", missing_atoms_script, pdb.job_dir, pdb_file])
+        # Spawn the current interpreter (sys.executable) rather than a bare
+        # "python3" so the calculation does not depend on a venv being on PATH
+        # (P1-22), and fail loudly (check=True) instead of silently continuing.
+        subprocess.run(
+            [sys.executable, missing_atoms_script, pdb.job_dir, pdb_file],
+            check=True,
+            timeout=300,
+        )
 
         completed_pdb_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}.pdb_completed")
-        os.rename(completed_pdb_file, pdb_file)
+        if (
+            not os.path.exists(completed_pdb_file)
+            or os.path.getsize(completed_pdb_file) == 0
+        ):
+            raise RuntimeError(
+                f"Backbone completion produced no usable output: {completed_pdb_file} "
+                f"is missing or empty"
+            )
+        # Overwrite only the job-directory working copy, never the user's input.
+        os.replace(completed_pdb_file, pdb_file)
         completed = True
 
     return completed

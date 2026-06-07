@@ -227,14 +227,16 @@ def dir_frustration(
         if mode in modes:
             calculation_enabled = False
 
+    # Initialize before the loop so the function ALWAYS returns a 2-tuple, even when
+    # the calculation is skipped (mode already logged) or order_list is empty (P0-6/P0-7).
+    plots_dir_dict = {}
+    density_results = None
+
     if calculation_enabled:
         if order_list is None:
             order_list = [
                 f for f in os.listdir(pdbs_dir) if f.endswith((".pdb", ".PDB"))
             ]
-
-        # Create a dictionary to store the plots for each PDB
-        plots_dir_dict = {}
 
         for pdb_file in order_list:
             pdb_path = os.path.join(pdbs_dir, pdb_file)
@@ -261,7 +263,8 @@ def dir_frustration(
         logger.debug(
             f"Frustration data for all Pdb's directory {pdbs_dir} are stored in {results_dir}"
         )
-        return plots_dir_dict, density_results
+
+    return plots_dir_dict, density_results
 
 
 @log_execution_time
@@ -381,41 +384,33 @@ def get_frustration(
     frustration_data_path = (
         f"{pdb.job_dir}/FrustrationData/{pdb.pdb_base}.pdb_{pdb.mode}"
     )
-    frustration_table = pd.read_csv(f"{frustration_data_path}", sep="\s+", header=None)
+    # The written table already carries a header row with the canonical column names
+    # (14 cols for configurational/mutational, 8 for singleresidue). Read those names
+    # directly rather than re-asserting a hand-maintained list that drifted out of sync
+    # with the on-disk format (it omitted DensityRes1/DensityRes2/Welltype).
+    frustration_table = pd.read_csv(f"{frustration_data_path}", sep=r"\s+")
 
-    # Define column names based on the mode
-    if pdb.mode == "singleresidue":
-        frustration_table.columns = [
-            "Res",
-            "ChainRes",
-            "DensityRes",
-            "AA",
-            "NativeEnergy",
-            "DecoyEnergy",
-            "SDEnergy",
-            "FrstIndex",
-        ]
-    else:  # For configurational or mutational
-        frustration_table.columns = [
-            "Res1",
-            "Res2",
-            "ChainRes1",
-            "ChainRes2",
-            "AA1",
-            "AA2",
-            "NativeEnergy",
-            "DecoyEnergy",
-            "SDEnergy",
-            "FrstIndex",
-            "FrstState",
-        ]
-
+    # Column names differ by mode: singleresidue has Res/ChainRes; configurational
+    # and mutational have Res1/Res2/ChainRes1/ChainRes2. Filtering the wrong set of
+    # columns raises KeyError, so branch on pdb.mode (P0-5).
     if chain is not None:
-        frustration_table = frustration_table[frustration_table["ChainRes"].isin(chain)]
+        if pdb.mode == "singleresidue":
+            frustration_table = frustration_table[
+                frustration_table["ChainRes"].isin(chain)
+            ]
+        else:
+            frustration_table = frustration_table[
+                frustration_table["ChainRes1"].isin(chain)
+                | frustration_table["ChainRes2"].isin(chain)
+            ]
     if res_num is not None:
-        frustration_table = frustration_table[
-            (frustration_table["Res"].isin(res_num))
-            | (frustration_table["Res1"].isin(res_num))
-            | (frustration_table["Res2"].isin(res_num))
-        ]
+        if pdb.mode == "singleresidue":
+            frustration_table = frustration_table[
+                frustration_table["Res"].isin(res_num)
+            ]
+        else:
+            frustration_table = frustration_table[
+                frustration_table["Res1"].isin(res_num)
+                | frustration_table["Res2"].isin(res_num)
+            ]
     return frustration_table

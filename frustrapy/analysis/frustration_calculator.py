@@ -256,19 +256,21 @@ class FrustrationCalculator:
         if self.pdb_file is None:
             logger.debug("Downloading PDB file...")
             pdb_url = f"https://files.rcsb.org/download/{self.pdb_id}.pdb"
+            dest = os.path.join(self.temp_folder, f"{self.pdb_id}.pdb")
+            # Fail loudly on a bad download (check=True), bound the wait (timeout=),
+            # and do NOT disable TLS certificate validation (the insecure wget flag was
+            # dropped). Validate the result before trusting it (P0-13).
             subprocess.run(
-                [
-                    "wget",
-                    "--no-check-certificate",
-                    "-P",
-                    self.temp_folder,
-                    pdb_url,
-                    "-q",
-                    "--progress=bar:force:noscroll",
-                    "--show-progress",
-                ]
+                ["wget", "-P", self.temp_folder, pdb_url, "-q"],
+                check=True,
+                timeout=120,
             )
-            self.pdb_file = os.path.join(self.temp_folder, f"{self.pdb_id}.pdb")
+            if not os.path.exists(dest) or os.path.getsize(dest) == 0:
+                raise RuntimeError(
+                    f"Failed to download PDB '{self.pdb_id}' from {pdb_url}: "
+                    f"no usable file at {dest}"
+                )
+            self.pdb_file = dest
         return self.pdb_file
 
     def _process_structure(self) -> Tuple[str, PDBParser]:
@@ -344,27 +346,59 @@ class FrustrationCalculator:
         return Pdb(job_dir, pdb_base, self.mode, df, equivalences)
 
     def _read_and_filter_pdb(self) -> pd.DataFrame:
-        """Read and filter PDB data."""
-        df = pd.read_csv(
-            self.pdb_file,
-            sep="\s+",
-            header=None,
-            skiprows=0,
-            names=[
-                "ATOM",
-                "atom_num",
-                "atom_name",
-                "res_name",
-                "chain",
-                "res_num",
-                "x",
-                "y",
-                "z",
-                "occupancy",
-                "b_factor",
-                "element",
-            ],
-        )
+        """Read and filter PDB data using fixed-column PDB record parsing.
+
+        PDB is a column-defined format, NOT a whitespace-delimited one. Parsing it
+        with a whitespace separator (the old ``read_csv(sep=r"\\s+")``) silently shifts
+        every column to its right whenever a field abuts its neighbour -- an
+        alternate-location indicator next to a 4-char atom name, a 2-character element
+        symbol, an insertion code, or negative coordinates that touch. Slice the
+        documented ATOM/HETATM columns instead (P0-14).
+        """
+        columns = [
+            "ATOM",
+            "atom_num",
+            "atom_name",
+            "res_name",
+            "chain",
+            "res_num",
+            "x",
+            "y",
+            "z",
+            "occupancy",
+            "b_factor",
+            "element",
+        ]
+        records = []
+        with open(self.pdb_file, "r") as handle:
+            for line in handle:
+                if not line.startswith(("ATOM", "HETATM")):
+                    continue
+                try:
+                    record = {
+                        "ATOM": line[0:6].strip(),
+                        "atom_num": int(line[6:11]),
+                        "atom_name": line[12:16].strip(),
+                        "res_name": line[17:20].strip(),
+                        "chain": line[21:22].strip(),
+                        "res_num": int(line[22:26]),
+                        "x": float(line[30:38]),
+                        "y": float(line[38:46]),
+                        "z": float(line[46:54]),
+                        "occupancy": (
+                            float(line[54:60]) if line[54:60].strip() else 0.0
+                        ),
+                        "b_factor": (
+                            float(line[60:66]) if line[60:66].strip() else 0.0
+                        ),
+                        "element": line[76:78].strip(),
+                    }
+                except (ValueError, IndexError):
+                    # Skip truncated / malformed records rather than crash the run.
+                    continue
+                records.append(record)
+
+        df = pd.DataFrame(records, columns=columns)
 
         # Standardize residue names
         residue_mappings = {"MSE": "MET", "HIE": "HIS", "CYX": "CYS", "CY1": "CYS"}
@@ -396,8 +430,9 @@ class FrustrationCalculator:
         ]
         df = df[df["res_name"].isin(protein_res)]
 
-        # Set default chain if missing
-        df.loc[df["chain"].isna(), "chain"] = "A"
+        # Set default chain if missing (fixed-width parsing yields "" for a blank
+        # chain column rather than NaN).
+        df.loc[df["chain"].isna() | (df["chain"] == ""), "chain"] = "A"
 
         return df
 
