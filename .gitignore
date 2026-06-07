@@ -1,41 +1,51 @@
-legacy
-Results
-legacy/frustratometeR/Results
-frustrapy/__pycache__
-tests/__pycache__/__init__.cpython-310.pyc
-tests/__pycache__/test_frustration_analysis.cpython-310-pytest-7.4.4.pyc
-Results_example/*
-frustrapy/scripts/AWSEMFiles/AWSEMTools/__pycache__/VectorAlgebra.cpython-311.pyc
-frustrapy/scripts/AWSEMFiles/AWSEMTools/__pycache__/VectorAlgebra.cpython-310.pyc
-frustrapy/scripts/AWSEMFiles/AWSEMTools/__pycache__/VectorAlgebra.cpython-310.pyc
-frustrapy/analysis/__pycache__/__init__.cpython-310.pyc
-frustrapy/analysis/__pycache__/clustering.cpython-310.pyc
-frustrapy/analysis/__pycache__/frustration.cpython-310.pyc
-frustrapy/analysis/__pycache__/mutations.cpython-310.pyc
-frustrapy/core/__pycache__/__init__.cpython-310.pyc
-frustrapy/core/__pycache__/data_classes.cpython-310.pyc
-frustrapy/core/__pycache__/dynamic.cpython-310.pyc
-frustrapy/core/__pycache__/pdb.cpython-310.pyc
-frustrapy/utils/__pycache__/__init__.cpython-310.pyc
-frustrapy/utils/__pycache__/decorators.cpython-310.pyc
-frustrapy/utils/__pycache__/helpers.cpython-310.pyc
-frustrapy/visualization/__pycache__/__init__.cpython-310.pyc
-frustrapy/visualization/__pycache__/plots.cpython-310.pyc
-frustrapy/visualization/__pycache__/structure.cpython-310.pyc
-frustrapy/analysis/__pycache__/chain_selector.cpython-310.pyc
-frustrapy/analysis/__pycache__/frustration_calculator.cpython-310.pyc
-frustrapy/analysis/__pycache__/lammps_runner.cpython-310.pyc
-frustrapy/core/scripts/AWSEMFiles/AWSEMTools/__pycache__/VectorAlgebra.cpython-310.pyc
-frustrapy/core/scripts/AWSEMFiles/AWSEMTools/__pycache__/VectorAlgebra.cpython-311.pyc
-frustrapy/R-implementation/functions.R
-frustrapy/R-implementation/visualization.R
-# ignore all pycache files
-# all please recursively ignore
-**/*.cpython-311.pyc
-**/*.cpython-310.pyc
+# Replaces the prior corrupted .gitignore (lines 1-31 were a pasted `git ls-files`
+# dump, plus `test*.*` and bare `*.pdb` that would silently swallow test fixtures).
+# This does NOT untrack already-indexed files.
 
+# --- Python bytecode / caches (all interpreter versions) ---
+__pycache__/
+*.py[cod]
+*$py.class
+
+# --- Build / packaging / distribution ---
+build/
+dist/
+*.egg-info/
+*.egg
+.eggs/
+pip-wheel-metadata/
+
+# --- Virtual environments ---
+.venv/
+venv/
+env/
+.env
+
+# --- Tooling caches ---
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+.coverage
+htmlcov/
+.ipynb_checkpoints/
+
+# --- Editor / OS cruft ---
+.DS_Store
+*.swp
+*~
+
+# --- Run artifacts (scoped to artifact dirs, NOT the whole tree) ---
+Results/
+Results_example/
+jupyter_results/
 example_pdbs/*.pdb
-Results*
-jupyter_results/*
-test*.*
-*.pdb
+*.done/
+
+# Intentionally NOT ignored:
+#   - test sources (tests/, test_*.py)  -> a real test suite must be committable
+#   - *.pdb in general                  -> fixtures must be committable
+#   - frustrapy/R-implementation/*.R    -> R reference code, if it is meant to ship
+
+# agent-fleet git worktrees (one per running agent)
+.worktrees/
+.devcontainer/homes/

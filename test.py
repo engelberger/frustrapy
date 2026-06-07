@@ -231,7 +231,7 @@ profiler.end_section("Configuration")
 # Configurational Frustration Analysis
 profiler.start_section("Configurational Frustration Analysis")
 pdb_file = "af2_masking_vanilla_94a41_best_model_2_ptm_r3_seed_000_mask_false_id_X.pdb"
-pdb_config, plots_config = frustrapy.calculate_frustration(
+pdb_config, plots_config, _density_config, _single_res_config = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode="configurational",
     results_dir=results_dir,
@@ -263,7 +263,7 @@ total_mutations = (
 )  # 20 amino acids per residue
 
 # Remove the progress bar from here since it's handled in the mutations module
-pdb, plots = frustrapy.calculate_frustration(
+pdb, plots, _density, single_res = frustrapy.calculate_frustration(
     pdb_file=os.path.join(pdbs_dir, pdb_file),
     mode=mode,
     results_dir=results_dir,

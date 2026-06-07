@@ -282,6 +282,14 @@ def _process_amino_acid(
     frustra_mut_file = os.path.join(
         mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
     )
+    # P1-1 minimal append-race safety: parallel workers must NOT concurrently
+    # append to the shared frustra_mut_file (20 unsynchronized to_csv(mode="a")
+    # calls interleave/corrupt rows). Each worker writes its OWN partial file;
+    # the parent (mutate_res_parallel) concatenates them in deterministic AA order
+    # after join(). The full lock-free per-worker merge is Phase 6.
+    frustra_mut_part = os.path.join(
+        mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.{aa}.part"
+    )
 
     if pdb.mode == "singleresidue":
         src_frusta_file = os.path.join(
@@ -307,7 +315,7 @@ def _process_amino_acid(
             (frustra_table["ChainRes"] == chain) & (frustra_table["Res"] == res_num)
         ]
         frustra_table.to_csv(
-            frustra_mut_file, sep="\t", header=False, index=False, mode="a"
+            frustra_mut_part, sep="\t", header=False, index=False, mode="w"
         )
 
     elif pdb.mode in ["configurational", "mutational"]:
@@ -363,7 +371,7 @@ def _process_amino_acid(
             )
         ]
         frustra_table.to_csv(
-            frustra_mut_file, sep="\t", header=False, index=False, mode="a"
+            frustra_mut_part, sep="\t", header=False, index=False, mode="w"
         )
 
     # Clean up temporary files
@@ -542,6 +550,21 @@ def mutate_res_parallel(
 
     pool.close()
     pool.join()
+
+    # P1-1 minimal append-race safety: now that all workers have finished, the
+    # PARENT (single-threaded) concatenates each worker's partial file into the
+    # shared frustra_mut_file in deterministic amino-acid order. The header was
+    # already written above. This replaces the prior 20-way concurrent append.
+    with open(frustra_mut_file, "a") as out:
+        for aa in amino_acids:
+            part = os.path.join(
+                mutations_dir,
+                f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.{aa}.part",
+            )
+            if os.path.exists(part):
+                with open(part) as pf:
+                    out.write(pf.read())
+                os.remove(part)
 
     # Debug: inspect MutationsData directory after processing
     try:
