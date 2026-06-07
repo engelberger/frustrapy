@@ -31,8 +31,11 @@ from .store import (
     GZIP_LEVEL,
     FrustrationStore,
     compound_dtype_for_schema,
+    dataframe_to_records,
+    records_to_dataframe,
     structure_group_path,
     dataset_path,
+    family_group_path,
     require_h5py,
 )
 
@@ -55,7 +58,10 @@ __all__ = [
     "GZIP_LEVEL",
     "FrustrationStore",
     "compound_dtype_for_schema",
+    "dataframe_to_records",
+    "records_to_dataframe",
     "structure_group_path",
     "dataset_path",
+    "family_group_path",
     "require_h5py",
 ]

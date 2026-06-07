@@ -116,12 +116,12 @@ def test_construction_does_not_touch_h5py():
     assert store._h5 is None
 
 
-def test_writer_and_reader_are_stubbed_for_o2():
-    """O2 ships the skeleton; the bodies land in O3."""
+def test_writer_and_reader_require_open_store():
+    """The h5py-backed methods refuse to run on an unopened store with a clear error."""
     store = FrustrationStore("batch.h5", mode="w")
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         store.write_structure("1crn", "configurational", "done_dir", seq_dist=12)
-    with pytest.raises(NotImplementedError):
+    with pytest.raises(RuntimeError):
         store.read_structure("1crn", "configurational", "contact")
 
 
