@@ -12,6 +12,99 @@ from ..utils import log_execution_time
 
 logger = logging.getLogger(__name__)
 
+# bio3d::aa123 1-letter -> 3-letter map (used to label residue nodes exactly as R's
+# detect_dynamic_clusters does: rownames = paste(aa123(AA), "_", Res)).
+_AA1_TO_AA3 = {
+    "A": "ALA", "R": "ARG", "N": "ASN", "D": "ASP", "C": "CYS",
+    "Q": "GLN", "E": "GLU", "G": "GLY", "H": "HIS", "I": "ILE",
+    "L": "LEU", "K": "LYS", "M": "MET", "F": "PHE", "P": "PRO",
+    "S": "SER", "T": "THR", "W": "TRP", "Y": "TYR", "V": "VAL",
+}
+
+
+def _aa123(one_letter: str) -> str:
+    """1-letter -> 3-letter amino acid code (bio3d aa123 parity); unknowns pass through."""
+    return _AA1_TO_AA3.get(str(one_letter).upper(), str(one_letter).upper())
+
+
+def _factominer_pca(x: np.ndarray, ncp: int) -> np.ndarray:
+    """Principal-component individual coordinates matching FactoMineR::PCA(scale.unit=TRUE).
+
+    R's detect_dynamic_clusters runs ``PCA(frustraData, ncp=Ncp)`` where the rows of
+    ``frustraData`` are the (filtered) residues — the *individuals* — and the columns are
+    the trajectory frames — the *variables*. FactoMineR centres and scales each variable
+    to unit variance (population sd, denominator n) and weights individuals by 1/n, then
+    returns ``pca$ind$coord`` = the individuals' coordinates in PC space.
+
+    To make the result reproducible (and to match FactoMineR component-for-component, not
+    just up to sign), we replicate FactoMineR's ``svd.triplet`` sign convention: each
+    component is flipped so that the sum of its variable loadings (the right singular
+    vector) is non-negative. With that convention this reproduces ``pca$ind$coord`` to
+    machine precision (≈1e-14), signs included.
+
+    Args:
+        x: array of shape ``[n_individuals (residues) x n_variables (frames)]``.
+        ncp: number of components to keep.
+
+    Returns:
+        Individual coordinates, shape ``[n_individuals x min(ncp, rank)]``.
+    """
+    n = x.shape[0]
+    col_mean = x.mean(axis=0)
+    col_std = x.std(axis=0, ddof=0)  # FactoMineR scales by population sd (denominator n)
+    # Guard against zero-variance columns (constant frames) — FactoMineR would divide by
+    # a tiny sd; leaving them as 0 after centring is the numerically stable equivalent.
+    col_std = np.where(col_std == 0, 1.0, col_std)
+    xs = (x - col_mean) / col_std
+    row_w = np.full(n, 1.0 / n)
+    b = xs * np.sqrt(row_w)[:, None]  # column weights default to 1
+    u, s, vt = np.linalg.svd(b, full_matrices=False)
+    keep = min(ncp, s.shape[0])
+    u = u[:, :keep]
+    v = vt[:keep, :].T  # variable (frame) loadings, [n_variables x keep]
+    # FactoMineR svd.triplet: mult <- sign(colSums(V)); mult[mult==0] <- 1; flip U,V by it.
+    mult = np.sign(v.sum(axis=0))
+    mult[mult == 0] = 1.0
+    coord = (u * s[:keep]) / np.sqrt(row_w)[:, None]
+    coord = coord * mult
+    return coord
+
+
+def _corr_pvalue_matrix(coord: np.ndarray, corr_type: str):
+    """Residue x residue correlation + p-values, matching Hmisc::rcorr(t(pca$ind$coord)).
+
+    R computes ``rcorr(t(pca$ind$coord), type = CorrType)`` — correlations between the
+    *residues* (the columns of ``t(coord)``) using the ``ncp`` principal-component
+    coordinates as the observations. For Spearman, rcorr ranks each residue's coordinate
+    vector and applies Pearson on the ranks; the two-sided p-value comes from the
+    t-distribution ``t = r*sqrt((n-2)/(1-r^2))`` with ``n-2`` degrees of freedom, where
+    ``n`` is the number of observations (= number of components).
+
+    Returns:
+        (corr, pval): two ``[M x M]`` arrays (M = number of residues).
+    """
+    from scipy.stats import rankdata, t as tdist
+
+    n_obs = coord.shape[1]  # observations per correlation = number of components
+    if corr_type == "spearman":
+        # rank each residue's coordinate vector (rows), then Pearson on ranks
+        data = np.vstack([rankdata(coord[i, :]) for i in range(coord.shape[0])])
+    else:
+        data = coord
+    corr = np.corrcoef(data)  # rows are residues -> [M x M]
+    corr = np.nan_to_num(corr, nan=0.0)
+    np.fill_diagonal(corr, 1.0)
+
+    # Two-sided t-test p-values (rcorr convention).
+    with np.errstate(divide="ignore", invalid="ignore"):
+        denom = 1.0 - corr**2
+        denom = np.where(denom <= 0, np.nan, denom)
+        t_stat = corr * np.sqrt((n_obs - 2) / denom)
+        pval = 2.0 * tdist.sf(np.abs(t_stat), n_obs - 2)
+    pval = np.where(np.isnan(pval), 0.0, pval)
+    np.fill_diagonal(pval, 0.0)
+    return corr, pval
+
 
 @log_execution_time
 def detect_dynamic_clusters(
@@ -23,27 +116,44 @@ def detect_dynamic_clusters(
     min_corr: float = 0.95,
     leiden_resol: float = 1,
     corr_type: str = "spearman",
+    seed: int = 0,
 ) -> "Dynamic":
     """
     Detects residue modules with similar single-residue frustration dynamics.
-    It filters out the residuals with variable dynamics, for this, it adjusts a loess
-    model with span = LoessSpan and calculates the dynamic range of frustration and the mean of single-residue frustration.
-    It is left with the residuals with a dynamic frustration range greater than the quantile defined by MinFrstRange and with a mean Mean <(-FiltMean) or Mean> FiltMean.
-    Performs an analysis of main components and keeps Ncp components, to compute the correlation(CorrType) between them and keep the residues that have greater correlation MinCorr and p-value> 0.05.
-    An undirected graph is generated and Leiden clustering is applied with LeidenResol resolution.
+
+    Faithful Python port of frustratometeR's ``detect_dynamic_clusters``
+    (``R/functions.R:1052``). It fits a loess model (span = ``loess_span``) to each
+    residue's single-residue frustration trajectory, keeps residues whose dynamic
+    frustration range exceeds the ``min_frst_range`` quantile and whose mean is outside
+    ``[-filt_mean, filt_mean]``, runs PCA over the surviving residues, computes the
+    ``corr_type`` correlation between residues from their principal-component
+    coordinates, keeps residue pairs with ``corr > min_corr`` and p-value <= 0.05,
+    builds an undirected weighted graph over those residues and applies Leiden
+    clustering at resolution ``leiden_resol``. (Strong *anti*-correlations survive the
+    threshold but are dropped by R's graph construction under igraph >= 1.6.0 — see the
+    graph-building note in the body.)
 
     Args:
-        dynamic (Dynamic): Dynamic Frustration Object.
-        loess_span (float): Parameter α > 0 that controls the degree of smoothing of the loess() function of model fit. Default: 0.05.
-        min_frst_range (float): Frustration dynamic range filter threshold. 0 <= MinFrstRange <= 1. Default: 0.7.
-        filt_mean (float): Frustration Mean Filter Threshold. FiltMean >= 0. Default: 0.15.
-        ncp (int): Number of principal components to be used in PCA(). Ncp >= 1. Default: 10.
-        min_corr (float): Correlation filter threshold. 0 <= MinCorr <= 1. Default: 0.95.
-        leiden_resol (float): Parameter that defines the coarseness of the cluster. LeidenResol > 0. Default: 1.
-        corr_type (str): Type of correlation index to compute. Values: "pearson" or "spearman". Default: "spearman".
+        dynamic (Dynamic): Dynamic Frustration Object (must be singleresidue mode).
+        loess_span (float): Loess smoothing span (alpha > 0). Default: 0.05.
+        min_frst_range (float): Dynamic-range quantile filter, 0..1. Default: 0.7.
+        filt_mean (float): Mean filter threshold, >= 0. Default: 0.15.
+        ncp (int): Number of principal components. Default: 10.
+        min_corr (float): Correlation filter threshold, 0..1. Default: 0.95.
+        leiden_resol (float): Leiden resolution. Default: 1.
+        corr_type (str): "pearson" or "spearman". Default: "spearman".
+        seed (int): Random seed for Leiden (determinism). Default: 0.
 
     Returns:
-        Dynamic: Dynamic Frustration Object and its Clusters attribute.
+        Dynamic: the input object with its ``clusters`` attribute populated. The nodes of
+        the graph and the rows of ``LeidenClusters`` are *residues* (labelled
+        ``<AA3>_<Resno>``), matching frustratometeR.
+
+    Note on parity: the deterministic core (loess statistics, residue filter, PCA
+    coordinates, correlation matrix, graph, Leiden membership for a fixed seed) matches
+    frustratometeR. Two cross-implementation sources are irreducible: loess (R ``loess``
+    vs statsmodels ``lowess``) agrees to ~1e-2 — enough to preserve the filter decision
+    but not bit-identical — and the PCA component signs are arbitrary per library.
     """
     if dynamic.mode != "singleresidue":
         raise ValueError(
@@ -56,130 +166,146 @@ def detect_dynamic_clusters(
             "Correlation type(CorrType) indicated isn't available or doesn't exist, indicate 'pearson' or 'spearman'"
         )
 
-    # Resolve the optional clustering stack here (lazify-before-demote). A correct
-    # availability check via real imports, replacing the prior broken `globals()`
-    # membership test (the modules are imported under aliases / partial names, so
-    # they were never in globals() and the check always falsely "failed").
+    # Resolve the optional clustering stack here (lazify-before-demote).
     try:
         import igraph as ig
         import leidenalg as la
-        from sklearn.decomposition import PCA
-        from scipy.stats import spearmanr, pearsonr
+        import scipy.stats  # noqa: F401 (used in _corr_pvalue_matrix)
         from statsmodels.nonparametric.smoothers_lowess import lowess
     except ImportError as exc:
         raise ImportError(
             "detect_dynamic_clusters requires the optional 'clustering' dependencies "
-            "(scipy, scikit-learn, python-igraph, leidenalg, statsmodels). Install "
-            "them with: pip install 'frustrapy[clustering]'"
+            "(scipy, python-igraph, leidenalg, statsmodels). Install them with: "
+            "pip install 'frustrapy[clustering]'"
         ) from exc
 
-    # Loading residues and res_num
-    ini = pd.read_csv(
-        os.path.join(
+    def _sr_path(pdb_file: str) -> str:
+        base = os.path.splitext(pdb_file)[0]
+        return os.path.join(
             dynamic.results_dir,
-            f"{os.path.splitext(dynamic.order_list[0])[0]}.done/FrustrationData/{os.path.splitext(dynamic.order_list[0])[0]}.pdb_singleresidue",
-        ),
-        sep=r"\s+",
-        header=0,
-    )
+            f"{base}.done/FrustrationData/{base}.pdb_singleresidue",
+        )
+
+    # Loading residues and res_num from the first frame.
+    ini = pd.read_csv(_sr_path(dynamic.order_list[0]), sep=r"\s+", header=0)
     residues = ini["AA"].tolist()
     res_nums = ini["Res"].tolist()
 
-    # Loading data
+    # Loading data: rows = residues, columns = frames (FrstIndex per residue per frame).
     logger.debug(
         "-----------------------------Loading data-----------------------------"
     )
-    frustra_data = pd.DataFrame()
+    frame_cols = []
     for pdb_file in dynamic.order_list:
-        read = pd.read_csv(
-            os.path.join(
-                dynamic.results_dir,
-                f"{os.path.splitext(pdb_file)[0]}.done/FrustrationData/{os.path.splitext(pdb_file)[0]}.pdb_singleresidue",
-            ),
-            sep=r"\s+",
-            header=0,
-        )
-        frustra_data[f"frame_{len(frustra_data.columns)}"] = read["FrstIndex"]
+        read = pd.read_csv(_sr_path(pdb_file), sep=r"\s+", header=0)
+        frame_cols.append(read["FrstIndex"].to_numpy())
+    frustra_values = np.column_stack(frame_cols)  # [n_residues x n_frames]
+    n_residues, n_frames = frustra_values.shape
+    res_labels = [f"{_aa123(aa)}_{rn}" for aa, rn in zip(residues, res_nums)]
+    frustra_data = pd.DataFrame(
+        frustra_values,
+        index=res_labels,
+        columns=[f"frame_{i + 1}" for i in range(n_frames)],
+    )
 
-    frustra_data.index = [
-        f"{residue}_{res_num}" for residue, res_num in zip(residues, res_nums)
-    ]
-
-    # Model fitting and filter by difference and mean
+    # Model fitting and filter by dynamic range and mean.
     logger.debug(
         "-----------------------------Model fitting and filtering by dynamic range and frustration mean-----------------------------"
     )
+    frames_axis = np.arange(n_frames, dtype=float)
     frstrange = []
     means = []
     sds = []
-    fitted = pd.DataFrame()
-    for i in range(len(residues)):
-        res = pd.DataFrame(
-            {"Frustration": frustra_data.iloc[i], "Frames": range(len(frustra_data))}
-        )
-        modelo = lowess(
-            res["Frustration"],
-            res["Frames"],
+    fitted = {}
+    for i in range(n_residues):
+        y = frustra_values[i, :]
+        fit = lowess(
+            y,
+            frames_axis,
             frac=loess_span,
             it=0,
             delta=0.0,
-            is_sorted=False,
+            is_sorted=True,
+            return_sorted=False,
         )
-        fitted[f"res_{i}"] = modelo[:, 1]
-        frstrange.append(modelo[:, 1].max() - modelo[:, 1].min())
-        means.append(modelo[:, 1].mean())
-        sds.append(modelo[:, 1].std())
+        fitted[f"res_{i}"] = fit
+        frstrange.append(float(fit.max() - fit.min()))
+        means.append(float(fit.mean()))
+        sds.append(float(np.std(fit, ddof=1)))  # R sd() uses denominator n-1
 
-    estadistics = pd.DataFrame({"Diferences": frstrange, "Means": means})
-    frustra_data = frustra_data[
-        (
-            estadistics["Diferences"]
-            > np.quantile(estadistics["Diferences"], min_frst_range)
-        )
-        & ((estadistics["Means"] < -filt_mean) | (estadistics["Means"] > filt_mean))
-    ]
-
-    # Principal component analysis
-    logger.debug(
-        "-----------------------------Principal component analysis-----------------------------"
+    frstrange_arr = np.asarray(frstrange)
+    means_arr = np.asarray(means)
+    # R: quantile(..., probs=MinFrstRange) is type-7 (== numpy linear interpolation).
+    range_cut = np.quantile(frstrange_arr, min_frst_range)
+    keep_mask = (frstrange_arr > range_cut) & (
+        (means_arr < -filt_mean) | (means_arr > filt_mean)
     )
-    pca = PCA(n_components=ncp)
-    pca_result = pca.fit_transform(frustra_data.T)
+    frustra_data_f = frustra_data.loc[keep_mask]
 
-    if corr_type == "spearman":
-        corr_func = spearmanr
+    if frustra_data_f.shape[0] < 2:
+        # R errors out (0x0 matrix) when fewer than 2 residues survive; degrade
+        # gracefully instead of crashing, returning an empty clustering.
+        logger.warning(
+            "detect_dynamic_clusters: only %d residue(s) passed the dynamic-range / "
+            "mean filter; no clustering is possible.",
+            frustra_data_f.shape[0],
+        )
+        net = ig.Graph()
+        cluster_data = pd.DataFrame({"cluster": []})
     else:
-        corr_func = pearsonr
+        # Principal component analysis (FactoMineR parity).
+        logger.debug(
+            "-----------------------------Principal component analysis-----------------------------"
+        )
+        coord = _factominer_pca(frustra_data_f.to_numpy(), ncp)
 
-    corr_matrix = np.zeros((pca_result.shape[1], pca_result.shape[1]))
-    p_values = np.zeros((pca_result.shape[1], pca_result.shape[1]))
-    for i in range(pca_result.shape[1]):
-        for j in range(i, pca_result.shape[1]):
-            corr, p_value = corr_func(pca_result[:, i], pca_result[:, j])
-            corr_matrix[i, j] = corr
-            corr_matrix[j, i] = corr
-            p_values[i, j] = p_value
-            p_values[j, i] = p_value
+        # Residue x residue correlation + p-values (Hmisc::rcorr parity).
+        corr, pval = _corr_pvalue_matrix(coord, corr_type)
 
-    np.fill_diagonal(corr_matrix, 0)
-    corr_matrix[
-        (corr_matrix < min_corr) & (corr_matrix > -min_corr) | (p_values > 0.05)
-    ] = 0
-    logger.debug(
-        "-----------------------------Undirected graph-----------------------------"
-    )
-    net = ig.Graph.Adjacency((corr_matrix > 0).tolist(), mode="undirected")
+        # R: Cor[lower.tri(diag=T)] <- 0 ; then zero everything that isn't a strong
+        # (positive OR negative) correlation, or is not significant.
+        corr = np.triu(corr, k=1)
+        weak = ~(corr < -min_corr) & ~(corr > min_corr)
+        corr[weak | (pval > 0.05)] = 0.0
 
-    logger.debug(
-        "-----------------------------Leiden Clustering-----------------------------"
-    )
-    leiden_clusters = la.find_partition(
-        net, la.RBConfigurationVertexPartition, resolution_parameter=leiden_resol
-    )
-    cluster_data = pd.DataFrame({"cluster": leiden_clusters.membership})
-    cluster_data = cluster_data.loc[net.degree() > 0]
+        logger.debug(
+            "-----------------------------Undirected graph-----------------------------"
+        )
+        labels_f = frustra_data_f.index.tolist()
+        # R builds the graph with `graph_from_adjacency_matrix(mode = "undirected")`,
+        # which under igraph >= 1.6.0 resolves to mode "max": each pair's weight is
+        # max(corr[i,j], corr[j,i]). Because R has already zeroed the lower triangle,
+        # this is max(corr_upper, 0) — so *negative* (strong anti-correlation) weights
+        # collapse to 0 and produce no edge. Only strong positive correlations become
+        # edges. We replicate that exactly with mode="max"; it also keeps Leiden happy
+        # (leidenalg rejects negative weights).
+        net = ig.Graph.Weighted_Adjacency(
+            corr.tolist(), mode="max", attr="weight", loops=False
+        )
+        net.vs["name"] = labels_f
 
-    net.delete_vertices(net.vs.select(_degree=0))
+        # Leiden Clustering (RBConfigurationVertexPartition, weighted) — matches the
+        # frustratometeR `leiden` default. Seeded for determinism.
+        logger.debug(
+            "-----------------------------Leiden Clustering-----------------------------"
+        )
+        if net.ecount() == 0:
+            membership = list(range(net.vcount()))
+        else:
+            part = la.find_partition(
+                net,
+                la.RBConfigurationVertexPartition,
+                weights="weight",
+                resolution_parameter=leiden_resol,
+                seed=seed,
+            )
+            membership = list(part.membership)
+
+        cluster_data = pd.DataFrame({"cluster": membership}, index=labels_f)
+        # Drop degree-0 (isolated) vertices from both the cluster table and the graph.
+        degrees = np.asarray(net.degree())
+        cluster_data = cluster_data.loc[degrees > 0]
+        net.delete_vertices([v.index for v in net.vs if net.degree(v) == 0])
 
     dynamic.clusters["Graph"] = net
     dynamic.clusters["LeidenClusters"] = cluster_data
@@ -189,13 +315,13 @@ def detect_dynamic_clusters(
     dynamic.clusters["Ncp"] = ncp
     dynamic.clusters["MinCorr"] = min_corr
     dynamic.clusters["LeidenResol"] = leiden_resol
-    dynamic.clusters["Fitted"] = fitted
+    dynamic.clusters["Fitted"] = pd.DataFrame(fitted)
     dynamic.clusters["Means"] = means
     dynamic.clusters["FrstRange"] = frstrange
     dynamic.clusters["Sd"] = sds
     dynamic.clusters["CorrType"] = corr_type
 
-    if "Graph" not in dynamic.clusters or dynamic.clusters["Graph"] is None:
+    if dynamic.clusters.get("Graph") is None:
         logger.error("The process was not completed successfully!")
     else:
         logger.debug("The process has finished successfully!")
