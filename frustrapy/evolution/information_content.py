@@ -13,6 +13,14 @@ from frustrapy import calculate_frustration  # Import here to avoid circular imp
 logger = logging.getLogger(__name__)
 
 
+def _evo_frustration_worker(job: Dict) -> None:
+    """Picklable top-level worker for the FrustraEvo per-structure frustration
+    precompute (T2 performance). Runs one ``calculate_frustration`` job; the
+    result is the on-disk ``.done/`` table the downstream parsers read, so
+    nothing is returned (the heavy ``Pdb`` object is never shipped back)."""
+    calculate_frustration(**job)
+
+
 @dataclass
 class ResidueEquivalence:
     """Maps MSA positions to PDB residue numbers"""
@@ -71,12 +79,17 @@ class InformationContentCalculator:
         reference_pdb: str,
         pdb_dir: Optional[Path] = None,
         mode: str = "configurational",
+        n_procs: Optional[int] = None,
     ):
         self.msa_data = msa_data
         self.results_dir = Path(results_dir)
         self.reference_pdb = reference_pdb
         self.mode = mode
         self.pdb_dir = pdb_dir
+        # T2: number of per-structure frustration subprocesses to run
+        # concurrently in :meth:`_precompute_frustration`. None => use all
+        # cores; 1 => serial (byte-identical to the pre-T2 path).
+        self.n_procs = n_procs
 
         # Identifiers (in MSA order) that passed the sequence check against
         # their PDB. Populated by _validate_sequences; the original FrustraEvo
@@ -235,6 +248,119 @@ class InformationContentCalculator:
             logger.error(f"Failed to load equivalences for {structure_id}: {e}")
             raise FrustraEvoError(f"Equivalence loading failed: {str(e)}")
 
+    def _precompute_frustration(self) -> None:
+        """Run every per-structure frustration calculation up front, in parallel
+        (T2 performance).
+
+        ``analyze_family`` needs two frustration tables per family member: a
+        ``mode`` (configurational/mutational) contact table read by
+        :meth:`_load_contact_matrices`, and a ``singleresidue`` table read by
+        :meth:`_calculate_equivalences` via :meth:`_run_singleresidue`. Each
+        ``calculate_frustration`` run is an independent LAMMPS single-point that
+        writes to its own private ``{id}.done/`` directory, so the whole ``2*N``
+        set is embarrassingly parallel. The pre-T2 code ran them as two serial
+        loops (one inside ``_calculate_equivalences``, one inside
+        ``_load_contact_matrices``); this runs them all in one bounded
+        ``ProcessPoolExecutor`` and the downstream loops then just read the
+        cached tables.
+
+        **Parity:** output is byte-identical to the serial path — only the order
+        in which the independent subprocesses run changes, and each writes to a
+        separate directory, so there is no shared-state race. ``graphics=False``
+        means no inner mutation pool is spawned, so the outer pool never nests a
+        second ``cpu_count()`` pool. Idempotent: a job whose output table already
+        exists is skipped, matching the downstream ``if not ...exists()`` guards.
+        """
+        import multiprocessing
+        from concurrent.futures import ProcessPoolExecutor
+
+        structure_ids = self.valid_ids or self.msa_data.identifiers
+
+        # Pre-create the two results trees so the workers never race on
+        # ``os.makedirs`` (``calculate_frustration`` creates ``results_dir``
+        # without ``exist_ok`` — a TOCTOU race when N workers target the same,
+        # not-yet-existing dir; ``Frustration_SR`` in particular is not in
+        # ``REQUIRED_DIRECTORIES``).
+        self.frustration_dir.mkdir(parents=True, exist_ok=True)
+        self.frustration_sr_dir.mkdir(parents=True, exist_ok=True)
+
+        # ``calculate_frustration`` strips HETATMs by saving over its input PDB
+        # in place (``_process_structure``), so two jobs that share the same
+        # source file (a structure's configurational + singleresidue passes)
+        # would race on that write. Stage each job a private copy of the input
+        # under ``_frust_inputs/<mode>/`` so no two concurrent jobs ever touch
+        # the same file; the canonical ``pdbs/<id>.pdb`` is left untouched (only
+        # ATOM lines are read downstream).
+        stage_root = self.results_dir / "_frust_inputs"
+
+        def _stage(sid: str, sub: str) -> Path:
+            stage_dir = stage_root / sub
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            staged = stage_dir / f"{sid}.pdb"
+            shutil.copy2(self.pdb_dest_dir / f"{sid}.pdb", staged)
+            return staged
+
+        jobs: List[Dict] = []
+        for sid in structure_ids:
+            if not (self.pdb_dest_dir / f"{sid}.pdb").exists():
+                continue
+            conf_table = (
+                self.frustration_dir
+                / f"{sid}.done/FrustrationData/{sid}.pdb_{self.mode}"
+            )
+            if not conf_table.exists():
+                jobs.append(
+                    dict(
+                        pdb_file=str(_stage(sid, self.mode)),
+                        mode=self.mode,
+                        results_dir=str(self.frustration_dir),
+                        graphics=False,
+                        # No pml/pymol scripts: the IC step reads only the
+                        # numeric `.pdb_{mode}` table, and visualization writes
+                        # shared-named files into the parent results dir (it
+                        # globs `*_{mode}.{ext}` there), which collides across
+                        # concurrent workers. Off => parity-safe + faster.
+                        visualization=False,
+                        debug=True,
+                        n_cpus=1,
+                    )
+                )
+            sr_table = (
+                self.frustration_sr_dir
+                / f"{sid}.done/FrustrationData/{sid}.pdb_singleresidue"
+            )
+            if not sr_table.exists():
+                jobs.append(
+                    dict(
+                        pdb_file=str(_stage(sid, "singleresidue")),
+                        mode="singleresidue",
+                        results_dir=str(self.frustration_sr_dir),
+                        graphics=False,
+                        visualization=False,  # see note on the contact job above
+                        debug=True,
+                        n_cpus=1,
+                    )
+                )
+
+        if not jobs:
+            return
+
+        cores = multiprocessing.cpu_count()
+        requested = cores if self.n_procs is None else int(self.n_procs)
+        n_workers = max(1, min(requested, cores, len(jobs)))
+
+        if n_workers <= 1:
+            for job in jobs:
+                _evo_frustration_worker(job)
+            return
+
+        logger.info(
+            f"Precomputing frustration for {len(jobs)} job(s) across "
+            f"{n_workers} worker(s)"
+        )
+        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+            list(ex.map(_evo_frustration_worker, jobs))
+
     def _load_contact_matrices(self) -> List[ContactMatrix]:
         """Load frustration contact matrices for all structures using legacy approach"""
         matrices = []
@@ -273,23 +399,27 @@ class InformationContentCalculator:
 
                 # 3. Calculate frustration using FrustraPy
                 pdb_file = self.pdb_dest_dir / f"{structure_id}.pdb"
-                # graphics=False: the IC calculation only reads the
-                # `.pdb_{mode}` frustration table, not the per-structure plots.
-                # Generating them for every family member is wasteful and pulls
-                # in the optional `kaleido` dependency (plot_5andens write_image).
-                pdb, plots, density_results, _ = calculate_frustration(
-                    pdb_file=str(pdb_file),
-                    mode=self.mode,
-                    results_dir=str(self.frustration_dir),
-                    graphics=False,
-                    debug=True,
-                )
-
                 # 4. Load frustration data using legacy column indices
                 frust_file = (
                     self.frustration_dir
                     / f"{structure_id}.done/FrustrationData/{structure_id}.pdb_{self.mode}"
                 )
+                # graphics=False: the IC calculation only reads the
+                # `.pdb_{mode}` frustration table, not the per-structure plots.
+                # Generating them for every family member is wasteful and pulls
+                # in the optional `kaleido` dependency (plot_5andens write_image).
+                # T2: `_precompute_frustration` normally fills this table in
+                # parallel beforehand; only run here if it is still missing
+                # (e.g. precompute was skipped). The returned objects are unused
+                # downstream — only `frust_file` is read.
+                if not frust_file.exists():
+                    calculate_frustration(
+                        pdb_file=str(pdb_file),
+                        mode=self.mode,
+                        results_dir=str(self.frustration_dir),
+                        graphics=False,
+                        debug=True,
+                    )
 
                 contact_count = 0
                 with frust_file.open() as f:

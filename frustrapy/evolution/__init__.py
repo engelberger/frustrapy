@@ -16,6 +16,7 @@ def analyze_family(
     contact_maps: bool = False,
     results_dir: Optional[Union[str, Path]] = None,
     debug: bool = False,
+    n_procs: Optional[int] = None,
 ) -> Dict:
     """
     Analyze evolutionary frustration patterns in a protein family.
@@ -28,6 +29,9 @@ def analyze_family(
         contact_maps: Whether to generate contact maps
         results_dir: Output directory
         debug: Enable debug mode
+        n_procs: Number of per-structure frustration calculations to run
+            concurrently (T2 performance). None => use all available cores;
+            1 => serial. Output is byte-identical regardless of this value.
 
     Returns:
         Dict containing analysis results and paths to output files
@@ -48,12 +52,17 @@ def analyze_family(
             results_dir=results_dir,
             reference_pdb=reference_pdb,
             pdb_dir=pdb_dir,
+            n_procs=n_procs,
         )
 
         # Setup required files and directories
         calculator._setup_directories()
         calculator._copy_required_files()
         calculator._validate_sequences()
+        # T2: run all per-structure frustration calculations (configurational +
+        # singleresidue) up front in parallel; the equivalence and contact-matrix
+        # steps below then read the cached tables instead of computing serially.
+        calculator._precompute_frustration()
         calculator._prepare_reference_alignment()
         calculator._create_final_alignment()
         calculator._calculate_equivalences()

@@ -361,3 +361,69 @@ def test_frustration_state_distribution_non_degenerate(globin_family):
     assert summary["minimally_frustrated"] > 0
     assert summary["neutrally_frustrated"] > 0
     assert summary["maximally_frustrated"] < total
+
+
+# ---------------------------------------------------------------------------
+# T2 (performance): the per-structure frustration calculations run in parallel
+# (``_precompute_frustration``); ``n_procs`` must NOT change the output.
+# ---------------------------------------------------------------------------
+
+OUTPUT_TABLES = (
+    f"IC_Configurational_{REFERENCE}.csv",
+    f"SeqIC_{REFERENCE}.tab",
+    f"IC_SingleRes_{REFERENCE}.csv",
+)
+
+
+def _run_family(results_dir, n_procs):
+    import frustrapy
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        frustrapy.analyze_family(
+            fasta_file=FASTA,
+            job_id="globin3",
+            reference_pdb=REFERENCE,
+            pdb_dir=PDB_DIR,
+            results_dir=results_dir,
+            n_procs=n_procs,
+        )
+    return results_dir
+
+
+def test_parallel_precompute_byte_identical_to_serial(tmp_path):
+    """T2 regression: ``analyze_family`` with parallel precompute (``n_procs>1``)
+    produces IC output BYTE-IDENTICAL to the serial path (``n_procs=1``).
+
+    The T2 speedup runs every member's configurational + singleresidue
+    frustration calculation up front in a ``ProcessPoolExecutor``. Because each
+    ``calculate_frustration`` rewrites its input PDB in place and the
+    visualization step globs shared-named files from the parent results dir,
+    a naive pool corrupts output via file races. This pins that the parallel
+    path stays bit-for-bit equal to the serial one for all three IC tables;
+    it would fail if a future change reintroduced a cross-worker race or made
+    the result depend on ``n_procs``.
+    """
+    serial = _run_family(str(tmp_path / "serial"), n_procs=1)
+    parallel = _run_family(str(tmp_path / "parallel"), n_procs=3)
+
+    for table in OUTPUT_TABLES:
+        s = os.path.join(serial, table)
+        p = os.path.join(parallel, table)
+        assert os.path.exists(s), f"serial run missing {table}"
+        assert os.path.exists(p), f"parallel run missing {table}"
+        with open(s) as sf, open(p) as pf:
+            assert sf.read() == pf.read(), (
+                f"{table} differs between n_procs=1 and n_procs=3 "
+                f"(parallel precompute is not output-stable)"
+            )
+
+
+def test_analyze_family_accepts_n_procs():
+    """The ``n_procs`` knob is part of the public ``analyze_family`` signature."""
+    import inspect
+    import frustrapy
+
+    sig = inspect.signature(frustrapy.analyze_family)
+    assert "n_procs" in sig.parameters
+    assert sig.parameters["n_procs"].default is None
