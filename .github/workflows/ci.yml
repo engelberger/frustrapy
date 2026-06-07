@@ -1,0 +1,74 @@
+name: CI
+
+# Phase 1 regression CI. The lint job is advisory (non-blocking) for now; the
+# import/test/build jobs are blocking because Phase 0 confirmed the 9-package runtime
+# set installs cleanly and the wheel ships the AWSEM/LAMMPS assets. The dep-count
+# tripwire below guards against a regression to the Phase-0 failure mode where the
+# Poetry backend emitted an empty Requires-Dist (zero runtime deps).
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint (advisory)
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Ruff check
+        run: uvx ruff check frustrapy tests
+
+  test:
+    name: test (py${{ matrix.python-version }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.10", "3.12"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Create venv
+        run: uv venv --python ${{ matrix.python-version }} .venv
+      - name: Put venv on PATH (P1-22 — bare python3 subprocess needs Bio importable)
+        run: echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install package + test deps
+        # -e . pulls the full 9-package runtime set from pyproject (the P0-A fix).
+        run: uv pip install --python .venv -e . pytest pytest-cov
+      - name: Import smoke (P0-A/P0-B — clean import, no manual tqdm install)
+        run: python -c "import frustrapy; print('import frustrapy OK')"
+      - name: Run regression suite (anchor + every P0 fix)
+        run: python -m pytest tests -v
+
+  build:
+    name: build wheel + dep-count tripwire
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build wheel
+        run: uv build --wheel
+      - name: Assert runtime assets ship in the wheel (P0-C)
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          echo "Inspecting $WHEEL"
+          unzip -l "$WHEEL" | grep -E 'lmp_serial|PdbCoords2Lammps|fix_backbone_coeff|\.pl' \
+            || { echo "FAIL: runtime assets missing from wheel"; exit 1; }
+      - name: Assert the wheel declares all 9 runtime deps (not zero — P0-A tripwire)
+        run: |
+          WHEEL=$(ls dist/*.whl | head -1)
+          COUNT=$(unzip -p "$WHEEL" '*/METADATA' | grep -c '^Requires-Dist:')
+          echo "Requires-Dist count: $COUNT"
+          test "$COUNT" -ge 9 || { echo "FAIL: expected >=9 runtime deps, got $COUNT"; exit 1; }

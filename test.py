@@ -274,55 +274,31 @@ pdb, plots, _density, single_res = frustrapy.calculate_frustration(
 profiler.end_section("Single PDB Analysis")
 # Results analysis and display
 profiler.start_section("Results Analysis")
-try:
-    import pickle
+# Read the human-readable single-residue frustration tables instead of deserializing
+# pickle files discovered by walking the filesystem. pickle.load on untrusted files is
+# an arbitrary-code-execution risk (P0-1); the .pdb_singleresidue text tables carry the
+# same per-residue FrstIndex in a safe format.
+import pandas as pd
 
-    results_found = 0
-    for root, dirs, files in os.walk(results_dir):
-        for file in files:
-            if file.endswith("_single_residue_data.pkl"):
-                pkl_path = os.path.join(root, file)
-                with open(pkl_path, "rb") as f:
-                    data = pickle.load(f)
-                print(f"\nAnalysis results from: {os.path.basename(pkl_path)}")
-                results_found += 1
-                if "A" in data:
-                    for res_num in [144, 146]:
-                        if res_num in data["A"]:
-                            res_data = data["A"][res_num]
-                            mutations = res_data.mutations
-                            # Find most and least frustrated mutations
-                            most_frustrated = min(mutations.items(), key=lambda x: x[1])
-                            least_frustrated = max(
-                                mutations.items(), key=lambda x: x[1]
-                            )
-                            print(
-                                f"\nPosition {res_num} (Native: {res_data.residue_name})"
-                            )
-                            print(
-                                f"Most frustrated mutation: {res_data.residue_name} → {most_frustrated[0]} "
-                                f"(Frustration Index: {most_frustrated[1]:.3f})"
-                            )
-                            print(
-                                f"Least frustrated mutation: {res_data.residue_name} → {least_frustrated[0]} "
-                                f"(Frustration Index: {least_frustrated[1]:.3f})"
-                            )
-                            # Sort and display mutations
-                            sorted_mutations = sorted(
-                                mutations.items(), key=lambda x: x[1]
-                            )
-                            print(
-                                "\nAll mutations sorted by frustration (top 5 most and least frustrated):"
-                            )
-                            print("Most frustrated:")
-                            for mut, score in sorted_mutations[:5]:
-                                print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
-                            print("Least frustrated:")
-                            for mut, score in sorted_mutations[-5:]:
-                                print(f"  {res_data.residue_name} → {mut}: {score:.3f}")
-                            print("-" * 50)
-except Exception as e:
-    print(f"Error accessing results: {str(e)}")
+results_found = 0
+for root, dirs, files in os.walk(results_dir):
+    for file in files:
+        if file.endswith(".pdb_singleresidue"):
+            table_path = os.path.join(root, file)
+            table = pd.read_csv(table_path, sep=r"\s+")
+            print(f"\nSingle-residue frustration from: {file}")
+            results_found += 1
+            for res_num in [144, 146]:
+                row = table[table["Res"] == res_num]
+                if not row.empty:
+                    r = row.iloc[0]
+                    print(
+                        f"Position {res_num} (Native: {r['AA']}): "
+                        f"FrstIndex = {float(r['FrstIndex']):.3f}"
+                    )
+            print("-" * 50)
+if results_found == 0:
+    print("No single-residue frustration tables found.")
 profiler.end_section("Results Analysis")
 # End overall timing and print report
 profiler.end_section("Total Execution")

@@ -93,6 +93,16 @@ exclude = [
     "**/*.pyc",
 ]
 
+[tool.pytest.ini_options]
+# The regression suite (Phase 1) lives under tests/; it locks the 1CRN anchor and a
+# fail-pre/pass-post test for every P0 fix. Run from an activated venv so the bare
+# python3 spawned by PdbCoords2Lammps.sh resolves Biopython (tech-debt P1-22).
+testpaths = ["tests"]
+filterwarnings = [
+    # The 9 non-raw `\s+` separators (Lever 12, Phase 6) emit SyntaxWarning today.
+    "ignore::SyntaxWarning",
+]
+
 [tool.ruff]
 line-length = 100
 target-version = "py310"
