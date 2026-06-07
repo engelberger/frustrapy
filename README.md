@@ -203,6 +203,49 @@ For configurational/mutational contacts (single source of truth:
 The `0.78` cutoff is derived analytically (arXiv:1812.05965). Single-residue *plots*
 use a distinct minimally cutoff of `0.58`, matching frustratometeR's visualization.
 
+## Parallelism and resource limits
+
+FrustraPy runs work concurrently on three axes — a batch of structures
+(`dir_frustration(..., n_procs=K)` and `dynamic_frustration` over trajectory
+frames), the per-residue saturation scan (`mutate_res_scan_parallel`), and the
+per-structure precompute in the evolution module. These can nest: a parallel
+batch can hand each structure a singleresidue scan that opens its own pool. To
+stop that nest from multiplying into a fork bomb, every pool draws from one
+shared budget instead of calling `cpu_count()` on its own.
+
+The budget lives in `frustrapy/utils/concurrency.py` and works as follows:
+
+- **One core budget.** `cpu_budget()` is the single source of how many cores
+  FrustraPy may use (physical cores, never less than 1). No call site invents a
+  larger bound.
+- **Nested pools split the budget, they do not multiply it.**
+  `resolve_concurrency(n_procs, n_items)` returns an `(outer, inner)` pair where
+  `outer` items run concurrently and each gets `inner = cores // outer` cores
+  for its own inner pool. The invariant `outer * inner <= cores` holds for any
+  input, so two levels of nesting can never exceed the core budget. A flat
+  (non-nested) pool uses `resolve_pool_size(...)`, which is
+  `min(requested, cores, n_tasks)`.
+- **Each worker is pinned to one native-math thread.** `apply_thread_limits()`
+  (in the dependency-free `frustrapy/_threadlimits.py`, applied at the top of
+  `frustrapy/__init__.py` before numpy loads) sets `OMP_NUM_THREADS`,
+  `OPENBLAS_NUM_THREADS`, `MKL_NUM_THREADS`, `NUMEXPR_NUM_THREADS`, and two
+  related vars to `1` via `setdefault` — so `cores` worker processes cannot each
+  spin up `cores` BLAS threads (which would be `cores**2` threads). If you
+  export your own thread counts, FrustraPy leaves them untouched.
+- **Pools fork safely and shut down cleanly.** Worker pools are created from a
+  `forkserver` (then `spawn`) start method via `get_pool_context()`, so forking
+  from a possibly multi-threaded parent cannot deadlock the child or orphan a
+  LAMMPS subprocess. Pools are always closed and joined, including on a worker
+  error or timeout.
+
+In practice this means `n_procs=K` is a ceiling on how many structures run at
+once, not a multiplier: a user cannot fork-bomb the machine by combining a large
+`n_procs` with a singleresidue batch or an evolution run. To cap usage further,
+set `n_procs` to a small number; to give each native-math library more than one
+thread, export e.g. `OMP_NUM_THREADS` before importing FrustraPy. The full audit
+of every parallel construct and its nesting paths is in
+`docs/parallelism_inventory.md`.
+
 ## Known limitations
 
 - **Not yet on PyPI** — install from source (the release workflow is ready).
