@@ -377,15 +377,30 @@ def organize_single_residue_data(
 
             logger.debug(f"Original residue: {original_res}")
 
+            # native_energy is the WILD-TYPE residue's frustration at this position,
+            # not the first row of the saturation scan (issue #12). The scan's AA
+            # column holds the one-letter mutated identity, so match the WT residue's
+            # one-letter code; fall back to the first row only if the WT row is absent.
+            from Bio.SeqUtils import seq1
+
+            try:
+                wt_aa = seq1(original_res)
+            except Exception:
+                wt_aa = original_res
+            wt_frst = mutation_df.loc[mutation_df["AA"] == wt_aa, "FrstIndex"]
+            native_energy = (
+                wt_frst.iloc[0]
+                if not wt_frst.empty
+                else mutation_df["FrstIndex"].iloc[0]
+            )
+
             # Create SingleResidueData object
             res_data = SingleResidueData(
                 residue_number=res_num,
                 chain_id=chain_id,
                 residue_name=original_res,
                 mutations=mutations,
-                native_energy=mutation_df["FrstIndex"].iloc[
-                    0
-                ],  # Use first row's frustration as native
+                native_energy=native_energy,
                 decoy_energy=None,  # These values aren't available in single residue mode
                 sd_energy=None,
                 density=None,

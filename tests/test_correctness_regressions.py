@@ -247,3 +247,29 @@ def test_fixed_width_pdb_parsing(tmp_path):
     assert df.iloc[0]["x"] == pytest.approx(-1.234)
     assert df.iloc[1]["y"] == pytest.approx(-14.099)
     assert list(df["element"]) == ["N", "C"]
+
+
+# ---------------------------------------------------------------------------
+@pytest.mark.slow
+def test_singleresidue_native_energy_is_wt_not_first_row(crn_pdb, tmp_path):
+    """Issue #12: SingleResidueData.native_energy is the WILD-TYPE residue's
+    frustration at a position, not the first row of the saturation scan."""
+    import frustrapy
+    from Bio.SeqUtils import seq1
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        _pdb, _plots, _dens, single_res = frustrapy.calculate_frustration(
+            pdb_file=str(crn_pdb),
+            mode="singleresidue",
+            residues={"A": [1]},
+            results_dir=str(tmp_path / "sr"),
+            graphics=True,
+            visualization=False,
+            debug="ERROR",
+        )
+
+    rd = single_res["A"][1]
+    wt_one_letter = seq1(rd.residue_name)  # 1CRN residue 1 is THR -> "T"
+    # native_energy must equal the WT identity's frustration, not an arbitrary row.
+    assert rd.native_energy == rd.mutations[wt_one_letter]
