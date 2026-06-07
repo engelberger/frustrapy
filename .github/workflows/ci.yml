@@ -59,7 +59,7 @@ jobs:
         run: echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
       - name: Install package + test deps
         # -e . pulls the full 9-package runtime set from pyproject (the P0-A fix).
-        run: uv pip install --python .venv -e . pytest pytest-cov
+        run: uv pip install --python .venv -e ".[cli,hdf5]" pytest pytest-cov tomli
       - name: Import smoke (P0-A/P0-B — clean import, no manual tqdm install)
         run: python -c "import frustrapy; print('import frustrapy OK')"
       - name: Unit + smoke layer (fast lane — no LAMMPS)
@@ -78,7 +78,7 @@ jobs:
       - name: Put venv on PATH (P1-22 — bare python3 subprocess needs Bio importable)
         run: echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
       - name: Install package + test deps (full runtime set via -e .)
-        run: uv pip install --python .venv -e . pytest pytest-cov
+        run: uv pip install --python .venv -e ".[cli,hdf5]" pytest pytest-cov tomli
       - name: E2e + parity gates (real LAMMPS — 1CRN anchor + FrustraEvo byte-diffs)
         # A numeric/parity regression against the committed fixtures fails the build.
         run: python -m pytest -m slow -v
