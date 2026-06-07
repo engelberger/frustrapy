@@ -14,7 +14,10 @@ inference path (now wired).
   force-included in the wheel (`pyproject.toml`). The parser produces inputs bit-identical to the
   reference (`frustraMPNN-2/scripts/benchmark_onnx_models.py`); on 1CRN the output matches the
   recorded probe below (range, class counts, determinism). Tests: `tests/test_mpnn.py`.
-- M2 (validation panel vs the reference), M3 (public API + README/wiki): pending.
+- M2 (validation vs the reference): done. The full 1UBQ saturation matrix matches the recorded
+  FrustraMPNN web-demo output bit-for-bit; see "Validation (M2)" below. Test:
+  `tests/test_mpnn.py::test_validate_against_reference_1ubq`.
+- M3 (public API + README/wiki): pending.
 
 ## Source assets
 
@@ -132,24 +135,71 @@ install hint.
 
 ```python
 import frustrapy.mpnn as mpnn
-result = mpnn.analyze("protein.pdb", chains=["A"])   # -> MPNNResult
-result.per_residue      # DataFrame: chain, position, resnum, aa, frustration, class
-result.mutation_matrix  # DataFrame or ndarray (L x 21) saturation scan
+
+result = mpnn.analyze("1UBQ.pdb", chains=["A"])      # -> MPNNResult
+
+# Native single-residue frustration, one row per residue:
+#   chain  position  resnum  aa  frustration  frustration_class
+result.per_residue.head()
+
+# How many residues fall in each class:
+result.per_residue["frustration_class"].value_counts()
+# minimally    24
+# neutral      42  (1UBQ; matches the FrustraMPNN web demo)
+# highly       10
+
+# Saturation-mutagenesis matrix: one row per position, one column per amino acid
+# (predicted frustration if that position were mutated to each AA):
+result.mutation_matrix.head()
+
+# Score the model only at a few positions (the scan still uses the whole structure):
+sub = mpnn.analyze("1UBQ.pdb", chains=["A"], positions=[0, 5, 10])
 ```
+
+`analyze` needs the `mpnn` extra (`pip install 'frustrapy[mpnn]'`, which pulls onnxruntime). The
+ONNX weight is bundled, so no download is required.
 
 `MPNNResult` shares the residue/chain/IO vocabulary with the LAMMPS engine's single-residue table
 (`Res ChainRes AA FrstIndex`) so downstream code and plots can treat both uniformly. If the G1
 `FrustrationBackend` interface exists by M3, add an adapter exposing the native per-residue scores
 through it; otherwise leave a note (M3).
 
-## Validation plan (M2)
+## Validation (M2)
 
-Compare `frustrapy.mpnn` native per-residue scores against the original FrustraMPNN onnxruntime
-reference (`scripts/benchmark_onnx_models.py` path) on a small panel (1crn, 1UBQ). Because this is a
-learned model, define an explicit numeric tolerance (target: Pearson/Spearman = 1.0 and
-`max|Δ| < 1e-4` against the same ONNX file, since both use the CPU EP). Add a regression test and a
-usage example. Do not invent accuracy-vs-frustratometeR numbers; the published checkpoint Spearman
-(0.80-0.87) comes from the maintainer's `weights/README.md`.
+`frustrapy.mpnn` was validated against the FrustraMPNN reference on 1UBQ (ubiquitin, 76 residues,
+chain A), the maintainer's regression-test protein. The full saturation matrix (76 residues x 20
+amino acids = 1520 predictions) was compared three ways. Measured 2026-06-07, onnxruntime 1.26,
+CPU EP. Nothing here is invented; every number was produced by running the code.
+
+| reference | model | max\|Δ\| | Pearson | Spearman |
+|---|---|---|---|---|
+| `scripts/benchmark_onnx_models.py` recipe, same bundled ONNX | frustrampnn_v6 | 0.0 | 1.0 | 1.0 |
+| `1UBQ_results.json` (web demo, onnxruntime-web) | frustrampnn_v6 | 0.0 | 1.0 | 1.0 |
+| `test_data/1UBQ_reference_output.csv` | fireprot ckpt (different) | 3.14 | 0.73 | 0.71 |
+
+Reading the table:
+
+- Against the same ONNX file run through the documented reference recipe, and against the recorded
+  web-demo output (the same model run in the browser via onnxruntime-web), `frustrapy.mpnn` is
+  bit-for-bit identical across the entire 1520-cell matrix. The featurization, k-NN padding, and
+  per-position scan reproduce the reference exactly. Native single-residue classification also
+  matches the web-demo stats: 10 highly frustrated, 42 neutral, 24 minimally frustrated.
+- Against `test_data/1UBQ_reference_output.csv` the values diverge (Pearson 0.73). This is an
+  **intentional, expected divergence**: that CSV was generated from a different, earlier PyTorch
+  checkpoint (`local_train_raw_fireprot_nosubtract_seed1_epoch=19_..._spearman=0.8.ckpt`, see
+  `test_data/README.md`), not from `frustrampnn_v6`. FrustraPy bundles the v6 ONNX export that the
+  web demo ships, so it matches the web demo, not the older fireprot checkpoint. The two are
+  different model versions; this is a model-choice difference, not a wiring bug.
+
+The regression fixture is `tests/data/1UBQ_mpnn_reference.csv` (the 1520 web-demo predictions:
+0-based position, wildtype, mutation, frustration) with `tests/data/1UBQ.pdb`. The test
+(`test_validate_against_reference_1ubq`) asserts `max|Δ| < 1e-4` and class-count agreement; the
+tolerance is set well above the measured 0 because FrustraMPNN is a learned model and a different
+CPU build could differ at the float32 ULP.
+
+Accuracy against frustratometeR is not measured here. The published checkpoint reports frustration
+Spearman 0.80-0.87 vs frustratometeR single-residue frustration (maintainer's `weights/README.md`);
+that is a property of the trained weights, not of this integration.
 
 ## Verified probe (2026-06-07)
 

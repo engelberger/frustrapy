@@ -10,6 +10,8 @@ import sys
 import importlib.util
 from pathlib import Path
 
+import numpy as np
+import pandas as pd
 import pytest
 
 import frustrapy.mpnn as mpnn
@@ -101,3 +103,30 @@ def test_positions_filter():
 def test_missing_pdb_raises():
     with pytest.raises(FileNotFoundError):
         mpnn.analyze(DATA / "does_not_exist.pdb")
+
+
+@needs_model
+def test_validate_against_reference_1ubq():
+    """Validate the full saturation matrix against the FrustraMPNN reference (M2).
+
+    Reference: tests/data/1UBQ_mpnn_reference.csv, the recorded web-demo output (the same
+    frustrampnn_v6 ONNX run in the browser via onnxruntime-web) on 1UBQ, 1520 predictions
+    (76 residues x 20 amino acids). FrustraMPNN is a learned model, so this is a tolerance
+    check, not byte-identity; the bundled ONNX and CPU EP reproduce the reference to within
+    float32 (measured max|d| = 0 on this build), so the tolerance is set tight at 1e-4.
+    """
+    ref = pd.read_csv(DATA / "1UBQ_mpnn_reference.csv")
+    assert len(ref) == 1520
+
+    result = mpnn.analyze(DATA / "1UBQ.pdb", chains=["A"])
+    mm = result.mutation_matrix.set_index("position")
+
+    got = np.array([mm.loc[r.position, r.mutation] for r in ref.itertuples()])
+    diff = np.abs(got - ref["frustration"].to_numpy())
+    assert diff.max() < 1e-4
+    # ranks identical -> full saturation matrix agrees
+    assert np.corrcoef(got, ref["frustration"].to_numpy())[0, 1] > 0.9999
+
+    # native (wild-type) single-residue classification matches the web-demo stats
+    counts = result.per_residue["frustration_class"].value_counts().to_dict()
+    assert counts == {"neutral": 42, "minimally": 24, "highly": 10}
