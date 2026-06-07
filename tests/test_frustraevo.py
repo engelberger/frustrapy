@@ -427,3 +427,91 @@ def test_analyze_family_accepts_n_procs():
     sig = inspect.signature(frustrapy.analyze_family)
     assert "n_procs" in sig.parameters
     assert sig.parameters["n_procs"].default is None
+
+
+# ---------------------------------------------------------------------------
+# T3 (intermediate-file control): a production run removes the per-structure
+# scratch that overwhelms cluster filesystems at thousands of predictions;
+# debug keeps it. Either way the final IC tables are byte-identical.
+# ---------------------------------------------------------------------------
+
+
+def _run_family_keep(results_dir, keep_intermediates):
+    import frustrapy
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        frustrapy.analyze_family(
+            fasta_file=FASTA,
+            job_id="globin3",
+            reference_pdb=REFERENCE,
+            pdb_dir=PDB_DIR,
+            results_dir=results_dir,
+            n_procs=1,
+            keep_intermediates=keep_intermediates,
+        )
+    return results_dir
+
+
+def test_analyze_family_keep_intermediates_defaults_to_cleanup():
+    """``keep_intermediates`` is a public knob defaulting to False (production
+    cleans up; opt in to keep the scratch for debugging)."""
+    import inspect
+    import frustrapy
+
+    sig = inspect.signature(frustrapy.analyze_family)
+    assert "keep_intermediates" in sig.parameters
+    assert sig.parameters["keep_intermediates"].default is False
+
+
+def test_production_run_removes_intermediate_scratch_keeps_outputs(tmp_path):
+    """T3 regression: a default (production) run leaves ONLY the published IC
+    outputs — every per-structure / working scratch directory is gone, so a
+    cluster-scale batch cannot exhaust inodes/space on intermediates."""
+    from frustrapy.evolution.information_content import InformationContentCalculator
+
+    out = _run_family_keep(str(tmp_path / "prod"), keep_intermediates=False)
+
+    for table in OUTPUT_TABLES:
+        assert os.path.exists(os.path.join(out, table)), f"missing final {table}"
+
+    remaining = [
+        d for d in InformationContentCalculator._INTERMEDIATE_DIRS
+        if os.path.isdir(os.path.join(out, d))
+    ]
+    assert remaining == [], f"production run left scratch behind: {remaining}"
+
+
+def test_keep_intermediates_preserves_scratch(tmp_path):
+    """With ``keep_intermediates=True`` (and via ``debug=True``) the full scratch
+    tree survives for inspection — the debug workflow is not broken by T3."""
+    import inspect
+    import frustrapy
+    from frustrapy.evolution.information_content import InformationContentCalculator
+
+    out = _run_family_keep(str(tmp_path / "keep"), keep_intermediates=True)
+
+    for d in ("Frustration", "Frustration_SR", "equivalences"):
+        assert os.path.isdir(os.path.join(out, d)), f"debug run dropped {d}"
+
+    # debug=True must imply keep_intermediates (a debug run keeps everything).
+    src = inspect.getsource(frustrapy.analyze_family)
+    assert "keep_intermediates = keep_intermediates or debug" in src
+
+
+def test_cleanup_does_not_change_outputs(tmp_path):
+    """T3 parity: cleaning the scratch (production) vs keeping it (debug) yields
+    BYTE-IDENTICAL IC tables — intermediate-file control never touches a
+    published output."""
+    prod = _run_family_keep(str(tmp_path / "prod"), keep_intermediates=False)
+    keep = _run_family_keep(str(tmp_path / "keep"), keep_intermediates=True)
+
+    for table in OUTPUT_TABLES:
+        p = os.path.join(prod, table)
+        k = os.path.join(keep, table)
+        assert os.path.exists(p) and os.path.exists(k), f"missing {table}"
+        with open(p) as pf, open(k) as kf:
+            assert pf.read() == kf.read(), (
+                f"{table} differs between cleanup and keep modes "
+                f"(intermediate-file control altered an output)"
+            )
