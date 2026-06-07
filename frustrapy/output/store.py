@@ -21,13 +21,20 @@ round-trip parity test.
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from dataclasses import dataclass
+from typing import Iterable, Iterator, List, Optional, Sequence, Tuple
 
 import numpy as np
 import pandas as pd
 
 from .schema import (
+    CONTACT_FEATURE_COLUMNS,
+    CONTACT_ID_COLUMNS,
+    CONTACT_TABLE,
     DENSITY_5ADENS_TABLE,
+    RESIDUE_FEATURE_COLUMNS,
+    RESIDUE_ID_COLUMNS,
+    SINGLERESIDUE_TABLE,
     TableSchema,
     TABLE_SCHEMAS,
     read_table,
@@ -364,6 +371,312 @@ class FrustrationStore:
         h5py = require_h5py()
         return [k for k in h5.keys() if isinstance(h5[k], h5py.Group)]
 
+    # -- corpus traversal / aggregation (O4) -------------------------------- #
+
+    def list_modes(self, structure_id: str) -> List[str]:
+        """List the modes (per-structure subgroups) stored for ``structure_id``."""
+        h5 = self._require_open()
+        h5py = require_h5py()
+        grp = h5.get(f"/{_valid_id(structure_id)}")
+        if grp is None:
+            raise KeyError(f"structure not found in store: {structure_id}")
+        return [k for k in grp.keys() if isinstance(grp[k], h5py.Group)]
+
+    def list_tables(self, structure_id: str, mode: str) -> List[str]:
+        """List the table dataset keys stored for ``structure_id`` in ``mode``."""
+        h5 = self._require_open()
+        h5py = require_h5py()
+        grp = h5.get(structure_group_path(structure_id, mode))
+        if grp is None:
+            raise KeyError(f"structure/mode not found in store: {structure_id}/{mode}")
+        return [k for k in grp.keys() if isinstance(grp[k], h5py.Dataset)]
+
+    def iter_tables(
+        self, mode: Optional[str] = None, key: Optional[str] = None
+    ) -> Iterator[Tuple[str, str, str, pd.DataFrame]]:
+        """Iterate stored per-structure tables across the whole store.
+
+        Yields ``(structure_id, mode, key, df)`` for every table, optionally filtered to
+        one ``mode`` (e.g. ``"configurational"``) and/or one table ``key`` (e.g.
+        ``"contact"``). This is the corpus primitive the reader/exporter build on.
+        """
+        for sid in self.list_structures():
+            for m in self.list_modes(sid):
+                if mode is not None and m != mode:
+                    continue
+                for k in self.list_tables(sid, m):
+                    if key is not None and k != key:
+                        continue
+                    yield sid, m, k, self.read_structure(sid, m, k)
+
+    def read_corpus(self, mode: str, key: str) -> pd.DataFrame:
+        """Concatenate one table across every structure into a single DataFrame.
+
+        Prepends a ``StructureId`` column identifying the source structure; the rest of
+        the columns are the schema columns. Useful for an aggregate analysis over a
+        whole batch (e.g. the distribution of ``FrstIndex`` across a corpus).
+        """
+        return read_corpus_from(self, mode, key)
+
+    def to_training_dataset(
+        self,
+        level: str = "residue",
+        mode: Optional[str] = None,
+        feature_columns: Optional[Sequence[str]] = None,
+    ) -> "TrainingDataset":
+        """Export ML-ready feature arrays over the whole store (see :func:`build_training_dataset`)."""
+        return build_training_dataset(self, level=level, mode=mode, feature_columns=feature_columns)
+
+
+# --------------------------------------------------------------------------- #
+# Multi-shard reader (O4): open a list of shard files as one logical store
+# --------------------------------------------------------------------------- #
+
+
+class FrustrationCorpus:
+    """Read-only view over one or more HDF5 shard files as a single logical store.
+
+    The parallel-write strategy is per-worker shards then (optionally) merge; this
+    reader lets the un-merged shards be read together. Shards are assumed disjoint in
+    their structure ids (each worker writes its own slice) — a structure appearing in
+    two shards is iterated twice. Exposes the same traversal/aggregation surface as
+    :class:`FrustrationStore` (:meth:`list_structures`, :meth:`iter_tables`,
+    :meth:`read_corpus`, :meth:`to_training_dataset`).
+
+    Usage::
+
+        with FrustrationCorpus(["batch.part-0.h5", "batch.part-1.h5"]) as corpus:
+            df = corpus.read_corpus("configurational", "contact")
+    """
+
+    def __init__(self, paths: Iterable[str]):
+        self.paths = list(paths)
+        self._stores: List[FrustrationStore] = []
+
+    def open(self) -> "FrustrationCorpus":
+        self._stores = [FrustrationStore(p, "r").open() for p in self.paths]
+        return self
+
+    def close(self) -> None:
+        for store in self._stores:
+            store.close()
+        self._stores = []
+
+    def __enter__(self) -> "FrustrationCorpus":
+        return self.open()
+
+    def __exit__(self, exc_type, exc, tb) -> None:
+        self.close()
+
+    def _require_open(self) -> List[FrustrationStore]:
+        if not self._stores:
+            raise RuntimeError("corpus is not open; use `with FrustrationCorpus(paths) as c:`")
+        return self._stores
+
+    def _store_for(self, structure_id: str) -> FrustrationStore:
+        for store in self._require_open():
+            if structure_id in store.list_structures():
+                return store
+        raise KeyError(f"structure not found in any shard: {structure_id}")
+
+    def list_structures(self) -> List[str]:
+        """Union of structure ids across all shards (first-seen order, de-duplicated)."""
+        seen: List[str] = []
+        for store in self._require_open():
+            for sid in store.list_structures():
+                if sid not in seen:
+                    seen.append(sid)
+        return seen
+
+    def list_modes(self, structure_id: str) -> List[str]:
+        return self._store_for(structure_id).list_modes(structure_id)
+
+    def list_tables(self, structure_id: str, mode: str) -> List[str]:
+        return self._store_for(structure_id).list_tables(structure_id, mode)
+
+    def read_structure(self, structure_id: str, mode: str, key: str) -> pd.DataFrame:
+        return self._store_for(structure_id).read_structure(structure_id, mode, key)
+
+    def iter_tables(
+        self, mode: Optional[str] = None, key: Optional[str] = None
+    ) -> Iterator[Tuple[str, str, str, pd.DataFrame]]:
+        for store in self._require_open():
+            yield from store.iter_tables(mode=mode, key=key)
+
+    def read_corpus(self, mode: str, key: str) -> pd.DataFrame:
+        return read_corpus_from(self, mode, key)
+
+    def to_training_dataset(
+        self,
+        level: str = "residue",
+        mode: Optional[str] = None,
+        feature_columns: Optional[Sequence[str]] = None,
+    ) -> "TrainingDataset":
+        return build_training_dataset(self, level=level, mode=mode, feature_columns=feature_columns)
+
+
+# --------------------------------------------------------------------------- #
+# Corpus aggregation + training-data export (O4)
+# --------------------------------------------------------------------------- #
+
+
+def read_corpus_from(reader, mode: str, key: str) -> pd.DataFrame:
+    """Concatenate one table across a reader's structures into a single DataFrame.
+
+    ``reader`` is anything exposing :meth:`iter_tables` (a :class:`FrustrationStore` or
+    a :class:`FrustrationCorpus`). The result has a leading ``StructureId`` column and
+    the table's schema columns; an empty corpus yields a typed empty frame.
+    """
+    if key not in TABLE_SCHEMAS:
+        raise ValueError(f"unknown table key {key!r}; expected one of {sorted(TABLE_SCHEMAS)}")
+    schema = TABLE_SCHEMAS[key]
+    frames = []
+    for sid, _m, _k, df in reader.iter_tables(mode=mode, key=key):
+        df = df.copy()
+        df.insert(0, "StructureId", sid)
+        frames.append(df)
+    if not frames:
+        return pd.DataFrame(columns=["StructureId", *schema.column_names])
+    return pd.concat(frames, ignore_index=True)
+
+
+@dataclass
+class _LevelSpec:
+    """How a training-data ``level`` maps to a table, its modes, and its columns."""
+
+    key: str
+    default_mode: str
+    modes: Tuple[str, ...]
+    schema: TableSchema
+    id_columns: Tuple[str, ...]
+    feature_columns: Tuple[str, ...]
+
+
+#: Training-data levels: per-residue (single-residue table) and per-contact (contact
+#: table). ``contact`` defaults to configurational mode but accepts mutational.
+_LEVEL_SPECS = {
+    "residue": _LevelSpec(
+        key="singleresidue",
+        default_mode="singleresidue",
+        modes=("singleresidue",),
+        schema=SINGLERESIDUE_TABLE,
+        id_columns=RESIDUE_ID_COLUMNS,
+        feature_columns=RESIDUE_FEATURE_COLUMNS,
+    ),
+    "contact": _LevelSpec(
+        key="contact",
+        default_mode="configurational",
+        modes=("configurational", "mutational"),
+        schema=CONTACT_TABLE,
+        id_columns=CONTACT_ID_COLUMNS,
+        feature_columns=CONTACT_FEATURE_COLUMNS,
+    ),
+}
+
+
+@dataclass
+class TrainingDataset:
+    """ML-ready feature arrays exported from the store (the FrustraMPNN-pkl use case).
+
+    ``X`` is a ``(n_samples, n_features)`` ``float64`` array of the frustration
+    measurements; ``feature_names`` labels its columns; ``ids`` is a DataFrame locating
+    each row (``StructureId`` plus the level's identifier columns, e.g. ``Res``/``AA``
+    for residues). ``level`` is ``"residue"`` or ``"contact"`` and ``mode`` the
+    calculation mode the features came from. Numeric values are value-identical to the
+    text tables (the same exact ``float64`` the round-trip parity gate compares).
+    """
+
+    X: np.ndarray
+    feature_names: List[str]
+    ids: pd.DataFrame
+    level: str
+    mode: str
+
+    @property
+    def n_samples(self) -> int:
+        return int(self.X.shape[0])
+
+    @property
+    def n_features(self) -> int:
+        return int(self.X.shape[1])
+
+    def to_frame(self) -> pd.DataFrame:
+        """Combine ids and features into one DataFrame (ids first, then features)."""
+        df = self.ids.copy().reset_index(drop=True)
+        for j, name in enumerate(self.feature_names):
+            df[name] = self.X[:, j]
+        return df
+
+    def save_npz(self, path: str) -> None:
+        """Save the arrays to a compressed ``.npz`` (X, feature_names, and id columns).
+
+        ``.npz`` is preferred over pickle for training data: it loads without executing
+        arbitrary code. Reload with ``numpy.load(path, allow_pickle=False)`` for ``X``
+        and ``feature_names``; the id columns are saved as named string arrays.
+        """
+        arrays = {
+            "X": self.X,
+            "feature_names": np.asarray(self.feature_names, dtype="U"),
+            "level": np.asarray(self.level, dtype="U"),
+            "mode": np.asarray(self.mode, dtype="U"),
+        }
+        for col in self.ids.columns:
+            arrays[f"id__{col}"] = self.ids[col].to_numpy()
+        np.savez_compressed(path, **arrays)
+
+
+def build_training_dataset(
+    reader,
+    level: str = "residue",
+    mode: Optional[str] = None,
+    feature_columns: Optional[Sequence[str]] = None,
+) -> TrainingDataset:
+    """Assemble a :class:`TrainingDataset` from a reader's stored tables.
+
+    ``reader`` is a :class:`FrustrationStore` or :class:`FrustrationCorpus`. ``level``
+    selects per-residue or per-contact samples; ``mode`` defaults to the level's natural
+    mode (``singleresidue`` / ``configurational``) and is validated against the level.
+    ``feature_columns`` overrides the default numeric feature set (each must be a numeric
+    schema column). Rows are stacked across the corpus in structure-then-row order.
+    """
+    if level not in _LEVEL_SPECS:
+        raise ValueError(f"unknown level {level!r}; expected one of {sorted(_LEVEL_SPECS)}")
+    spec = _LEVEL_SPECS[level]
+    resolved_mode = mode if mode is not None else spec.default_mode
+    if resolved_mode not in spec.modes:
+        raise ValueError(
+            f"mode {resolved_mode!r} is not valid for level {level!r}; expected one of {list(spec.modes)}"
+        )
+
+    by_name = {c.name: c for c in spec.schema.columns}
+    feats = list(feature_columns) if feature_columns is not None else list(spec.feature_columns)
+    for name in feats:
+        if name not in by_name:
+            raise ValueError(f"feature column {name!r} not in {spec.schema.key} schema")
+        if by_name[name].dtype == "str":
+            raise ValueError(f"feature column {name!r} is non-numeric and cannot be a feature")
+    id_cols = [c for c in spec.id_columns if c in by_name]
+
+    id_blocks: List[pd.DataFrame] = []
+    x_blocks: List[np.ndarray] = []
+    for sid, _m, _k, df in reader.iter_tables(mode=resolved_mode, key=spec.key):
+        if len(df) == 0:
+            continue
+        block = pd.DataFrame({"StructureId": [sid] * len(df)})
+        for col in id_cols:
+            block[col] = df[col].to_numpy()
+        id_blocks.append(block)
+        x_blocks.append(df[feats].to_numpy(dtype="float64"))
+
+    if x_blocks:
+        X = np.concatenate(x_blocks, axis=0)
+        ids = pd.concat(id_blocks, ignore_index=True)
+    else:
+        X = np.empty((0, len(feats)), dtype="float64")
+        ids = pd.DataFrame(columns=["StructureId", *id_cols])
+
+    return TrainingDataset(X=X, feature_names=feats, ids=ids, level=level, mode=resolved_mode)
+
 
 def schema_for_table_key(key: str) -> TableSchema:
     """Schema for a stored dataset key (``contact`` / ``singleresidue`` / ``density_5adens``)."""
@@ -378,6 +691,10 @@ __all__ = [
     "FORMAT_VERSION",
     "GZIP_LEVEL",
     "FrustrationStore",
+    "FrustrationCorpus",
+    "TrainingDataset",
+    "build_training_dataset",
+    "read_corpus_from",
     "compound_dtype_for_schema",
     "dataframe_to_records",
     "records_to_dataframe",

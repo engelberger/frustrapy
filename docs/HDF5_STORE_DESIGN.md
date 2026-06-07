@@ -117,14 +117,65 @@ This keeps every HDF5 file single-writer, needs no MPI build, and the merge is m
 movement (no recompression when groups are copied whole). The merge step is itself
 serial and cheap relative to the LAMMPS runs.
 
-## Reader (O4)
+## Reader, corpus aggregation, and training-data export (O4)
 
-The reader opens one file or a list of shards and exposes: load one structure/mode as a
-DataFrame, iterate all predictions, and aggregate a column across the corpus. A
-`to_training_dataset(...)` exporter (O4) emits ML-ready per-residue / per-contact
-feature arrays for the FrustraMPNN-pkl training-data use case. Reading a dataset back
-reconstructs the DataFrame with the schema's column order and dtypes, which is what the
-parity test compares against the text table.
+`FrustrationStore` opened read-only loads one stored table back as a typed DataFrame
+(`read_structure` / `read_family`), reconstructing the schema's column order and dtypes
+— the values are value-identical to the text table (the O3 parity guarantee). On top of
+that, the reader exposes corpus-level traversal and aggregation:
+
+* `list_modes(structure_id)` / `list_tables(structure_id, mode)` — what is stored.
+* `iter_tables(mode=None, key=None)` — iterate `(structure_id, mode, key, df)` over the
+  whole store, optionally filtered to one mode and/or one table key. This is the corpus
+  primitive everything else builds on.
+* `read_corpus(mode, key)` — concatenate one table across every structure into a single
+  DataFrame with a leading `StructureId` column (e.g. the `FrstIndex` distribution over
+  a whole batch).
+* `to_training_dataset(level, mode=None, feature_columns=None)` — see below.
+
+`FrustrationCorpus(paths)` opens a list of shard files (the per-worker `batch.part-*.h5`)
+as one logical read-only store with the same surface. Shards are assumed disjoint in
+their structure ids; the un-merged shards can be read together without a merge step.
+
+### `to_training_dataset` (the FrustraMPNN-pkl use case)
+
+`to_training_dataset` emits ML-ready feature arrays as a `TrainingDataset`:
+
+* `level="residue"` reads the single-residue table (`mode` defaults to `singleresidue`);
+  `level="contact"` reads the contact table (`mode` defaults to `configurational`, also
+  accepts `mutational`).
+* `X` is a `(n_samples, n_features)` `float64` array of the numeric frustration
+  measurements; `feature_names` labels its columns; `ids` is a DataFrame locating each
+  row (`StructureId` plus the level's identifier columns, e.g. `Res`/`ChainRes`/`AA`).
+* The default feature/identifier columns are defined once in
+  `frustrapy/output/schema.py` (`RESIDUE_FEATURE_COLUMNS`, `CONTACT_FEATURE_COLUMNS`,
+  …); pass `feature_columns=[...]` to override (each must be a numeric schema column).
+* `TrainingDataset.to_frame()` combines ids and features into one DataFrame;
+  `save_npz(path)` writes a compressed `.npz` (preferred over pickle: it reloads without
+  executing arbitrary code).
+
+The exported numeric values are the same exact `float64` the round-trip parity gate
+compares against the text tables, so training data built from the store is value-identical
+to training data built from the text output.
+
+### Example
+
+```python
+from frustrapy.output import FrustrationStore, FrustrationCorpus
+
+# Read one batch file:
+with FrustrationStore("batch.h5") as store:
+    for sid in store.list_structures():
+        contacts = store.read_structure(sid, "configurational", "contact")
+    all_residues = store.read_corpus("singleresidue", "singleresidue")  # one DataFrame
+    td = store.to_training_dataset(level="residue")
+    td.save_npz("residue_features.npz")          # X + ids for model training
+
+# Or read un-merged per-worker shards together:
+with FrustrationCorpus(["batch.part-0.h5", "batch.part-1.h5"]) as corpus:
+    df = corpus.read_corpus("configurational", "contact")
+    td = corpus.to_training_dataset(level="contact", mode="configurational")
+```
 
 ## Module surface
 
@@ -138,12 +189,18 @@ parity test compares against the text table.
   — HDF5 path builders (pure).
 * `require_h5py()` — import `h5py` or raise `ImportError` with the
   `pip install frustrapy[hdf5]` hint.
-* `FrustrationStore` — the writer/reader. O2 ships the importable skeleton (constructor
-  + method signatures); O3 implements `write_structure`/`read_structure` against the
-  parity gate.
+* `FrustrationStore` — the writer/reader. `write_structure` / `write_family` (O3) write
+  the compressed datasets; `read_structure` / `read_family`, `list_*`, `iter_tables`,
+  `read_corpus`, and `to_training_dataset` (O4) read them back.
+* `FrustrationCorpus` — read multiple shard files as one logical store (O4).
+* `TrainingDataset` + `build_training_dataset(reader, …)` — the ML feature export (O4).
+* `read_corpus_from(reader, mode, key)` — corpus aggregation helper shared by the store
+  and the corpus (O4).
 
-## Scope of O2
+## Build-out across O2–O5
 
-Design (this document) plus the importable skeleton. No data is written yet; the writer
-body and the round-trip parity test land in O3, the reader and training-data export in
-O4, and the HPC benchmark in O5. The text path is untouched and stays the default.
+O2 shipped this design plus the importable skeleton; O3 implemented the writer and the
+round-trip parity gate; O4 added the reader, corpus aggregation, and training-data
+export (above); O5 is the HPC benchmark (text vs HDF5 inode/size/time). Throughout, the
+text path is untouched and stays the default, and the HDF5 path round-trips
+value-identical to it.
