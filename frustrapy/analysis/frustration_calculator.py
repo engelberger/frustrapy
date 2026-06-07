@@ -1,6 +1,7 @@
 from typing import Optional, Dict, List, Tuple, Any, Union
 import logging
 import os
+import time
 import tempfile
 import subprocess
 import shutil
@@ -117,6 +118,12 @@ class FrustrationCalculator:
     def calculate(self) -> Tuple[Pdb, Dict, Optional[FrustrationDensityResults]]:
         """Main method to calculate protein frustration."""
         try:
+            # Per-phase wall-clock breakdown (Phase 5 / Axis 1 benchmark
+            # instrumentation). Purely additive: keys are filled as each phase
+            # runs and attached to the returned Pdb object as `pdb.phase_times`.
+            # Never alters any output file.
+            self.phase_times: Dict[str, float] = {}
+
             # Verify environment first
             self._verify_environment()
 
@@ -134,6 +141,7 @@ class FrustrationCalculator:
                 self.pdb_file = self._download_pdb()
 
             # Process structure
+            _t_prep0 = time.perf_counter()
             structure = self._process_structure()
 
             # Setup working environment with absolute paths
@@ -163,10 +171,16 @@ class FrustrationCalculator:
             # Create PDB object with absolute paths
             pdb = self._create_pdb_object(job_dir, pdb_base)
             self._prepare_calculation_files(pdb)
+            self.phase_times["prep"] = time.perf_counter() - _t_prep0
 
             # Run calculations
+            _t = time.perf_counter()
             self._run_lammps_calculation(pdb)
+            self.phase_times["lammps"] = time.perf_counter() - _t
+
+            _t = time.perf_counter()
             self._process_results(pdb)
+            self.phase_times["classify"] = time.perf_counter() - _t
 
             # Create FrustrationData directory
             frustration_dir = os.path.join(job_dir, "FrustrationData")
@@ -174,11 +188,14 @@ class FrustrationCalculator:
 
             # Calculate frustration density if mode is configurational or mutational
             frustration_density_results = None
+            _t = time.perf_counter()
             if self.mode in ["configurational", "mutational"]:
                 logger.debug("Calculating frustration density...")
                 frustration_density_results = self._calculate_frustration_density(pdb)
+            self.phase_times["density"] = time.perf_counter() - _t
 
             # Move/copy only the necessary files to FrustrationData directory
+            _t = time.perf_counter()
             files_to_move = [
                 (f"{pdb_base}.pdb", f"{pdb_base}.pdb"),
                 (f"{pdb_base}.pdb_{self.mode}", f"{pdb_base}.pdb_{self.mode}"),
@@ -207,16 +224,27 @@ class FrustrationCalculator:
 
             # Now verify all required files are in place
             self._verify_required_files(pdb)
+            self.phase_times["io"] = time.perf_counter() - _t
 
             # Generate visualizations if requested
+            _t = time.perf_counter()
             if self.graphics:
                 self._generate_graphics(pdb)
             if self.visualization:
                 self._generate_visualizations(pdb)
+            self.phase_times["graphics"] = time.perf_counter() - _t
 
             # Cleanup only if not in debug mode
             if not self.debug:
                 self._cleanup(job_dir)
+
+            # Attach the per-phase breakdown to the returned object (Phase 5
+            # Axis-1 instrumentation; additive, does not affect any output file).
+            self.phase_times["total"] = sum(
+                self.phase_times.get(k, 0.0)
+                for k in ("prep", "lammps", "classify", "density", "io", "graphics")
+            )
+            pdb.phase_times = dict(self.phase_times)
 
             return pdb, self.plots, frustration_density_results
 
