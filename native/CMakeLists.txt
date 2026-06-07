@@ -46,6 +46,7 @@ option(FRUSTRAPY_NATIVE_SANITIZE "Build with ASan/UBSan (for the N2 parity gate)
 if(FRUSTRAPY_NATIVE_SANITIZE)
   target_compile_options(_core PRIVATE -fsanitize=address,undefined -fno-omit-frame-pointer)
   target_link_options(_core PRIVATE -fsanitize=address,undefined)
+  target_compile_definitions(_core PRIVATE _GLIBCXX_ASSERTIONS)
 endif()
 
 install(TARGETS _core LIBRARY DESTINATION frustrapy_native)

@@ -1,9 +1,10 @@
-"""Smoke tests for the native core skeleton (N1).
+"""Smoke tests for the native core.
 
 These run only if the ``frustrapy_native`` extension was built (``pip install ./native``).
-They exercise the build, the zero-copy binding path, and the two real geometry kernels;
-the energy reduction is a stub until N2 and is asserted to raise.
-"""
+They exercise the build, the zero-copy binding path, the two geometry kernels, and the
+energy reduction's binding contract (shape validation, output keys, determinism). The
+bit-for-bit parity vs the LAMMPS reference lives in ``tests/test_native_parity.py``
+(it runs the engine, so it is in the slow lane)."""
 
 import numpy as np
 import pytest
@@ -52,24 +53,64 @@ def test_local_density_runs_and_is_monotone_at_ends():
     assert rho[2] > rho[3]
 
 
-def test_compute_frustration_is_stub_until_n2():
+def _toy_params():
+    g20 = np.ones((20, 20), dtype=np.float64) * 0.1
+    b = np.ones((20, 3), dtype=np.float64) * 0.1
+    return g20, b
+
+
+def test_compute_frustration_returns_expected_keys_and_shapes():
     coords, res_type, chain_id, res_seqid = _toy_structure()
-    g20 = np.zeros((20, 20), dtype=np.float64)
-    b = np.zeros((20, 3), dtype=np.float64)
-    with pytest.raises(RuntimeError, match="not implemented"):
-        native.compute_frustration(
-            coords, coords, res_type, chain_id, res_seqid,
-            g20, g20, g20, b, "configurational", 12, 1000, 1,
-        )
+    g20, b = _toy_params()
+    out = native.compute_frustration(
+        coords, res_type, chain_id, res_seqid, g20, g20, g20, b,
+        "configurational", seq_dist=2, n_decoys=50, seed=1,
+    )
+    assert set(out) >= {
+        "rho", "unit_i", "unit_j", "native_energy", "decoy_energy",
+        "sd_energy", "frst_index",
+    }
+    assert out["rho"].shape == (4,)
+    n = out["unit_i"].shape[0]
+    for k in ("unit_j", "native_energy", "decoy_energy", "sd_energy", "frst_index"):
+        assert out[k].shape == (n,)
+
+
+def test_compute_frustration_singleresidue_one_unit_per_residue():
+    coords, res_type, chain_id, res_seqid = _toy_structure()
+    g20, b = _toy_params()
+    out = native.compute_frustration(
+        coords, res_type, chain_id, res_seqid, g20, g20, g20, b,
+        "singleresidue", seq_dist=1, n_decoys=50, seed=1,
+    )
+    assert out["unit_i"].shape == (4,)  # one entry per residue
+    assert (out["unit_j"] == -1).all()
+
+
+def test_compute_frustration_is_deterministic():
+    coords, res_type, chain_id, res_seqid = _toy_structure()
+    g20, b = _toy_params()
+    kw = dict(mode="mutational", seq_dist=1, n_decoys=100, seed=1)
+    a = native.compute_frustration(coords, res_type, chain_id, res_seqid, g20, g20, g20, b, **kw)
+    c = native.compute_frustration(coords, res_type, chain_id, res_seqid, g20, g20, g20, b, **kw)
+    assert np.array_equal(a["decoy_energy"], c["decoy_energy"])  # glibc rand, fixed seed
 
 
 def test_compute_frustration_validates_param_shapes():
     coords, res_type, chain_id, res_seqid = _toy_structure()
     bad = np.zeros((19, 20), dtype=np.float64)
-    g20 = np.zeros((20, 20), dtype=np.float64)
-    b = np.zeros((20, 3), dtype=np.float64)
+    g20, b = _toy_params()
+    with pytest.raises((ValueError, RuntimeError, TypeError)):
+        native.compute_frustration(
+            coords, res_type, chain_id, res_seqid, bad, g20, g20, b,
+            "configurational",
+        )
+
+
+def test_compute_frustration_rejects_unknown_mode():
+    coords, res_type, chain_id, res_seqid = _toy_structure()
+    g20, b = _toy_params()
     with pytest.raises((ValueError, RuntimeError)):
         native.compute_frustration(
-            coords, coords, res_type, chain_id, res_seqid,
-            bad, g20, g20, b, "configurational", 12, 1000, 1,
+            coords, res_type, chain_id, res_seqid, g20, g20, g20, b, "bogus",
         )

@@ -1,8 +1,11 @@
 # G1.2 / G1.3 — Native C++ CPU core + CUDA backend: design
 
-Status: N1 (design + buildable skeleton). N2 (CPU reference core) and N3 (CUDA) follow.
-Branch: `dev_native_backend`. Parity-before-speed: every step gates on numbers vs the
-`lammps` reference, not on speed.
+Status: N1 (design + buildable skeleton), N2 (CPU reference core), and N3 (CUDA
+kernels) implemented. The CPU core is parity-gated bit-for-bit against the `lammps`
+reference on 1CRN for all three modes (`tests/test_native_parity.py`); the CUDA path
+mirrors the CPU core term-for-term and is validated by the maintainer on a GPU
+(`native/colab/`), since the container has no nvcc/GPU. Branch: `dev_native_backend`.
+Parity-before-speed: every step gates on numbers vs the `lammps` reference, not on speed.
 
 This document is the design for a native compute core that plugs in behind the
 `FrustrationBackend` interface (G1.0, `frustrapy/backends/base.py`). The reference
@@ -272,13 +275,32 @@ Only after these pass does N3 port K_density / K_native / K_decoy to CUDA and me
 speed. The maintainer runs the CUDA harness on Colab / the cluster; no GPU timing is
 fabricated here.
 
-## 9. Status of this skeleton (N1)
+## 9. Implementation status (N1–N3)
 
-`native/` builds on CPU and imports as `frustrapy_native`. The reduction entry points are
-declared with the final binding signatures but are **stubs** (they raise
-`std::runtime_error("native energy core not implemented (N2)")`). One real, testable
-kernel — `contact_map`, a pure-geometry CB-CB neighbor count within a cutoff — is
-implemented end to end to exercise the SoA + zero-copy ndarray path without claiming any
-energy parity. `has_cuda()` reports whether the optional CUDA path was compiled (False in
-this container). The `native` backend is registered and selectable but raises the
-not-implemented error until N2 lands the reductions.
+`native/` builds on CPU and imports as `frustrapy_native`.
+
+N2 (CPU reference core, `src/core.cpp`): `compute_frustration` implements the AWSEM
+water/burial energy, the per-mode decoy ensemble (configurational decoys computed once
+and reused; mutational decoys per contact; singleresidue decoys per residue), and the
+`(decoy_mean - native) / decoy_sd` index. The decoy random-index stream reproduces glibc
+`rand()` with the default seed (1), so it matches the reference binary's deterministic
+sequence. Parity gate met on 1CRN, all three modes (`tests/test_native_parity.py`): max
+numeric column diff <= 1.5e-3 (3-decimal print precision), FrstIndex Spearman = 1.0, sign
+agreement 100%. Geometry kernels `contact_map` / `local_density` exercise the SoA +
+zero-copy ndarray path. ASan/UBSan-clean
+(`-C cmake.define.FRUSTRAPY_NATIVE_SANITIZE=ON`).
+
+N3 (CUDA kernels, `src/cuda/kernels.cu`): density, native energy, and the decoy
+reductions as CUDA kernels (one block per probed unit, shared-memory reduction for the
+decoy mean/sd). The decoy index stream is generated host-side with the same `GlibcRand`,
+so the GPU result matches the CPU core (the parity reference) rather than diverging on a
+different RNG. Compiled only when `FRUSTRAPY_NATIVE_CUDA=ON` and nvcc is present; the
+container has neither, so the kernels are written to mirror the CPU core term-for-term
+and the maintainer validates parity and measures speed on a GPU (`native/colab/`). No GPU
+timing is committed.
+
+The `native` backend (`frustrapy/backends/native.py`) is registered and selectable as
+`backend="native"`; it parses the prepared job directory (cleaned PDB, coefficient and
+gamma files), calls the core, and writes `tertiary_frustration.dat` in the binary's
+column layout, so the shared post-processing / density code runs unchanged.
+`has_cuda()` reports whether the optional CUDA path was compiled.
