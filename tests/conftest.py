@@ -6,7 +6,7 @@ writes a 232-row x 14-column ``1crn.pdb_configurational`` table plus a
 ``tertiary_frustration.dat`` of 32,847 bytes. See ``.devcontainer/HANDOFF.md`` and
 ``docs/audit/empirical/EMPIRICAL_ANCHOR.md``.
 
-NOTE on PATH (tech-debt P1-22): ``PdbCoords2Lammps.sh`` spawns a bare ``python3``
+NOTE on PATH: ``PdbCoords2Lammps.sh`` spawns a bare ``python3``
 subprocess, so these tests must run with the project's virtualenv on PATH (i.e. run
 ``pytest`` from an activated venv), or the calculation fails mid-run with
 ``ModuleNotFoundError: No module named 'Bio'``.

@@ -1,4 +1,4 @@
-"""End-to-end + structural tests for the FrustraEvo evolution subpackage (Phase 8).
+"""End-to-end + structural tests for the FrustraEvo evolution subpackage.
 
 The subpackage was reworked to a single entry path, ``analyze_family``, which runs a
 per-member ``calculate_frustration`` and aggregates per-contact information content
@@ -14,7 +14,7 @@ These tests lock the Phase-8 rework:
   * the returned result dict has the advertised shape;
   * ``logomaker`` (the declared dependency) resolves for the sequence-logo module.
 
-NOTE on PATH (tech-debt P1-22): the per-member calculation spawns a bare ``python3``
+NOTE on PATH: the per-member calculation spawns a bare ``python3``
 subprocess, so run ``pytest`` from an activated venv (see tests/conftest.py).
 """
 

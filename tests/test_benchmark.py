@@ -1,11 +1,11 @@
-"""Phase 2 smoke tests for the merged ``frustrapy.benchmark`` module.
+"""Smoke tests for the merged ``frustrapy.benchmark`` module.
 
 These lock in the dev_benchmark merge EXIT GATE: ``run_benchmark`` is importable
 from a clean install and produces a results DataFrame with the expected columns.
 The functional run uses ``cpu_list=[1]`` / ``repeats=1`` on the 1CRN fixture so it
 exercises the real parallel mutation path (``mutate_res_parallel``) cheaply.
 
-NOTE on PATH (tech-debt P1-22): like the rest of the suite, the functional test
+NOTE on PATH: like the rest of the suite, the functional test
 must run with the project's virtualenv on PATH (run ``pytest`` from an activated
 venv) or the LAMMPS prep fails with ``ModuleNotFoundError: No module named 'Bio'``.
 """

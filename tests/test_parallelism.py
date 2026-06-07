@@ -1,20 +1,19 @@
-"""Phase 6 (PERFORMANCE LEVERS) regression tests.
+"""Regression tests for the parallel execution paths.
 
-These lock in the structural guarantees of the Phase-6 levers WITHOUT asserting any
-wall-clock speedup (per ROADMAP §6 the speedup stays ``[TO-BE-MEASURED]``, never
-``[VERIFIED]``):
+These pin the structural guarantees of the parallelism without asserting any
+wall-clock speedup:
 
-* **Lever 1 (flatten)** — a single-residue scan dispatches all ``N × 20`` mutation
-  tasks through ONE persistent pool, and on a > 20-core box the resolved worker
-  count exceeds 20 (the per-residue 20-way ceiling is structurally gone).
-* **Lever 5 (cap)** — the pool never oversubscribes ``min(requested, cores, tasks)``.
-* **Lever 2 (outer-axis parallelism)** — a parallel ``dir_frustration`` batch
-  produces byte-identical tables to the serial loop and one result per PDB, with the
-  shared core budget keeping nested pools below ``cores²``.
-* **Lever 12** — the library imports with no ``SyntaxWarning`` (raw-string seps).
+* Flatten - a single-residue scan dispatches all ``N x 20`` mutation tasks through
+  ONE persistent pool, and on a > 20-core box the resolved worker count exceeds 20
+  (the per-residue 20-way ceiling is structurally gone).
+* Cap - the pool never oversubscribes ``min(requested, cores, tasks)``.
+* Outer-axis parallelism - a parallel ``dir_frustration`` batch produces
+  byte-identical tables to the serial loop and one result per PDB, with a shared
+  core budget keeping nested pools below ``cores`` squared.
+* The library imports with no ``SyntaxWarning`` (raw-string separators).
 
-The functional tests run on the 1CRN fixture and must run with the project venv on
-PATH (tech-debt P1-22), exactly like the rest of the suite.
+The functional tests run on the 1CRN fixture and require the project venv on PATH
+(a calculation spawns a bare ``python3`` subprocess), like the rest of the suite.
 """
 
 import filecmp
@@ -31,7 +30,7 @@ from frustrapy.analysis.mutations import (
 
 
 # ----------------------------------------------------------------------------
-# Lever 1 + Lever 5 — pure, fast, no LAMMPS: the 20-way ceiling is gone.
+# pure, fast, no LAMMPS: the 20-way ceiling is gone.
 # ----------------------------------------------------------------------------
 
 def test_amino_acid_order_is_canonical():
@@ -69,7 +68,7 @@ def test_ceiling_is_structurally_gone():
 
 
 # ----------------------------------------------------------------------------
-# Lever 1 — functional: one persistent pool over a multi-residue grid produces
+# functional: one persistent pool over a multi-residue grid produces
 # the same per-residue tables as N independent single-residue scans.
 # ----------------------------------------------------------------------------
 
@@ -93,7 +92,7 @@ def _prepare_pdb(crn_pdb, tmp_path, residues):
 
 @pytest.mark.slow
 def test_flatten_scan_matches_per_residue(crn_pdb, tmp_path):
-    """Lever 1: one pool over (res1+res2)×20 == two separate single-residue scans.
+    """one pool over (res1+res2)×20 == two separate single-residue scans.
 
     The merged per-residue output tables must be byte-identical whether produced by
     the flattened multi-target scan or by two independent single-target scans.
@@ -132,7 +131,7 @@ def test_flatten_scan_matches_per_residue(crn_pdb, tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# Lever 2 — functional: parallel batch == serial batch, byte for byte.
+# functional: parallel batch == serial batch, byte for byte.
 # ----------------------------------------------------------------------------
 
 @pytest.mark.slow
@@ -172,7 +171,7 @@ def test_dir_frustration_parallel_matches_serial(crn_pdb, tmp_path):
 
 
 # ----------------------------------------------------------------------------
-# Lever 12 — no SyntaxWarning from raw-string separators.
+# no SyntaxWarning from raw-string separators.
 # ----------------------------------------------------------------------------
 
 def test_no_syntax_warning_on_import():

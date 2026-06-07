@@ -6,7 +6,7 @@ LAMMPS binary. These lock the happy path so later refactors (Phases 2/3/6) canno
 silently change the numbers.
 
 The table is read as TEXT (pandas), never via ``pickle.load`` -- avoids re-introducing
-the P0-1 arbitrary-code-execution pattern.
+the arbitrary-code-execution pattern.
 """
 
 import os
@@ -61,7 +61,7 @@ def test_configurational_table_shape(crn_configurational):
 
 
 def test_tertiary_frustration_dat_present(crn_configurational):
-    """The LAMMPS binary wrote its raw output (invisible at import time, P0-C)."""
+    """The LAMMPS binary wrote its raw output (invisible at import time)."""
     dat = os.path.join(
         crn_configurational["job_dir"], "FrustrationData", "tertiary_frustration.dat"
     )
