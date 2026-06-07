@@ -3,4 +3,5 @@
 - [Usage](Usage)
 - [Parity Methodology](Parity-Methodology)
 - [Backends](Backends)
+- [FrustraMPNN](FrustraMPNN)
 - [Roadmap](Roadmap)

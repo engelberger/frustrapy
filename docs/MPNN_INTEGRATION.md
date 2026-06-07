@@ -17,7 +17,9 @@ inference path (now wired).
 - M2 (validation vs the reference): done. The full 1UBQ saturation matrix matches the recorded
   FrustraMPNN web-demo output bit-for-bit; see "Validation (M2)" below. Test:
   `tests/test_mpnn.py::test_validate_against_reference_1ubq`.
-- M3 (public API + README/wiki): pending.
+- M3 (public API + README/wiki): done. `frustrapy.mpnn` is reachable from the top-level package
+  and listed in `frustrapy.__all__`; README has a "FrustraMPNN (deep-learning predictor)" section
+  and `docs/wiki/FrustraMPNN.md` is in the wiki. See "Public API (M3)" below.
 
 ## Source assets
 
@@ -160,9 +162,30 @@ sub = mpnn.analyze("1UBQ.pdb", chains=["A"], positions=[0, 5, 10])
 ONNX weight is bundled, so no download is required.
 
 `MPNNResult` shares the residue/chain/IO vocabulary with the LAMMPS engine's single-residue table
-(`Res ChainRes AA FrstIndex`) so downstream code and plots can treat both uniformly. If the G1
-`FrustrationBackend` interface exists by M3, add an adapter exposing the native per-residue scores
-through it; otherwise leave a note (M3).
+(`Res ChainRes AA FrstIndex`) so downstream code and plots can treat both uniformly.
+
+## Public API (M3)
+
+The module is exposed at the top level so callers reach it as `frustrapy.mpnn` without a
+separate import:
+
+```python
+import frustrapy
+
+result = frustrapy.mpnn.analyze("1ubq.pdb", chains=["A"])
+```
+
+`mpnn` is a lazy attribute on the `frustrapy` package (resolved in `frustrapy/__init__.py`
+`__getattr__` via `importlib.import_module`, the same pattern as `detect_dynamic_clusters`) and
+is listed in `frustrapy.__all__`. Accessing `frustrapy.mpnn` imports the submodule but not
+`onnxruntime`; the optional runtime is pulled only when `analyze()` runs. The top-level lazy
+access is regression-tested by `tests/test_mpnn.py::test_top_level_lazy_access`.
+
+The G1 `FrustrationBackend` interface is not present on this branch (`dev_frustrampnn`), so no
+backend adapter is added here. FrustraMPNN is a learned single-residue predictor, not an AWSEM
+energy/decoy backend, so it would not be a drop-in `lammps` replacement in any case; if a
+`FrustrationBackend` lands, an adapter could expose the native per-residue scores through it. For
+now `frustrapy.mpnn.analyze` is the public entry point.
 
 ## Validation (M2)
 

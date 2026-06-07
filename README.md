@@ -202,6 +202,51 @@ Each subcommand writes the same on-disk output described below, prints a summary
 panel/table, and returns a non-zero exit code with an actionable error message on
 failure. Run any subcommand with `--help` for the full option list.
 
+## FrustraMPNN (deep-learning predictor)
+
+`frustrapy.mpnn` is a learned predictor of single-residue local energetic
+frustration, complementary to the AWSEM/LAMMPS engine. It runs a
+ProteinMPNN-derived network (exported to ONNX) on a protein backbone and returns
+per-residue frustration plus a full saturation-mutagenesis matrix. It does not run
+the LAMMPS engine and is independent of the `mode` calculations above.
+
+Install the extra (pulls ONNX Runtime; the ~25 MB ONNX weight is bundled, so no
+download is needed):
+
+```bash
+uv pip install -e ".[mpnn]"
+```
+
+`onnxruntime` is imported lazily inside `analyze()`, so `import frustrapy` and
+`import frustrapy.mpnn` work without the extra; only calling `analyze()` requires it.
+
+```python
+import frustrapy
+
+result = frustrapy.mpnn.analyze("1ubq.pdb", chains=["A"])
+
+# Native per-residue frustration, one row per residue:
+#   chain  position  resnum  aa  frustration  frustration_class
+result.per_residue.head()
+result.per_residue["frustration_class"].value_counts()
+
+# Saturation-mutagenesis matrix: one row per position, one column per amino acid
+# (predicted frustration if that residue were mutated to each AA):
+result.mutation_matrix.head()
+```
+
+Frustration follows the same sign convention as the engine's `FrstIndex` (more
+positive = minimally frustrated). The single-residue class cutoffs are `<= -1.0`
+(highly), `>= 0.58` (minimally), neutral in between — the same single-residue
+cutoffs used by the engine's single-residue plot.
+
+The model is the maintainer's FrustraMPNN, trained on FireProt/MegaScale ΔΔG data;
+the published checkpoint reports frustration Spearman 0.80-0.87 against
+frustratometeR single-residue frustration. The bundled `frustrampnn_v6` ONNX export
+reproduces the FrustraMPNN web-demo output bit-for-bit (1UBQ, 1520-cell saturation
+matrix, max|Δ| = 0 on the CPU provider). See `docs/MPNN_INTEGRATION.md` for the data
+contract, validation, and the weight-resolution order.
+
 ## Output contract
 
 For a structure `protein.pdb` and `results_dir="results"`, outputs land under
@@ -291,11 +336,11 @@ speedup is claimed:
 - **Native GPU backend.** A C++ core with two device paths — CUDA (NVIDIA) and Apple
   MPS/Metal (Apple Silicon) — plus a CPU fallback, exposed to Python, computing the
   AWSEM energy, decoy ensemble and 5 Å density reductions on the device.
-- **FrustraMPNN.** Integrate the message-passing-network frustration model as a
-  first-class module with full parity against its reference outputs.
 
-A separate, browser-native WebGPU engine and an interactive web demo are tracked in
-their own repository, outside this Python package.
+FrustraMPNN, the message-passing-network frustration predictor, is implemented and
+validated against its reference outputs — see "FrustraMPNN (deep-learning predictor)"
+above. A separate, browser-native WebGPU engine and an interactive web demo are
+tracked in their own repository, outside this Python package.
 
 ## Citation
 

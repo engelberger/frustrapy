@@ -81,6 +81,8 @@ __all__ = [
     "benchmark",
     # Evolution (FrustraEvo)
     "analyze_family",
+    # Deep-learning frustration predictor (lazy submodule, mpnn extra)
+    "mpnn",
 ]
 
 
@@ -96,8 +98,10 @@ def __getattr__(name):
         return detect_dynamic_clusters
     if name == "mpnn":
         # Deep-learning frustration predictor. Imported on first access so `import frustrapy`
-        # never loads it; the submodule itself defers onnxruntime to the mpnn extra.
-        from . import mpnn
+        # never loads it; the submodule itself defers onnxruntime to the mpnn extra. Use
+        # import_module rather than `from . import mpnn`: the latter resolves the name through
+        # this same __getattr__ (via _handle_fromlist) and recurses forever.
+        import importlib
 
-        return mpnn
+        return importlib.import_module("frustrapy.mpnn")
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

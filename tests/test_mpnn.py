@@ -43,6 +43,27 @@ def test_public_surface():
     assert constants.ALPHABET == "ACDEFGHIKLMNPQRSTVWYX"
 
 
+def test_top_level_lazy_access():
+    """`frustrapy.mpnn` resolves from the top-level package without pulling onnxruntime.
+
+    The attribute path goes through `frustrapy.__getattr__`, which must import the submodule
+    via importlib (not `from . import mpnn`, which would recurse). Accessing it does not import
+    onnxruntime; that is deferred to analyze(). Guards the public-API exposure (M3).
+    """
+    import importlib
+
+    import frustrapy
+
+    assert "mpnn" in frustrapy.__all__
+    ort_loaded_before = "onnxruntime" in sys.modules
+    submodule = frustrapy.mpnn
+    assert submodule is importlib.import_module("frustrapy.mpnn")
+    assert hasattr(submodule, "analyze")
+    # accessing the attribute must not have triggered the optional onnxruntime import
+    if not ort_loaded_before:
+        assert "onnxruntime" not in sys.modules
+
+
 @needs_model
 def test_analyze_1crn_contract():
     """analyze returns the documented MPNNResult shape on 1CRN."""
