@@ -94,4 +94,10 @@ def __getattr__(name):
         from .analysis.clustering import detect_dynamic_clusters
 
         return detect_dynamic_clusters
+    if name == "mpnn":
+        # Deep-learning frustration predictor. Imported on first access so `import frustrapy`
+        # never loads it; the submodule itself defers onnxruntime to the mpnn extra.
+        from . import mpnn
+
+        return mpnn
     raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
