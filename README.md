@@ -78,6 +78,7 @@ uv pip install -e ".[viz]"         # 3D viewers (py3Dmol) + static PNG export (k
 uv pip install -e ".[clustering]"  # detect_dynamic_clusters (scipy/sklearn/igraph/leidenalg/statsmodels)
 uv pip install -e ".[perf]"        # memory logging (psutil)
 uv pip install -e ".[pyrosetta]"   # pyrosetta-installer helper for the PyRosetta mutation backend
+uv pip install -e ".[cli]"         # the `frustrapy` command-line tool (Typer + Rich)
 uv pip install -e ".[all]"         # everything above
 ```
 
@@ -175,6 +176,31 @@ plots_by_pdb, density = frustrapy.dir_frustration(
     n_procs=4,   # process structures concurrently under a shared core budget
 )
 ```
+
+## Command-line tool
+
+Installing the `cli` extra (`uv pip install -e ".[cli]"`) exposes a `frustrapy`
+console command — thin wrappers over the same functions used above, with a styled
+Rich interface. The extra adds `typer` for argument parsing (`rich` is already a
+core dependency); `frustrapy/cli/main.py` imports `typer` lazily, so the core
+library never requires it and plain `import frustrapy` works without the extra.
+
+```bash
+frustrapy --version
+frustrapy --help            # lists every subcommand
+frustrapy single --help     # per-subcommand help
+```
+
+| Subcommand | What it runs | Example |
+|---|---|---|
+| `single` | one PDB through one mode (`calculate_frustration`) | `frustrapy single protein.pdb -m configurational -o results` |
+| `batch` | every `.pdb` in a directory (`dir_frustration`) | `frustrapy batch pdbs/ -m configurational -o results --n-procs 4` |
+| `evo` | evolutionary frustration for a family (`analyze_family`) | `frustrapy evo family.fasta -j fam1 -p pdbs/ -r 3lqd-A -o results` |
+| `mutate` | saturation-mutagenesis scan of one residue (`mutate_res_parallel`) | `frustrapy mutate protein.pdb --res 10 -c A --method threading -o results` |
+
+Each subcommand writes the same on-disk output described below, prints a summary
+panel/table, and returns a non-zero exit code with an actionable error message on
+failure. Run any subcommand with `--help` for the full option list.
 
 ## Output contract
 
