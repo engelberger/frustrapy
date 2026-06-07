@@ -70,24 +70,6 @@ def test_logomaker_dependency_importable():
     from frustrapy.evolution.sequence_logo import SequenceLogoGenerator  # noqa: F401
 
 
-@pytest.fixture(scope="module")
-def globin_family(tmp_path_factory):
-    """Run analyze_family once on the 3-member fixture; share across assertions."""
-    import frustrapy
-
-    results_dir = str(tmp_path_factory.mktemp("frustraevo"))
-    with warnings.catch_warnings():
-        warnings.simplefilter("ignore")
-        result = frustrapy.analyze_family(
-            fasta_file=FASTA,
-            job_id="globin3",
-            reference_pdb=REFERENCE,
-            pdb_dir=PDB_DIR,
-            results_dir=results_dir,
-        )
-    return {"result": result, "results_dir": results_dir}
-
-
 def test_build_positions_strips_reference_gaps():
     """The shared coordinate drops every alignment column where the REFERENCE is a
     gap, renumbers the survivors 1..N, and maps each to the structure's real
