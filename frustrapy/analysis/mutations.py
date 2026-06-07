@@ -1,4 +1,3 @@
-import multiprocessing
 import logging
 import os
 import shutil
@@ -9,6 +8,12 @@ import time
 from tqdm import tqdm
 from ..core import Pdb, SingleResidueData
 from ..utils import log_execution_time
+from ..utils.concurrency import (
+    cpu_budget,
+    get_pool_context,
+    pool_worker_initializer,
+    resolve_pool_size,
+)
 import sys
 import datetime  # added for timestamping
 from ..utils.ui import display_success  # Add this import
@@ -461,13 +466,15 @@ AMINO_ACIDS = [
 def _resolve_pool_size(requested: Optional[int], n_tasks: int, cores: int) -> int:
     """Resolve the worker count for the mutation pool (Lever 5).
 
-    ``min(requested_or_cores, cores, n_tasks)`` — capped at both the core budget
-    and the number of tasks, never oversubscribing. Crucially, because a flattened
-    scan presents ``n_residues * 20`` tasks, on a box with > 20 cores this returns
-    > 20: the old hard 20-way-per-residue ceiling is structurally gone.
+    Thin wrapper over the shared-budget helper
+    (:func:`frustrapy.utils.concurrency.resolve_pool_size`) so this pool draws
+    from the same single core budget as every other pool. ``min(requested_or_cores,
+    cores, n_tasks)`` — capped at both the core budget and the number of tasks,
+    never oversubscribing. Crucially, because a flattened scan presents
+    ``n_residues * 20`` tasks, on a box with > 20 cores this returns > 20: the old
+    hard 20-way-per-residue ceiling is structurally gone.
     """
-    requested = cores if requested is None else int(requested)
-    return max(1, min(requested, cores, n_tasks))
+    return resolve_pool_size(requested, n_tasks, cores)
 
 
 def _residue_is_glycine(pdb: "Pdb", res_num: int, chain: str) -> bool:
@@ -590,9 +597,7 @@ def mutate_res_scan_parallel(
     # oversubscription when stacked under an outer pool (P3-3).
     if n_cpus is not None and (not isinstance(n_cpus, int) or n_cpus <= 0):
         raise ValueError("n_cpus must be a positive integer or None")
-    n_processes = _resolve_pool_size(
-        n_cpus, len(args_list), multiprocessing.cpu_count()
-    )
+    n_processes = _resolve_pool_size(n_cpus, len(args_list), cpu_budget())
 
     own_pbar = pbar is None
     if own_pbar:
@@ -610,7 +615,12 @@ def mutate_res_scan_parallel(
         f"{len(args_list)} tasks, {n_processes} workers"
     )
 
-    pool = multiprocessing.Pool(processes=n_processes)
+    # Shared-budget pool: fork-safe start method (forkserver/spawn) so a possibly
+    # multi-threaded parent cannot deadlock a forked child, and a worker
+    # initializer that re-pins native-math threads to 1. close()/join() always run
+    # in the finally below, so no LAMMPS child is orphaned on error/timeout.
+    ctx = get_pool_context()
+    pool = ctx.Pool(processes=n_processes, initializer=pool_worker_initializer)
     try:
         for _result in pool.imap_unordered(_process_amino_acid, args_list):
             if pbar is not None:

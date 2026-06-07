@@ -278,8 +278,13 @@ class InformationContentCalculator:
         second ``cpu_count()`` pool. Idempotent: a job whose output table already
         exists is skipped, matching the downstream ``if not ...exists()`` guards.
         """
-        import multiprocessing
         from concurrent.futures import ProcessPoolExecutor
+
+        from ..utils.concurrency import (
+            get_pool_context,
+            pool_worker_initializer,
+            resolve_concurrency,
+        )
 
         structure_ids = self.valid_ids or self.msa_data.identifiers
 
@@ -357,9 +362,10 @@ class InformationContentCalculator:
         if not jobs:
             return
 
-        cores = multiprocessing.cpu_count()
-        requested = cores if self.n_procs is None else int(self.n_procs)
-        n_workers = max(1, min(requested, cores, len(jobs)))
+        # Single shared budget. Each job is built with n_cpus=1 (no inner pool),
+        # so the whole core budget goes to the outer width here; resolve_concurrency
+        # gives outer = min(requested, len(jobs), cores).
+        n_workers, _inner = resolve_concurrency(self.n_procs, len(jobs))
 
         if n_workers <= 1:
             for job in jobs:
@@ -370,7 +376,11 @@ class InformationContentCalculator:
             f"Precomputing frustration for {len(jobs)} job(s) across "
             f"{n_workers} worker(s)"
         )
-        with ProcessPoolExecutor(max_workers=n_workers) as ex:
+        with ProcessPoolExecutor(
+            max_workers=n_workers,
+            mp_context=get_pool_context(),
+            initializer=pool_worker_initializer,
+        ) as ex:
             list(ex.map(_evo_frustration_worker, jobs))
 
     # Working subdirectories under ``results_dir`` that hold per-structure /

@@ -1,5 +1,16 @@
 from importlib.metadata import PackageNotFoundError, version as _pkg_version
 
+# Pin native-math thread pools (OpenBLAS/MKL/OpenMP) to one thread per process
+# BEFORE any numpy-importing submodule loads below — this is the only point that
+# is guaranteed to run ahead of the first BLAS import, and BLAS reads these env
+# vars only at import. With it in place, a pool of `cores` worker processes can
+# never each spin `cores` threads (cores**2). It uses setdefault, so an operator
+# who exported their own thread counts keeps them. See utils/concurrency.py and
+# the "Parallelism and resource limits" note in the README.
+from ._threadlimits import apply_thread_limits as _apply_thread_limits
+
+_apply_thread_limits()
+
 try:
     # Single source of truth for the version: the installed package metadata
     # (pyproject [project].version). Avoids a second hard-coded version string.
