@@ -66,3 +66,12 @@ docs/audit/
 docs/plans/
 .devcontainer/
 .claude/
+
+# --- FrustraEvo scratch / legacy outputs (folded from the dev branch) ---
+frustraevo_docker/*
+frustraevo_results/*
+frustraevo_example_inputs/*
+frustraevo_legacy/*
+frustraevo_test.log
+repo.md
+*.cpython-310.pyc
