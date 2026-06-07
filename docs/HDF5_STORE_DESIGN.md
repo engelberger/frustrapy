@@ -201,6 +201,6 @@ with FrustrationCorpus(["batch.part-0.h5", "batch.part-1.h5"]) as corpus:
 
 O2 shipped this design plus the importable skeleton; O3 implemented the writer and the
 round-trip parity gate; O4 added the reader, corpus aggregation, and training-data
-export (above); O5 is the HPC benchmark (text vs HDF5 inode/size/time). Throughout, the
-text path is untouched and stays the default, and the HDF5 path round-trips
-value-identical to it.
+export (above); O5 added the text-vs-HDF5 benchmark (`frustrapy.output.benchmark`) and the
+HPC array-job workflow in `docs/HPC_WORKFLOW.md`. Throughout, the text path is untouched
+and stays the default, and the HDF5 path round-trips value-identical to it.
