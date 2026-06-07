@@ -20,6 +20,12 @@ import pytest
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CRN_PDB = os.path.join(DATA_DIR, "1crn.pdb")
 
+# 3-member alpha-globin family fixture (real FrustraEvo example data).
+FRUSTRAEVO_DIR = os.path.join(DATA_DIR, "frustraevo")
+FAMILY_FASTA = os.path.join(FRUSTRAEVO_DIR, "family.fasta")
+FAMILY_PDB_DIR = os.path.join(FRUSTRAEVO_DIR, "pdbs")
+FAMILY_REFERENCE = "1fsx-A"
+
 # Any test that requests one of these fixtures runs the real LAMMPS/AWSEM toolchain,
 # so it belongs to the slow (e2e/parity) lane. Tests that shell out to the engine
 # directly (without these fixtures) carry an explicit `@pytest.mark.slow`.
@@ -106,3 +112,22 @@ def run_mode(tmp_path):
         return _run_mode(pdb_file, mode, results_dir), results_dir
 
     return _factory
+
+
+@pytest.fixture(scope="session")
+def globin_family(tmp_path_factory):
+    """Run analyze_family once on the 3-member alpha-globin fixture; share across the
+    session (used by the FrustraEvo and output-schema suites)."""
+    import frustrapy
+
+    results_dir = str(tmp_path_factory.mktemp("frustraevo"))
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        result = frustrapy.analyze_family(
+            fasta_file=FAMILY_FASTA,
+            job_id="globin3",
+            reference_pdb=FAMILY_REFERENCE,
+            pdb_dir=FAMILY_PDB_DIR,
+            results_dir=results_dir,
+        )
+    return {"result": result, "results_dir": results_dir}
