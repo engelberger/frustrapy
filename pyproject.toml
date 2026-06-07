@@ -96,7 +96,11 @@ hdf5 = ["h5py"]
 # frustrapy/cli/main.py so the core library never requires typer — `import frustrapy`
 # stays CLI-free.
 cli = ["typer>=0.12"]
-all = ["frustrapy[viz,perf,clustering,hdf5,cli]"]
+# Deep-learning frustration predictor (frustrapy.mpnn). Runs the FrustraMPNN ONNX export on the
+# ONNX Runtime CPU provider; onnxruntime is imported lazily inside frustrapy/mpnn/analyze.py, so
+# `import frustrapy` and `import frustrapy.mpnn` work without it and only analyze() requires it.
+mpnn = ["onnxruntime>=1.17"]
+all = ["frustrapy[viz,perf,clustering,hdf5,cli,mpnn]"]
 
 [project.scripts]
 frustrapy = "frustrapy.cli.main:main"
@@ -123,6 +127,8 @@ artifacts = [
     "*.pl",
     "*.sh",
     "frustrapy/core/scripts/AWSEMFiles/**/*",
+    # The bundled FrustraMPNN ONNX export consumed by frustrapy.mpnn.analyze.
+    "frustrapy/mpnn/weights/*.onnx",
 ]
 
 [tool.hatch.build]
