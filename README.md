@@ -1,302 +1,199 @@
 # FrustraPy: A Python Implementation of the Protein Frustratometer
 
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/engelberger/frustrapy/blob/main/FrustraPy_colab.ipynb)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/engelberger/frustrapy/blob/main/frustrapy_colab.ipynb)
+[![License: GPL v3](https://img.shields.io/badge/License-GPLv3-blue.svg)](https://www.gnu.org/licenses/gpl-3.0)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10%2B-blue.svg)](https://www.python.org/downloads/)
 
-FrustraPy is an attempt at a parallelized Python implementation of the [frustratometeR package](https://github.com/proteinphysiologylab/frustratometeR) (See publications by [Parra et al.](https://academic.oup.com/nar/article/44/W1/W356/2499321) , [Rausch et al.](https://academic.oup.com/bioinformatics/article/37/18/3038/6171179) [Jenik et al.](https://academic.oup.com/nar/article/40/W1/W348/1075768)), designed for analyzing energetic frustration in protein structures. This implementation offers significant enhancements including interactive visualizations, parallel processing capabilities, and various performance optimizations.
+FrustraPy is an unofficial, parallelized Python reimplementation of the
+[frustratometeR package](https://github.com/proteinphysiologylab/frustratometeR)
+(see [Parra et al.](https://academic.oup.com/nar/article/44/W1/W356/2499321),
+[Rausch et al.](https://academic.oup.com/bioinformatics/article/37/18/3038/6171179),
+[Jenik et al.](https://academic.oup.com/nar/article/40/W1/W348/1075768)) for
+computing **local energetic frustration** in protein structures. It adds interactive
+Plotly visualizations and parallel mutation analysis on top of the original method.
 
-⚠️ **Disclaimer**: This is an unofficial reimplementation. Use at your own risk and verify results against the original FrustratometeR when possible.
+⚠️ **Disclaimer**: This is an unofficial reimplementation. Use at your own risk and
+verify results against the original frustratometeR when possible.
 
-## Key Features
+## How it works (the one fact that matters)
 
-### Analysis Capabilities
-- **Multiple Frustration Analysis Modes**:
-  - Configurational frustration
-  - Mutational frustration
-  - Single residue frustration
-- **Enhanced Mutation Analysis**:
-  - Parallel execution of mutations
-  - Customizable mutation schemes
+FrustraPy does **not** reimplement the AWSEM energy model in Python. Like
+frustratometeR, it shells out to the **same precompiled AWSEM/LAMMPS binaries**
+(`lmp_serial_*`) with the **same parameter files**, then post-processes the output.
+This is what makes numerical agreement tractable: parity reduces to *glue-code parity*.
 
-### Performance Optimizations
-- **Parallel Processing**:
-  - Multi-core support for mutation analysis
-  - Optimized memory usage
-- **Progress Tracking**:
-  - Real-time progress bars using tqdm
-  - Execution time logging
-  - Memory usage monitoring
+> **Numerical parity is verified.** On 1CRN, all three modes × `seq_dist ∈ {3, 12}`,
+> the `FrstIndex` and every energy column match frustratometeR bit-for-bit at
+> 3-decimal print (Spearman = 1.0, class-agreement = 100 %); an MSE structure (1B6W)
+> also agrees. Speed has been benchmarked but headline "faster than R" ratios are
+> reported only for parity-passing configurations (see `docs/audit/benchmark/`).
 
-### Visualization Suite
-- **Interactive Plots**:
-  - Frustration density plots
-  - Mutation analysis visualizations
+## Features
 
+- **Three frustration modes**: configurational, mutational, and single-residue —
+  all run end-to-end on the Linux path.
+- **Parallel mutation analysis** via `multiprocessing` (`mutate_res_parallel`,
+  `mutate_res_scan_parallel`) and parallel batch/trajectory processing
+  (`dir_frustration(..., n_procs=K)`).
+- **Interactive Plotly figures**: contact map, 5 Å frustration-density plots, density
+  proportions, and delta-frustration plots (with `graphics=True`).
+- **Evolutionary frustration (FrustraEvo)** via `frustrapy.analyze_family`.
+
+## Requirements
+
+- **Python 3.10–3.12.**
+- **Perl** on `PATH` (`/usr/bin/perl`) — used by the visualization/charge-file steps.
+- **A LAMMPS `lmp_serial` binary**, shipped precompiled in `frustrapy/core/scripts/`
+  as `lmp_serial_{3,12}_{Linux,MacOS}`. Only `seq_dist=3` and `seq_dist=12` are
+  provided (12 is the default). The macOS binaries are x86_64 only; on Apple Silicon
+  they run under Rosetta 2 (`softwareupdate --install-rosetta`).
 
 ## Installation
 
-```bash
-# Basic installation
-pip install frustrapy
+> **PyPI status:** publishing to PyPI is set up (PEP 621 / Hatchling build, OIDC
+> trusted-publishing workflow) but the first release has not been pushed yet. Install
+> from source for now. Unlike older revisions, a source install **does** resolve the
+> runtime dependencies automatically.
 
-# Development installation
+Using [uv](https://github.com/astral-sh/uv) (recommended) or plain `pip`:
+
+```bash
 git clone https://github.com/engelberger/frustrapy.git
 cd frustrapy
-pip install -r requirements.txt
-pip install -e ".[dev]"
+
+# Create and ACTIVATE an environment. Activation matters: a calculation spawns a
+# bare `python3` subprocess, which must find Biopython on PATH.
+uv venv --python 3.12 .venv
+source .venv/bin/activate
+
+# Install the package — the core runtime deps are pulled in automatically.
+uv pip install -e .
+
+# Optional extras:
+uv pip install -e ".[viz]"         # 3D viewers (py3Dmol) + static PNG export (kaleido)
+uv pip install -e ".[clustering]"  # detect_dynamic_clusters (scipy/sklearn/igraph/leidenalg/statsmodels)
+uv pip install -e ".[perf]"        # memory logging (psutil)
+uv pip install -e ".[all]"         # everything above
 ```
 
-## Examples
+Verify:
 
-### Basic Usage
+```bash
+python -c "import frustrapy; print(frustrapy.__version__)"
+```
+
+## Quickstart
 
 ```python
 import frustrapy
 
-# Simple configurational frustration analysis
-pdb, plots = frustrapy.calculate_frustration(
+# calculate_frustration returns a 4-TUPLE:
+#   (pdb, plots, density_results, single_residue_data)
+pdb, plots, density, single_res = frustrapy.calculate_frustration(
     pdb_file="protein.pdb",
-    mode="configurational",
-    results_dir="results"
+    mode="configurational",   # or "mutational" / "singleresidue"
+    results_dir="results",
+    graphics=False,           # set True to also produce Plotly figures
 )
 
-# Access and display results
-plots.show_contact_map()
-plots.save_all_figures("output_directory")
+# The authoritative results are written to disk under:
+#   results/protein.done/FrustrationData/
+#     protein.pdb_configurational           # per-contact frustration table (14 cols)
+#     protein.pdb_configurational_5adens    # 5 Angstrom density table
+#     protein.pdb_configurational_density.pkl
+import pandas as pd
+table = pd.read_csv(
+    "results/protein.done/FrustrationData/protein.pdb_configurational", sep=r"\s+"
+)
+print(table.head())
 ```
 
-### Advanced Usage with Performance Profiling
+> With `graphics=False`, `plots` is an empty dict. Set `graphics=True` to build Plotly
+> figures (returned in `plots`, keyed by name, and written as HTML/PNG into the job
+> directory; PNG export needs the `viz` extra for `kaleido`).
+
+### Single-residue mode
 
 ```python
-from frustrapy import Profiler
+pdb, plots, density, single_res = frustrapy.calculate_frustration(
+    pdb_file="protein.pdb",
+    mode="singleresidue",
+    residues={"A": [10]},
+    results_dir="results",
+)
+# Per-residue table: results/protein.done/FrustrationData/protein.pdb_singleresidue
+```
 
-# Initialize profiler
-profiler = Profiler()
-profiler.start_section("Total Analysis")
+### A directory of structures (parallel batch)
 
-# Configure analysis parameters
-residues_to_analyze = {"A": [144, 146]}
-results_dir = "results_example"
-
-# Analyze multiple PDBs in a directory
-profiler.start_section("Directory Analysis")
-plots_dir_dict = frustrapy.dir_frustration(
+```python
+# dir_frustration returns a 2-tuple: (plots_by_pdb, density_results)
+plots_by_pdb, density = frustrapy.dir_frustration(
     pdbs_dir="pdbs_directory",
-    mode="singleresidue",
-    results_dir=results_dir,
-    debug=True,
-    chain="A",
-    residues=residues_to_analyze
-)
-profiler.end_section("Directory Analysis")
-
-# Single PDB detailed analysis
-profiler.start_section("Single PDB Analysis")
-pdb, plots = frustrapy.calculate_frustration(
-    pdb_file="example.pdb",
-    mode="singleresidue",
-    results_dir=results_dir,
-    chain="A",
-    residues=residues_to_analyze
-)
-profiler.end_section("Single PDB Analysis")
-
-# Print performance report
-profiler.end_section("Total Analysis")
-profiler.print_report()
-```
-
-### Analyzing Results
-
-```python
-import pickle
-import os
-
-# Load and analyze results
-results_dir = "results_example"
-for root, dirs, files in os.walk(results_dir):
-    for file in files:
-        if file.endswith("_single_residue_data.pkl"):
-            with open(os.path.join(root, file), "rb") as f:
-                data = pickle.load(f)
-                
-            # Access chain A data
-            if "A" in data:
-                for res_num in [144, 146]:
-                    if res_num in data["A"]:
-                        res_data = data["A"][res_num]
-                        mutations = res_data.mutations
-                        
-                        # Find extreme mutations
-                        most_frustrated = min(mutations.items(), key=lambda x: x[1])
-                        least_frustrated = max(mutations.items(), key=lambda x: x[1])
-                        
-                        print(f"\nPosition {res_num} Analysis:")
-                        print(f"Most frustrated: {most_frustrated}")
-                        print(f"Least frustrated: {least_frustrated}")
-```
-
-### Advanced Usage with Performance Profiling
-
-```python
-# Single PDB detailed analysis with custom CPU count
-pdb, plots, density, single = frustrapy.calculate_frustration(
-    pdb_file="example.pdb",
-    mode="singleresidue",
-    results_dir=results,
-    chain="A",
-    residues={"A": [144]},
-    debug=True,
-    n_cpus=4  # Use 4 cores for mutation analysis
+    mode="configurational",
+    results_dir="results",
+    n_procs=4,   # process structures concurrently under a shared core budget
 )
 ```
 
-# Benchmarking CPU Scaling
-```python
-# Run performance benchmark for varying CPU counts
-from frustrapy.benchmark import run_benchmark
-df = run_benchmark(
-    pdb_file="example.pdb",
-    chain="A",
-    residues=144,
-    cpu_list=[1, 2, 4, 8],
-    results_dir="bench_results",
-)
-print(df)
-```
+## Output contract
 
-## Package Structure
+For a structure `protein.pdb` and `results_dir="results"`, outputs land under
+`results/protein.done/`:
 
-```
-frustrapy/
-├── __init__.py           # Main package entry point
-├── core/                 # Core functionality
-│   ├── __init__.py
-│   ├── pdb.py           # PDB structure handling
-│   └── dynamic.py       # Dynamic analysis core
-├── analysis/            # Analysis modules
-│   ├── __init__.py
-│   ├── frustration.py   # Frustration calculations
-│   ├── mutations.py     # Mutation analysis
-│   └── clustering.py    # Clustering algorithms
-├── visualization/       # Visualization tools
-│   ├── __init__.py
-│   ├── plots.py        # Plotting functions
-│   └── structure.py    # PyMOL visualization
-├── utils/              # Utility functions
-│   ├── __init__.py
-│   ├── decorators.py   # Performance decorators
-│   └── helpers.py      # Helper functions
-└── scripts/            # External tools integration
-    ├── __init__.py
-    ├── pdb_to_lammps.py
-    └── visualization_tools.py
-```
+- `FrustrationData/protein.pdb_<mode>` — the main table. **14 columns** for
+  configurational/mutational (`Res1 Res2 ChainRes1 ChainRes2 DensityRes1 DensityRes2
+  AA1 AA2 NativeEnergy DecoyEnergy SDEnergy FrstIndex Welltype FrstState`); **8 columns**
+  for singleresidue (no `FrstState`).
+- `FrustrationData/protein.pdb_<mode>_5adens` — 5 Å density table.
+- `FrustrationData/protein.pdb_<mode>_density.pkl` — pickled density results.
+- With `graphics=True`: Plotly HTML/PNG figures in the job directory.
 
-## Class Diagram
+## Frustration classes
 
-```mermaid
-classDiagram
-    %% Main Package Entry
-    class frustrapy {
-        Imports and re-exports all public components
-    }
-    
-    %% Core Classes Module
-    class core {
-        class Pdb
-        class Dynamic
-    }
-    
-    %% Analysis Module
-    class analysis {
-        +calculate_frustration()
-        +dir_frustration()
-        +dynamic_frustration()
-        +get_frustration()
-        +mutate_res()
-        +detect_dynamic_clusters()
-    }
-    
-    %% Visualization Module
-    class visualization {
-        +plot_contact_map()
-        +plot_5andens()
-        +plot_5adens_proportions()
-        +plot_delta_frus()
-        +view_frustration_pymol()
-    }
-    
-    %% Utils Module
-    class utils {
-        +log_execution_time()
-        +log_memory_usage()
-        +get_os()
-    }
-    
-    %% Scripts Module
-    class scripts {
-        +pdb_to_lammps
-        +generate_visualizations
-        +renum_files
-        +generate_charge_file
-    }
-    
-    %% Relationships
-    frustrapy --> core: exports
-    frustrapy --> analysis: exports
-    frustrapy --> visualization: exports
-    frustrapy --> utils: internal
-    analysis --> core: uses
-    visualization --> core: uses
-    analysis --> scripts: uses
-    analysis --> utils: uses
-```
+For configurational/mutational contacts (single source of truth:
+`frustrapy/core/constants.py`):
 
-## Contributing
+| Class | Condition |
+|---|---|
+| highly frustrated | `FrstIndex ≤ -1` |
+| neutral | `-1 < FrstIndex < 0.78` |
+| minimally frustrated | `FrstIndex ≥ 0.78` |
 
-Contributions are welcome! Please read our [Contributing Guidelines](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
+The `0.78` cutoff is derived analytically (arXiv:1812.05965). Single-residue *plots*
+use a distinct minimally cutoff of `0.58`, matching frustratometeR's visualization.
+
+## Known limitations
+
+- **Not yet on PyPI** — install from source (the release workflow is ready).
+- The LAMMPS binaries are bundled in the wheel for now; a `fetch_lammps()` /
+  download-on-first-use delivery (to slim the wheel) is planned.
+- On Apple Silicon the macOS binaries require Rosetta 2.
 
 ## Citation
 
-If you use FrustraPy in your research, please cite the following papers:
+If you use FrustraPy, please cite the original Frustratometer papers:
 
 ```bibtex
-@article{parra2016protein,
-  title={Protein Frustratometer 2: a tool to localize energetic frustration in protein molecules, now with electrostatics},
-  author={Parra, R Gonzalo and Schafer, Nicholas P and Radusky, Leandro G and Tsai, Min-Yeh and Guzovsky, A Brenda and Wolynes, Peter G and Ferreiro, Diego U},
-  journal={Nucleic acids research},
-  volume={44},
-  number={W1},
-  pages={W356--W360},
-  year={2016},
-  publisher={Oxford University Press}
-}
-@article{jenik2012protein,
-  title={Protein frustratometer: a tool to localize energetic frustration in protein molecules},
-  author={Jenik, Michael and Parra, R Gonzalo and Radusky, Leandro G and Turjanski, Adrian and Wolynes, Peter G and Ferreiro, Diego U},
-  journal={Nucleic acids research},
-  volume={40},
-  number={W1},
-  pages={W348--W351},
-  year={2012},
-  publisher={Oxford University Press}
-}
 @article{rausch2021frustratometer,
   title={FrustratometeR: an R-package to compute local frustration in protein structures, point mutants and MD simulations},
   author={Rausch, Atilio O and Freiberger, Maria I and Leonetti, Cesar O and Luna, Diego M and Radusky, Leandro G and Wolynes, Peter G and Ferreiro, Diego U and Parra, R Gonzalo},
-  journal={Bioinformatics},
-  volume={37},
-  number={18},
-  pages={3038--3040},
-  year={2021},
+  journal={Bioinformatics}, volume={37}, number={18}, pages={3038--3040}, year={2021},
+  publisher={Oxford University Press}
+}
+@article{parra2016protein,
+  title={Protein Frustratometer 2: a tool to localize energetic frustration in protein molecules, now with electrostatics},
+  author={Parra, R Gonzalo and Schafer, Nicholas P and Radusky, Leandro G and Tsai, Min-Yeh and Guzovsky, A Brenda and Wolynes, Peter G and Ferreiro, Diego U},
+  journal={Nucleic acids research}, volume={44}, number={W1}, pages={W356--W360}, year={2016},
   publisher={Oxford University Press}
 }
 ```
 
 ## License
 
-This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+GPL-3.0-or-later. See the [`LICENSE`](LICENSE) file (GNU General Public License v3).
+The bundled AWSEM/LAMMPS binaries are GPL, so the distribution is GPL regardless.
 
 ## Acknowledgments
 
-- Original Frustratometer developers!
+- The original Frustratometer developers.

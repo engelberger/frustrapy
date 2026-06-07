@@ -5,6 +5,11 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 from ..core import Pdb
+from ..core.constants import (
+    FRST_HIGHLY_MAX,
+    FRST_MINIMALLY_MIN_CONTACT,
+    FRST_MINIMALLY_MIN_SINGLERES,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -635,7 +640,7 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=Fal
     # Classify frustration states
     data_frus["FrstState"] = pd.cut(
         data_frus["FrstIndex"],
-        bins=[-float("inf"), -1.0, 0.58, float("inf")],
+        bins=[-float("inf"), FRST_HIGHLY_MAX, FRST_MINIMALLY_MIN_SINGLERES, float("inf")],
         labels=["highly", "neutral", "minimally"],
     )
 
@@ -779,7 +784,7 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=Fal
 
     # Add horizontal lines at important thresholds with improved styling
     fig.add_hline(
-        y=0.58,
+        y=FRST_MINIMALLY_MIN_SINGLERES,
         line_dash="dash",
         line_color="rgba(128,128,128,0.5)",
         line_width=1,
@@ -865,8 +870,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         # Ensure FrstIndex is numeric
         df["FrstIndex"] = pd.to_numeric(df["FrstIndex"], errors="coerce")
         # Classify frustration states
-        df["FrstState"] = np.where(df["FrstIndex"] >= 0.78, "minimally",
-                             np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
+        df["FrstState"] = np.where(df["FrstIndex"] >= FRST_MINIMALLY_MIN_CONTACT, "minimally",
+                             np.where(df["FrstIndex"] <= FRST_HIGHLY_MAX, "highly", "neutral"))
         df["FrstState"] = df["FrstState"].astype("category")
         # Reorder pairs so Res1 is the mutated residue
         mask = df["Res2"] == mutation["Res"]
@@ -878,8 +883,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         df = pd.read_csv(mutation["File"], sep=r"\s+", header=None, names=cols, skiprows=1)
         # Ensure FrstIndex is numeric
         df["FrstIndex"] = pd.to_numeric(df["FrstIndex"], errors="coerce")
-        df["FrstState"] = np.where(df["FrstIndex"] >= 0.58, "minimally",
-                             np.where(df["FrstIndex"] <= -1.0, "highly", "neutral"))
+        df["FrstState"] = np.where(df["FrstIndex"] >= FRST_MINIMALLY_MIN_SINGLERES, "minimally",
+                             np.where(df["FrstIndex"] <= FRST_HIGHLY_MAX, "highly", "neutral"))
         df["FrstState"] = df["FrstState"].astype("category")
 
     # Identify native residue and convert to 1-letter code
@@ -968,8 +973,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
                 x=0.5
             ),
         )
-        fig.add_hline(y=0.78, line_dash="dash", line_color="gray", line_width=1)
-        fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=FRST_MINIMALLY_MIN_CONTACT, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=FRST_HIGHLY_MAX, line_dash="dash", line_color="gray", line_width=1)
     else:
         # Single residue variants mode
         fig = go.Figure()
@@ -1003,8 +1008,8 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
             showlegend=True,
             legend=dict(title="", orientation="h"), # Keep legend at bottom for this plot type
         )
-        fig.add_hline(y=0.58, line_dash="dash", line_color="gray", line_width=1)
-        fig.add_hline(y=-1.0, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=FRST_MINIMALLY_MIN_SINGLERES, line_dash="dash", line_color="gray", line_width=1)
+        fig.add_hline(y=FRST_HIGHLY_MAX, line_dash="dash", line_color="gray", line_width=1)
 
     # Save plot if requested
     if save:

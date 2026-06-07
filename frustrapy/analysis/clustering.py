@@ -1,12 +1,12 @@
+import os
 import logging
 import numpy as np
 import pandas as pd
-import igraph as ig
-import leidenalg as la
-from sklearn.decomposition import PCA
-from scipy.stats import spearmanr, pearsonr
 
-# from statsmodels.nonparametric.smoothers_lowess import lowess
+# The heavy clustering stack (igraph, leidenalg, scikit-learn, scipy, statsmodels) is
+# the optional `clustering` extra. It is imported lazily inside
+# detect_dynamic_clusters (not at module top) so that `import frustrapy` works on a
+# bare install; calling the function without the extra raises a clear ImportError.
 from ..core import Dynamic
 from ..utils import log_execution_time
 
@@ -56,14 +56,22 @@ def detect_dynamic_clusters(
             "Correlation type(CorrType) indicated isn't available or doesn't exist, indicate 'pearson' or 'spearman'"
         )
 
-    required_libraries = ["leidenalg", "igraph", "sklearn", "scipy", "numpy", "pandas"]
-    missing_libraries = [
-        library for library in required_libraries if library not in globals()
-    ]
-    if missing_libraries:
+    # Resolve the optional clustering stack here (lazify-before-demote). A correct
+    # availability check via real imports, replacing the prior broken `globals()`
+    # membership test (the modules are imported under aliases / partial names, so
+    # they were never in globals() and the check always falsely "failed").
+    try:
+        import igraph as ig
+        import leidenalg as la
+        from sklearn.decomposition import PCA
+        from scipy.stats import spearmanr, pearsonr
+        from statsmodels.nonparametric.smoothers_lowess import lowess
+    except ImportError as exc:
         raise ImportError(
-            f"Please install the following libraries to continue: {', '.join(missing_libraries)}"
-        )
+            "detect_dynamic_clusters requires the optional 'clustering' dependencies "
+            "(scipy, scikit-learn, python-igraph, leidenalg, statsmodels). Install "
+            "them with: pip install 'frustrapy[clustering]'"
+        ) from exc
 
     # Loading residues and res_num
     ini = pd.read_csv(

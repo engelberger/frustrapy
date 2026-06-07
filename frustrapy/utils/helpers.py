@@ -7,6 +7,12 @@ from Bio.PDB import PDBParser
 import pandas as pd
 from ..core import Pdb
 from ..core.data_classes import SingleResidueData
+from ..core.constants import (
+    FRST_HIGHLY_MAX,
+    FRST_MINIMALLY_MIN_CONTACT,
+    WELLTYPE_DISTANCE_CUTOFF,
+    WATER_MEDIATED_DENSITY_CUTOFF,
+)
 
 
 logger = logging.getLogger(__name__)
@@ -240,21 +246,24 @@ def renum_files(
                 frst_type_aux = ""
 
                 # Assign well-type
-                if float(splitted[10]) < 6.5:
+                if float(splitted[10]) < WELLTYPE_DISTANCE_CUTOFF:
                     res_res_distance = "short"
-                elif float(splitted[10]) >= 6.5:
-                    if float(density1) < 2.6 and float(density2) < 2.6:
+                elif float(splitted[10]) >= WELLTYPE_DISTANCE_CUTOFF:
+                    if (
+                        float(density1) < WATER_MEDIATED_DENSITY_CUTOFF
+                        and float(density2) < WATER_MEDIATED_DENSITY_CUTOFF
+                    ):
                         res_res_distance = "water-mediated"
                     else:
                         res_res_distance = "long"
 
-                if float(frst_index) <= -1:
+                if float(frst_index) <= FRST_HIGHLY_MAX:
                     frst_type = "highly"
                     frst_type_aux = "red"
-                elif -1 < float(frst_index) < 0.78:
+                elif FRST_HIGHLY_MAX < float(frst_index) < FRST_MINIMALLY_MIN_CONTACT:
                     frst_type = "neutral"
                     frst_type_aux = "gray"
-                elif float(frst_index) >= 0.78:
+                elif float(frst_index) >= FRST_MINIMALLY_MIN_CONTACT:
                     frst_type = "minimally"
                     frst_type_aux = "green"
 

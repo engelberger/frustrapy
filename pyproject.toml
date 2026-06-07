@@ -39,29 +39,31 @@ classifiers = [
 
 # Runtime dependencies required to `import frustrapy` and run the no-graphics
 # analysis path. tqdm was a phantom dep (imported frustration.py / mutations.py,
-# declared nowhere). scipy/scikit-learn/python-igraph/leidenalg are CORE because
-# __init__.py:13 eagerly imports analysis.clustering, which imports them at module
-# top — demotable only AFTER that import is lazified (Phase 7, lazify-before-demote).
+# declared nowhere).
+#
+# Phase 7 (lazify-before-demote): scipy / scikit-learn / python-igraph / leidenalg
+# are NO LONGER core. They are used ONLY by analysis/clustering.py
+# (detect_dynamic_clusters), whose import is now lazified in __init__.py via PEP-562
+# __getattr__, so `import frustrapy` no longer drags them in. They moved to the
+# `clustering` optional extra below (statsmodels joins them for the loess fit).
 #
 # The Phase 2 dev_benchmark merge added three more hard deps:
 #   * rich      — utils/ui.py (Rich display) is imported by the core engine
 #                 (frustration.py / frustration_calculator.py / mutations.py), so it
 #                 is required just to `import frustrapy`.
-#   * matplotlib, seaborn — benchmark/plotting.py; pulled in eagerly because
-#                 __init__.py imports `benchmark`, whose __init__ imports `plotting`.
-#                 CANDIDATES for a `benchmark` extra in Phase 7 once that chain is
-#                 lazified (lazify-before-demote), same pattern as the clustering deps.
+#   * matplotlib, seaborn — benchmark/plotting.py + evolution; pulled in eagerly
+#                 because __init__.py imports `benchmark` and `evolution`. Still core
+#                 (CANDIDATES for a future `benchmark`/`evolution` extra once those
+#                 chains are lazified — out of scope for Phase 7's clustering demotion).
+#   * logomaker — evolution/sequence_logo.py (FrustraEvo), eager via the evolution
+#                 import; core for now.
 # plotly pinned <6: plotly 6.x removed the deprecated `titlefont` property the
-# graphics path still uses (resolve fully in Phase 5/7).
+# graphics path still uses.
 dependencies = [
     "numpy",
     "pandas",
     "biopython",
     "plotly<6",
-    "scipy",
-    "scikit-learn",
-    "python-igraph",
-    "leidenalg",
     "tqdm",
     "rich",
     "matplotlib",
@@ -75,7 +77,10 @@ dependencies = [
 viz = ["py3Dmol>=2.4.2", "ipython", "kaleido"]
 # Optional memory logging; psutil imported lazily in utils/decorators.py.
 perf = ["psutil"]
-all = ["frustrapy[viz,perf]"]
+# Dynamic-trajectory residue clustering (detect_dynamic_clusters). Imported lazily
+# inside the function; absent on a bare install — install with frustrapy[clustering].
+clustering = ["scipy", "scikit-learn", "python-igraph", "leidenalg", "statsmodels"]
+all = ["frustrapy[viz,perf,clustering]"]
 
 [project.urls]
 Homepage = "https://github.com/engelberger/frustrapy"

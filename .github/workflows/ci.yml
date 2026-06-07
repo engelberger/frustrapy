@@ -1,10 +1,12 @@
 name: CI
 
 # Phase 1 regression CI. The lint job is advisory (non-blocking) for now; the
-# import/test/build jobs are blocking because Phase 0 confirmed the 9-package runtime
-# set installs cleanly and the wheel ships the AWSEM/LAMMPS assets. The dep-count
-# tripwire below guards against a regression to the Phase-0 failure mode where the
-# Poetry backend emitted an empty Requires-Dist (zero runtime deps).
+# import/test/build jobs are blocking because Phase 0 confirmed the core runtime set
+# installs cleanly and the wheel ships the AWSEM/LAMMPS assets. The dep-count tripwire
+# below guards against a regression to the Phase-0 failure mode where the Poetry
+# backend emitted an empty Requires-Dist (zero runtime deps). Phase 7 demoted the four
+# clustering-only deps to a `clustering` extra; the test job installs the CORE set only
+# (`-e .`) and still imports, proving the demotion did not break `import frustrapy`.
 
 on:
   push:

@@ -10,7 +10,8 @@ from .mutations import (
     mutate_res_parallel,
 )
 
-from .clustering import detect_dynamic_clusters
+# detect_dynamic_clusters is lazified (clustering extra; lazify-before-demote,
+# Phase 7) — resolved on first access via __getattr__ below, never at import time.
 
 __all__ = [
     "calculate_frustration",
@@ -21,3 +22,11 @@ __all__ = [
     "mutate_res_parallel",
     "detect_dynamic_clusters",
 ]
+
+
+def __getattr__(name):
+    if name == "detect_dynamic_clusters":
+        from .clustering import detect_dynamic_clusters
+
+        return detect_dynamic_clusters
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
