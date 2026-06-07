@@ -1,3 +1,12 @@
+from importlib.metadata import PackageNotFoundError, version as _pkg_version
+
+try:
+    # Single source of truth for the version: the installed package metadata
+    # (pyproject [project].version). Avoids a second hard-coded version string.
+    __version__ = _pkg_version("frustrapy")
+except PackageNotFoundError:  # running from a source tree that was never installed
+    __version__ = "0.0.0+unknown"
+
 # Import core classes
 from .core.pdb import Pdb
 from .core.dynamic import Dynamic
@@ -10,7 +19,15 @@ from .analysis.frustration import (
     get_frustration,
 )
 from .analysis.mutations import mutate_res, mutate_res_parallel
-from .analysis.clustering import detect_dynamic_clusters
+
+# NOTE: detect_dynamic_clusters is intentionally NOT imported eagerly here. Its
+# module (analysis/clustering.py) pulls in the heavy optional clustering stack
+# (scipy, scikit-learn, python-igraph, leidenalg, statsmodels), which is shipped as
+# the `clustering` extra. Eagerly importing it would make a bare `pip install
+# frustrapy` unable to `import frustrapy` (lazify-before-demote, Phase 7). It is
+# resolved on first access via the module __getattr__ below, so the public API and
+# `from frustrapy import detect_dynamic_clusters` still work when the extra is
+# installed, and raise a clear error otherwise.
 
 # Import visualization functions
 from .visualization.plots import (
@@ -32,6 +49,7 @@ from .evolution import analyze_family
 
 # Define what's available when using "from frustrapy import *"
 __all__ = [
+    "__version__",
     # Core classes
     "Pdb",
     "Dynamic",
@@ -53,3 +71,16 @@ __all__ = [
     # Evolution (FrustraEvo)
     "analyze_family",
 ]
+
+
+def __getattr__(name):
+    """Lazily resolve optional, heavy-dependency attributes (PEP 562).
+
+    Keeps `detect_dynamic_clusters` in the public API without importing the
+    `clustering` extra at `import frustrapy` time.
+    """
+    if name == "detect_dynamic_clusters":
+        from .analysis.clustering import detect_dynamic_clusters
+
+        return detect_dynamic_clusters
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
