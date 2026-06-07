@@ -13,6 +13,8 @@ import os
 
 import pandas as pd
 
+from frustrapy.visualization.structure import classify_contact_frustration
+
 CONFIG_COLUMNS = [
     "Res1",
     "Res2",
@@ -28,6 +30,17 @@ CONFIG_COLUMNS = [
     "FrstIndex",
     "Welltype",
     "FrstState",
+]
+
+SINGLERES_COLUMNS = [
+    "Res",
+    "ChainRes",
+    "DensityRes",
+    "AA",
+    "NativeEnergy",
+    "DecoyEnergy",
+    "SDEnergy",
+    "FrstIndex",
 ]
 
 
@@ -68,3 +81,33 @@ def test_frstindex_sign_convention(crn_configurational):
     # Tolerance covers 3-decimal rounding of the stored energy columns; a FLIPPED sign
     # would diverge by ~2*|FrstIndex| (order 1.9 here), far outside this band.
     assert (expected - df["FrstIndex"]).abs().max() < 5e-3
+
+
+def test_mutational_table_shape(crn_mutational):
+    """Mutational anchor: 232 data rows x 14 columns (same contact set as config)."""
+    table = crn_mutational["table"]
+    assert os.path.exists(table), f"missing frustration table: {table}"
+    df = pd.read_csv(table, sep=r"\s+")
+    assert list(df.columns) == CONFIG_COLUMNS
+    assert len(df) == 232
+
+
+def test_singleresidue_table_shape(crn_singleresidue):
+    """Single-residue anchor: 46 data rows (one per crambin residue) x 8 columns,
+    and NO FrstState column (single-residue tables carry no class column)."""
+    table = crn_singleresidue["table"]
+    assert os.path.exists(table), f"missing frustration table: {table}"
+    df = pd.read_csv(table, sep=r"\s+")
+    assert list(df.columns) == SINGLERES_COLUMNS
+    assert len(df) == 46
+    assert "FrstState" not in df.columns
+
+
+def test_frststate_matches_contact_cutoffs(crn_configurational):
+    """The FrstState column the table classifier (utils/helpers.py) writes agrees,
+    row-for-row, with the asymmetric contact cutoffs (-1 / 0.78). This pins the
+    cutoff behavior on real output, using the shared 3D-view classifier as oracle."""
+    df = pd.read_csv(crn_configurational["table"], sep=r"\s+")
+    # helpers writes "highly"/"neutral"/"minimally"; the classifier returns the same.
+    expected = df["FrstIndex"].map(classify_contact_frustration)
+    assert (df["FrstState"] == expected).all()

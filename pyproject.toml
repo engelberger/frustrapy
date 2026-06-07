@@ -128,6 +128,15 @@ filterwarnings = [
     # The 9 non-raw `\s+` separators (Lever 12, Phase 6) emit SyntaxWarning today.
     "ignore::SyntaxWarning",
 ]
+# Two CI lanes (see .github/workflows/ci.yml and tests/conftest.py):
+#   * fast lane  -> `pytest -m "not slow"`  (unit + smoke, runs in seconds)
+#   * e2e lane   -> `pytest -m slow`         (real LAMMPS / parity gates, minutes)
+# `slow` is applied automatically to any test that requests a LAMMPS-running fixture
+# (conftest.pytest_collection_modifyitems); tests that shell out to the engine
+# directly carry an explicit `@pytest.mark.slow`.
+markers = [
+    "slow: exercises the real LAMMPS/AWSEM subprocess toolchain (the e2e/parity lane)",
+]
 
 [tool.ruff]
 line-length = 100

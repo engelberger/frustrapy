@@ -26,6 +26,7 @@ def test_benchmark_public_api_importable():
     )
 
 
+@pytest.mark.slow
 def test_run_benchmark_minimal(crn_pdb, tmp_path):
     """A minimal single-CPU benchmark returns a DataFrame with the documented columns."""
     from frustrapy.benchmark import run_benchmark

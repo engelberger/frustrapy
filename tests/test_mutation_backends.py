@@ -96,6 +96,7 @@ def test_write_atom_dataframe_to_pdb(tmp_path):
     assert {a.get_name() for a in atoms} == {"N", "CA"}
 
 
+@pytest.mark.slow
 def test_invalid_method_rejected(crn_pdb, tmp_path):
     """An unknown backend name raises a clear ValueError listing the valid set."""
     import frustrapy
@@ -115,6 +116,7 @@ def test_invalid_method_rejected(crn_pdb, tmp_path):
         mutate_res_parallel(pdb, res_num=1, chain="A", method="banana", n_cpus=1)
 
 
+@pytest.mark.slow
 def test_pyrosetta_requested_but_missing_raises(crn_pdb, tmp_path, monkeypatch):
     """Requesting method='pyrosetta' without the package gives an actionable error.
 
@@ -156,6 +158,7 @@ def test_plot_methods_accept_pyrosetta():
 # --------------------------------------------------------------------------- #
 
 
+@pytest.mark.slow
 @pyrosetta_required
 def test_pyrosetta_consistent_with_threading(crn_pdb, tmp_path):
     """T5 exit gate: a PyRosetta single-residue scan agrees with threading.
@@ -206,6 +209,7 @@ def test_pyrosetta_consistent_with_threading(crn_pdb, tmp_path):
     assert pearson > 0.95, f"Pearson too low: {pearson}"
 
 
+@pytest.mark.slow
 @pyrosetta_required
 def test_build_pyrosetta_mutant_writes_valid_pdb(crn_pdb, tmp_path):
     """build_pyrosetta_mutant produces a parseable full-atom mutant PDB and

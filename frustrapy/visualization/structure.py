@@ -7,6 +7,33 @@ from Bio.SeqUtils import seq1
 logger = logging.getLogger(__name__)
 
 
+def classify_contact_frustration(frst_index: float) -> str:
+    """Classify a contact's absolute FrstIndex into a frustration class.
+
+    Uses the SAME asymmetric configurational/mutational *contact* cutoffs as the
+    output tables (``utils/helpers.py``), the 2D plot (``plots.py``) and
+    ``frustratometeR`` (``visualization.R:618-620``):
+
+        FrstIndex <= -1.0   -> "highly"     (highly/maximally frustrated)
+        FrstIndex >= 0.78   -> "minimally"  (minimally frustrated)
+        otherwise           -> "neutral"
+
+    Single source of truth for the 3D contact-mutation view so its cylinders,
+    labels, residue cartoons and legend all agree. Regression guard for the
+    incomplete 3D-view cutoff fix (commit 399b975): a symmetric ``+-delta_threshold``
+    mislabels contacts in ``[0.78, 1.0)`` as neutral.
+    """
+    if frst_index <= FRST_HIGHLY_MAX:
+        return "highly"
+    if frst_index >= FRST_MINIMALLY_MIN_CONTACT:
+        return "minimally"
+    return "neutral"
+
+
+# Class -> display color, shared by every element of the 3D contact-mutation view.
+_CONTACT_FRST_COLOR = {"highly": "red", "minimally": "green", "neutral": "gray"}
+
+
 def view_frustration_pymol(pdb: Pdb) -> None:
     # Implementation from visualization.py
     ...
@@ -456,18 +483,11 @@ def view_mutate_contacts_py3dmol(
 
                 # Classify the mutant contact by its absolute frustration index,
                 # using the SAME asymmetric configurational/mutational contact cutoffs
-                # as the 2D plot (plots.py) and frustratometeR (visualization.R:618-620):
-                #   highly frustrated   FrstIndex <= -1.0   -> red
-                #   minimally frustrated FrstIndex >= 0.78   -> green
-                #   neutral             otherwise           -> gray
-                if mut_frst <= FRST_HIGHLY_MAX:
-                    state_str = 'high_frustration'
-                elif mut_frst >= FRST_MINIMALLY_MIN_CONTACT:
-                    state_str = 'low_frustration'
-                else:
-                    state_str = 'neutral'
-                color_map = {'high_frustration': 'red', 'low_frustration': 'green', 'neutral': 'gray'}
-                color = color_map[state_str]
+                # as the 2D plot (plots.py) and frustratometeR (visualization.R:618-620).
+                # One classifier drives the cylinder, label, residue cartoon and
+                # legend so they cannot disagree (regression guard for 399b975).
+                state_str = classify_contact_frustration(mut_frst)
+                color = _CONTACT_FRST_COLOR[state_str]
 
                 # Determine radius based on magnitude of delta
                 max_possible_delta = 8 # Assuming FrstIndex ranges roughly from -4 to 4
@@ -506,16 +526,11 @@ def view_mutate_contacts_py3dmol(
                     # Try to get from mut_data if available, otherwise use generic name
                     contact_aa_name = mut_data.loc[mut_data['Contact_Res'] == contact_res, 'Contact_AA'].iloc[0] if contact_key in mut_contact_keys else "UNK" 
                 
-                # Add label to contact residue (show delta) with state-based background
-                # Determine label background color based on mutant frustration value
-                if mut_frst <= -delta_threshold:
-                    label_background_color = 'red'
-                elif mut_frst >= delta_threshold:
-                    label_background_color = 'green'
-                else:
-                    label_background_color = 'gray'
-                    if not show_neutral_labels:
-                        continue
+                # Add label to contact residue (show delta) with state-based background.
+                # Same classifier as the cylinder, so label and cylinder always agree.
+                label_background_color = color
+                if state_str == 'neutral' and not show_neutral_labels:
+                    continue
 
                 # Adjust label opacity based on significance
                 label_opacity = 0.7 if state_str != 'neutral' else 0.5
@@ -531,12 +546,7 @@ def view_mutate_contacts_py3dmol(
                 })
 
                 # Style contact residue based on mutant frustration state (to match cylinders/labels)
-                if mut_frst <= -delta_threshold:
-                    contact_cartoon_color = 'red'
-                elif mut_frst >= delta_threshold:
-                    contact_cartoon_color = 'green'
-                else:
-                    contact_cartoon_color = 'gray'
+                contact_cartoon_color = color
                 view.setStyle(
                     {'chain': contact_chain, 'resi': contact_res},
                     {'stick': {'radius': 0.1}, 'cartoon': {'color': contact_cartoon_color, 'opacity': 0.8}}
@@ -564,15 +574,15 @@ def view_mutate_contacts_py3dmol(
                 'position': {'x': legend_x_start, 'y': legend_y_start, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'white', 'fontColor': 'black', 'fontSize': 12, 'backgroundOpacity': 0.7, 'borderColor': 'lightgrey', 'borderWidth': 1
             })
-            view.addLabel(f"  Maximally frustrated (Frst ≤ {-delta_threshold:.1f})", {
+            view.addLabel(f"  Maximally frustrated (Frst ≤ {FRST_HIGHLY_MAX:.2f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 2, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'red', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
-            view.addLabel(f"  Minimally frustrated (Frst ≥ {delta_threshold:.1f})", {
+            view.addLabel(f"  Minimally frustrated (Frst ≥ {FRST_MINIMALLY_MIN_CONTACT:.2f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 4, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'green', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })
-            view.addLabel(f"  Neutral (|Frst| < {delta_threshold:.1f})", {
+            view.addLabel(f"  Neutral ({FRST_HIGHLY_MAX:.2f} < Frst < {FRST_MINIMALLY_MIN_CONTACT:.2f})", {
                 'position': {'x': legend_x_start, 'y': legend_y_start - 6, 'z': center_coords[2] if center_coords else 0},
                 'backgroundColor': 'gray', 'fontColor': 'white', 'fontSize': 10, 'backgroundOpacity': 0.8
             })

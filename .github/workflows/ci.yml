@@ -1,12 +1,21 @@
 name: CI
 
-# Phase 1 regression CI. The lint job is advisory (non-blocking) for now; the
-# import/test/build jobs are blocking because Phase 0 confirmed the core runtime set
-# installs cleanly and the wheel ships the AWSEM/LAMMPS assets. The dep-count tripwire
-# below guards against a regression to the Phase-0 failure mode where the Poetry
-# backend emitted an empty Requires-Dist (zero runtime deps). Phase 7 demoted the four
-# clustering-only deps to a `clustering` extra; the test job installs the CORE set only
-# (`-e .`) and still imports, proving the demotion did not break `import frustrapy`.
+# Layered regression CI.
+#
+#   * lint        — advisory (non-blocking) ruff check.
+#   * test-fast   — unit + smoke layer on a Python matrix; `pytest -m "not slow"`.
+#                   No LAMMPS, runs in well under a minute. BLOCKING (required to merge):
+#                   a regression in a pinned behaviour (cutoffs, IC math, coordinate
+#                   mapping, the 3D-view classifier, dependency manifest) turns this red.
+#   * test-e2e    — the real LAMMPS/AWSEM parity gates; `pytest -m slow`. Runs the
+#                   1CRN all-three-modes anchor and the FrustraEvo byte-identity diffs
+#                   against the committed fixtures, so any numeric/parity drift fails CI.
+#                   The bundled lmp_serial binaries make this runnable on the hosted
+#                   runner; needs perl (GenerateVisualizations.pl) + the runtime deps.
+#   * build       — wheel + dep-count / runtime-asset tripwires (P0-A / P0-C).
+#
+# All jobs put the venv on PATH (tech-debt P1-22): PdbCoords2Lammps.sh spawns a bare
+# `python3`, which must resolve Biopython, or a calculation dies mid-run.
 
 on:
   push:
@@ -32,8 +41,8 @@ jobs:
       - name: Ruff check
         run: uvx ruff check frustrapy tests
 
-  test:
-    name: test (py${{ matrix.python-version }})
+  test-fast:
+    name: test-fast (py${{ matrix.python-version }})
     runs-on: ubuntu-latest
     strategy:
       fail-fast: false
@@ -51,8 +60,26 @@ jobs:
         run: uv pip install --python .venv -e . pytest pytest-cov
       - name: Import smoke (P0-A/P0-B — clean import, no manual tqdm install)
         run: python -c "import frustrapy; print('import frustrapy OK')"
-      - name: Run regression suite (anchor + every P0 fix)
-        run: python -m pytest tests -v
+      - name: Unit + smoke layer (fast lane — no LAMMPS)
+        run: python -m pytest -m "not slow" -v
+
+  test-e2e:
+    name: test-e2e (parity gates)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Install perl (GenerateVisualizations.pl / GenerateChargeFile.pl)
+        run: sudo apt-get update && sudo apt-get install -y perl
+      - name: Create venv
+        run: uv venv --python 3.12 .venv
+      - name: Put venv on PATH (P1-22 — bare python3 subprocess needs Bio importable)
+        run: echo "${{ github.workspace }}/.venv/bin" >> "$GITHUB_PATH"
+      - name: Install package + test deps (full runtime set via -e .)
+        run: uv pip install --python .venv -e . pytest pytest-cov
+      - name: E2e + parity gates (real LAMMPS — 1CRN anchor + FrustraEvo byte-diffs)
+        # A numeric/parity regression against the committed fixtures fails the build.
+        run: python -m pytest -m slow -v
 
   build:
     name: build wheel + dep-count tripwire
