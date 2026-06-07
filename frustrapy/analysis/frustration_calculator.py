@@ -54,12 +54,17 @@ class FrustrationCalculator:
         overwrite: bool = False,
         n_cpus: Optional[int] = None,
         is_mutation_calculation: bool = False,
+        backend=None,
     ):
         """Initialize frustration calculator with configuration parameters.
 
         Args:
             n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
             overwrite (bool): Whether to overwrite existing intermediate files (default False).
+            backend: frustration energy backend -- a registered name (str), a
+                :class:`~frustrapy.backends.FrustrationBackend` instance, or ``None``
+                for the default (``lammps``). Selects the energy model; the on-disk
+                output contract is identical across backends.
         """
         # Consolidate and validate configuration with dataclass
         try:
@@ -113,6 +118,11 @@ class FrustrationCalculator:
         self.temp_folder = tempfile.gettempdir()
         self.plots = {}
         self.is_mutation_calculation = is_mutation_calculation
+        # Resolve the energy backend (default: lammps). The backend owns the energy
+        # model; parsing, classification, and the density kernel stay shared.
+        from ..backends import get_backend
+
+        self.backend = get_backend(backend)
 
     @log_execution_time
     def calculate(self) -> Tuple[Pdb, Dict, Optional[FrustrationDensityResults]]:
@@ -173,13 +183,15 @@ class FrustrationCalculator:
             self._prepare_calculation_files(pdb)
             self.phase_times["prep"] = time.perf_counter() - _t_prep0
 
-            # Run calculations
+            # Run calculations through the selected backend. The backend owns the
+            # energy model (compute_energies); parsing/classification and the density
+            # kernel are shared post-processing (process_results / compute_density).
             _t = time.perf_counter()
-            self._run_lammps_calculation(pdb)
+            self.backend.compute_energies(self, pdb)
             self.phase_times["lammps"] = time.perf_counter() - _t
 
             _t = time.perf_counter()
-            self._process_results(pdb)
+            self.backend.process_results(self, pdb)
             self.phase_times["classify"] = time.perf_counter() - _t
 
             # Create FrustrationData directory
@@ -191,7 +203,7 @@ class FrustrationCalculator:
             _t = time.perf_counter()
             if self.mode in ["configurational", "mutational"]:
                 logger.debug("Calculating frustration density...")
-                frustration_density_results = self._calculate_frustration_density(pdb)
+                frustration_density_results = self.backend.compute_density(self, pdb)
             self.phase_times["density"] = time.perf_counter() - _t
 
             # Move/copy only the necessary files to FrustrationData directory

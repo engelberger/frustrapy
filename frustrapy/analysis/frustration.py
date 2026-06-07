@@ -49,6 +49,7 @@ def calculate_frustration(
     n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
     is_mutation_calculation: Optional[bool] = False,
+    backend: Optional[Union[str, Any]] = None,
 ) -> Tuple["Pdb", Dict, Optional[FrustrationDensityResults], Optional[Dict]]:
     """Calculate local energy frustration for a protein structure.
 
@@ -66,6 +67,9 @@ def calculate_frustration(
         results_dir (str): Path to the folder where results will be stored.
         debug (bool): Debug mode flag.
         n_cpus (Optional[int]): Number of CPU cores to use for mutation analysis (None = all available).
+        backend (Optional[Union[str, FrustrationBackend]]): energy backend selector
+            -- a registered name, an instance, or None for the default (``lammps``).
+            The on-disk output contract is identical across backends.
     """
 
     # Combine external flag for nested mutation calls and singleresidue detection
@@ -129,6 +133,7 @@ def calculate_frustration(
         overwrite=overwrite,
         n_cpus=n_cpus,
         is_mutation_calculation=is_mutation_calculation,
+        backend=backend,
     )
 
     logger.debug("Starting calculation")
@@ -228,10 +233,13 @@ def dir_frustration(
     debug: bool = False,
     n_cpus: Optional[int] = None,
     n_procs: Optional[int] = None,
+    backend: Optional[Union[str, Any]] = None,
 ) -> Tuple[Dict, Optional[FrustrationDensityResults]]:
     """Calculate local energy frustration for all protein structures in one directory.
 
     Args:
+        backend (Optional[Union[str, FrustrationBackend]]): energy backend selector,
+            forwarded to each per-structure calculation (default ``lammps``).
         n_cpus (Optional[int]): inner CPU budget per structure (mutation pool).
         n_procs (Optional[int]): number of structures to process concurrently
             (Phase 6 Lever 2, outer batch axis). ``None``/``1`` keeps the historic
@@ -327,6 +335,7 @@ def dir_frustration(
             visualization=visualization,
             results_dir=results_dir,
             debug=debug,
+            backend=backend,
         )
 
         from ..utils.concurrency import (
