@@ -26,6 +26,15 @@ from .schema import (
     read_table,
     validate_table,
 )
+from .store import (
+    FORMAT_VERSION,
+    GZIP_LEVEL,
+    FrustrationStore,
+    compound_dtype_for_schema,
+    structure_group_path,
+    dataset_path,
+    require_h5py,
+)
 
 __all__ = [
     "ColumnSpec",
@@ -42,4 +51,11 @@ __all__ = [
     "schema_for_mode",
     "read_table",
     "validate_table",
+    "FORMAT_VERSION",
+    "GZIP_LEVEL",
+    "FrustrationStore",
+    "compound_dtype_for_schema",
+    "structure_group_path",
+    "dataset_path",
+    "require_h5py",
 ]

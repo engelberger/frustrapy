@@ -88,7 +88,10 @@ clustering = ["scipy", "scikit-learn", "python-igraph", "leidenalg", "statsmodel
 # to download and install the licensed PyRosetta wheel. Imported lazily inside the
 # mutation worker; a bare install keeps method='threading' fully functional.
 pyrosetta = ["pyrosetta-installer"]
-all = ["frustrapy[viz,perf,clustering]"]
+# Optional compressed HDF5 output store for high-throughput runs (frustrapy.output.store).
+# h5py is imported lazily inside the store; the default text output does not need it.
+hdf5 = ["h5py"]
+all = ["frustrapy[viz,perf,clustering,hdf5]"]
 
 [project.urls]
 Homepage = "https://github.com/engelberger/frustrapy"
