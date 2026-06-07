@@ -627,7 +627,7 @@ def plot_delta_frus(pdb, res_num, chain, method="threading", save=True, show=Fal
     # Read frustration data
     data_frus = pd.read_csv(
         mutation["File"],
-        sep="\s+",
+        sep=r"\s+",
         header=0,
         names=["Res1", "Chain1", "AA1", "FrstIndex"],
     )

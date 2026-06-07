@@ -294,7 +294,7 @@ def view_mutate_contacts_py3dmol(
         raise FileNotFoundError(f"Base WT frustration file not found: {base_frust_file}")
     try:
         # Load the entire WT frustration file
-        wt_base_df = pd.read_csv(base_frust_file, sep='\s+')
+        wt_base_df = pd.read_csv(base_frust_file, sep=r'\s+')
         # Basic validation of columns (adjust based on actual file format)
         required_wt_cols = {'Res1', 'Res2', 'ChainRes1', 'ChainRes2', 'FrstIndex'}
         if not required_wt_cols.issubset(wt_base_df.columns):
@@ -359,7 +359,7 @@ def view_mutate_contacts_py3dmol(
 
         # Load all mutation data for this position
         try:
-            df = pd.read_csv(mut_file, sep='\s+')
+            df = pd.read_csv(mut_file, sep=r'\s+')
             
             # Create new Central_AA and contact mapping, including cases where residue is in Res1 or Res2
             mask1 = (df['Res1'] == res_pos) & (df['ChainRes1'] == chain)

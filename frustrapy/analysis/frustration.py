@@ -22,6 +22,16 @@ from ..utils.ui import display_error, display_overwrite_warning, display_success
 logger = logging.getLogger(__name__)
 
 
+def _dir_frustration_worker(kwargs: Dict) -> Tuple[str, Dict, Optional[FrustrationDensityResults]]:
+    """Top-level (picklable) worker for the parallel PDB-batch path of
+    :func:`dir_frustration` (Phase 6 Lever 2). Runs one structure and returns only
+    the lightweight pieces the parent keeps — its ``pdb_base`` key, the plots dict,
+    and the density results — so the heavy ``Pdb`` object is not shipped back.
+    """
+    pdb, plots, density_results, _single = calculate_frustration(**kwargs)
+    return pdb.pdb_base, plots, density_results
+
+
 @log_execution_time
 def calculate_frustration(
     pdb_file: Optional[str] = None,
@@ -217,8 +227,19 @@ def dir_frustration(
     results_dir: str = None,
     debug: bool = False,
     n_cpus: Optional[int] = None,
+    n_procs: Optional[int] = None,
 ) -> Tuple[Dict, Optional[FrustrationDensityResults]]:
-    """Calculate local energy frustration for all protein structures in one directory."""
+    """Calculate local energy frustration for all protein structures in one directory.
+
+    Args:
+        n_cpus (Optional[int]): inner CPU budget per structure (mutation pool).
+        n_procs (Optional[int]): number of structures to process concurrently
+            (Phase 6 Lever 2, outer batch axis). ``None``/``1`` keeps the historic
+            serial loop. When ``> 1`` the structures run in a
+            ``ProcessPoolExecutor`` and each inner mutation pool is throttled to a
+            **shared** core budget — ``inner = max(1, cpu_count // n_procs)`` — so
+            the two nested pools never oversubscribe to ``cpu_count²`` workers.
+    """
 
     # Add protocol information logging for directory analysis
     logger.info(f"\nRunning Directory Frustration Analysis:")
@@ -295,24 +316,63 @@ def dir_frustration(
                 f for f in os.listdir(pdbs_dir) if f.endswith((".pdb", ".PDB"))
             ]
 
-        for pdb_file in order_list:
-            pdb_path = os.path.join(pdbs_dir, pdb_file)
-            # Update unpacking to handle 4 return values
-            pdb, plots, density_results, single_res_data = calculate_frustration(
-                pdb_file=pdb_path,
-                chain=chain,
-                residues=residues,
-                electrostatics_k=electrostatics_k,
-                seq_dist=seq_dist,
-                mode=mode,
-                graphics=graphics,
-                visualization=visualization,
-                results_dir=results_dir,
-                debug=debug,
-                n_cpus=n_cpus,
+        # Build one kwargs bundle per structure (identical to the serial call).
+        common_kwargs = dict(
+            chain=chain,
+            residues=residues,
+            electrostatics_k=electrostatics_k,
+            seq_dist=seq_dist,
+            mode=mode,
+            graphics=graphics,
+            visualization=visualization,
+            results_dir=results_dir,
+            debug=debug,
+        )
+
+        import multiprocessing
+
+        cores = multiprocessing.cpu_count()
+        n_procs_eff = (
+            1 if not n_procs
+            else max(1, min(int(n_procs), len(order_list), cores))
+        )
+
+        if n_procs_eff > 1:
+            # Lever 2: outer batch parallelism. Enforce the shared core budget so
+            # the outer pool and each inner mutation pool together never exceed
+            # `cores` workers (never `cores²`). cf. CLAUDE.md / ROADMAP "never stack
+            # two cpu_count() pools".
+            inner_cpus = max(1, cores // n_procs_eff)
+            logger.info(
+                f"- Parallel batch: {n_procs_eff} structures concurrent x "
+                f"{inner_cpus} inner CPU(s) (budget {cores} cores)"
             )
-            # Add the plots to the dictionary
-            plots_dir_dict[pdb.pdb_base] = plots
+            from concurrent.futures import ProcessPoolExecutor
+
+            jobs = [
+                {
+                    **common_kwargs,
+                    "pdb_file": os.path.join(pdbs_dir, pf),
+                    "n_cpus": inner_cpus,
+                }
+                for pf in order_list
+            ]
+            with ProcessPoolExecutor(max_workers=n_procs_eff) as ex:
+                for pdb_base, plots, density_results in ex.map(
+                    _dir_frustration_worker, jobs
+                ):
+                    plots_dir_dict[pdb_base] = plots
+        else:
+            for pdb_file in order_list:
+                pdb_path = os.path.join(pdbs_dir, pdb_file)
+                # Update unpacking to handle 4 return values
+                pdb, plots, density_results, single_res_data = calculate_frustration(
+                    pdb_file=pdb_path,
+                    n_cpus=n_cpus,
+                    **common_kwargs,
+                )
+                # Add the plots to the dictionary
+                plots_dir_dict[pdb.pdb_base] = plots
 
         with open(modes_log_file, "a") as f:
             f.write(mode + "\n")
@@ -337,6 +397,8 @@ def dynamic_frustration(
     mode: str = "configurational",
     gifs: bool = False,
     results_dir: Optional[str] = None,
+    n_cpus: Optional[int] = None,
+    n_procs: Optional[int] = None,
 ) -> "Dynamic":
     """
     Calculates local energetic frustration for a trajectory.
@@ -400,7 +462,10 @@ def dynamic_frustration(
     logger.debug(
         "-----------------------------Calculating Dynamic Frustration-----------------------------"
     )
-    dir_frustration(
+    # P1-16: capture the per-frame return instead of discarding it. Frames are an
+    # embarrassingly-parallel axis — `n_procs` runs them concurrently under the
+    # same shared core budget as the batch path (Lever 2).
+    frames_plots, frames_density = dir_frustration(
         pdbs_dir=pdbs_dir,
         order_list=order_list,
         chain=chain,
@@ -408,7 +473,12 @@ def dynamic_frustration(
         seq_dist=seq_dist,
         mode=mode,
         results_dir=results_dir,
+        n_cpus=n_cpus,
+        n_procs=n_procs,
     )
+    # Expose per-frame results on the Dynamic object (one plots entry per frame).
+    dynamic.frames_plots = frames_plots
+    dynamic.frames_density = frames_density
 
     logger.debug("\n\n****Storage information****")
     logger.debug(f"The frustration of the full dynamic is stored in {results_dir}")

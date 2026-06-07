@@ -71,7 +71,7 @@ def detect_dynamic_clusters(
             dynamic.results_dir,
             f"{os.path.splitext(dynamic.order_list[0])[0]}.done/FrustrationData/{os.path.splitext(dynamic.order_list[0])[0]}.pdb_singleresidue",
         ),
-        sep="\s+",
+        sep=r"\s+",
         header=0,
     )
     residues = ini["AA"].tolist()
@@ -88,7 +88,7 @@ def detect_dynamic_clusters(
                 dynamic.results_dir,
                 f"{os.path.splitext(pdb_file)[0]}.done/FrustrationData/{os.path.splitext(pdb_file)[0]}.pdb_singleresidue",
             ),
-            sep="\s+",
+            sep=r"\s+",
             header=0,
         )
         frustra_data[f"frame_{len(frustra_data.columns)}"] = read["FrstIndex"]

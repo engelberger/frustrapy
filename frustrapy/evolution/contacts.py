@@ -122,7 +122,7 @@ class ContactAnalyzer:
             equivalences = self._read_equivalences(equiv_file)
 
             # Process contacts
-            frust_data = pd.read_csv(frust_file, sep="\s+")
+            frust_data = pd.read_csv(frust_file, sep=r"\s+")
             for _, row in frust_data.iterrows():
                 pos1 = equivalences.get(row["Res1"])
                 pos2 = equivalences.get(row["Res2"])
@@ -270,7 +270,7 @@ class ContactAnalyzer:
                 return None
 
             # Read data
-            df = pd.read_csv(frust_file, sep="\s+")
+            df = pd.read_csv(frust_file, sep=r"\s+")
 
             # Process data
             contacts = []
