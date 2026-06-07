@@ -5,6 +5,23 @@ energetic frustration, integrated as a first-class FrustraPy capability alongsid
 LAMMPS/AWSEM frustration engine. This document covers the M0 audit + design and the M1
 inference path (now wired).
 
+## Acknowledgment and citation
+
+FrustraMPNN is the work of Beining, Engelberger, Parra, Schoeder, Ramirez-Sarmiento
+and Meiler. `frustrapy.mpnn` integrates it; it is not original to FrustraPy.
+
+- Official repository: <https://github.com/RosettaCommons/frustraMPNN>
+- Preprint (bioRxiv 2026): "FrustraMPNN: An ultra-fast deep learning tool for proteome-scale
+  analysis of deep mutational single-residue local energetic frustration in proteins",
+  doi:10.64898/2026.01.22.701012,
+  <https://www.biorxiv.org/content/10.64898/2026.01.22.701012v1>
+- Bundled weights + data (Zenodo, CC BY 4.0): doi:10.5281/zenodo.17978321,
+  <https://zenodo.org/records/17978321>. The shipped
+  `frustrapy/mpnn/weights/frustrampnn_v6_dynamic_fixed.onnx` originates from this record;
+  the CC BY 4.0 attribution travels with it.
+
+Please cite the preprint (and the Zenodo record for the weights) when using `frustrapy.mpnn`.
+
 ## Status
 
 - M0 (audit + design + module skeleton): done.

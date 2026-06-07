@@ -379,6 +379,27 @@ If you use FrustraPy in your research, please cite the following papers:
 }
 ```
 
+If you use the deep-learning predictor (`frustrapy.mpnn`), also cite **FrustraMPNN**
+(Beining et al.; [RosettaCommons/frustraMPNN](https://github.com/RosettaCommons/frustraMPNN)).
+The bundled model weights come from the Zenodo record (CC BY 4.0):
+
+```bibtex
+@article{beining2026frustrampnn,
+  title={FrustraMPNN: An ultra-fast deep learning tool for proteome-scale analysis of deep mutational single-residue local energetic frustration in proteins},
+  author={Beining, Max and Engelberger, Felipe and Parra, Rodrigo Gonzalo and Schoeder, Clara T. and Ramirez-Sarmiento, Cesar A. and Meiler, Jens},
+  journal={bioRxiv},
+  year={2026},
+  doi={10.64898/2026.01.22.701012}
+}
+@dataset{beining2025frustrampnn_data,
+  title={FrustraMPNN: Full training runs/weights + Complete single-residue frustration data for E. coli/Human AF validation datasets},
+  author={Beining, Max and Engelberger, Felipe and Parra, Rodrigo Gonzalo and Schoeder, Clara and Ramirez, Cesar and Meiler, Jens},
+  year={2025},
+  publisher={Zenodo},
+  doi={10.5281/zenodo.17978321}
+}
+```
+
 A Zenodo DOI for FrustraPy itself will be added here with the first tagged release.
 See [`CITATION.cff`](CITATION.cff) for machine-readable citation metadata.
 

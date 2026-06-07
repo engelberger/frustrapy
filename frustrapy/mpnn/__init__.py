@@ -17,6 +17,14 @@ Example::
     result.mutation_matrix   # L x 21 saturation-mutagenesis scan
 
 See ``docs/MPNN_INTEGRATION.md`` for the data contract and integration design.
+
+Acknowledgment / citation
+--------------------------
+FrustraMPNN was developed by Beining, Engelberger, Parra, Schoeder,
+Ramirez-Sarmiento and Meiler — official repository
+https://github.com/RosettaCommons/frustraMPNN . If you use this module, cite the preprint
+(bioRxiv 2026, doi:10.64898/2026.01.22.701012) and, for the bundled weights, the Zenodo
+record (doi:10.5281/zenodo.17978321, CC BY 4.0). See the project README / CITATION.cff.
 """
 
 from __future__ import annotations

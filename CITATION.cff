@@ -93,3 +93,49 @@ references:
     year: 2021
     publisher:
       name: Oxford University Press
+  # FrustraMPNN — cited when using the frustrapy.mpnn deep-learning predictor.
+  # Official repo: https://github.com/RosettaCommons/frustraMPNN
+  - type: article
+    title: >-
+      FrustraMPNN: An ultra-fast deep learning tool for proteome-scale analysis
+      of deep mutational single-residue local energetic frustration in proteins
+    authors:
+      - family-names: Beining
+        given-names: Max
+      - family-names: Engelberger
+        given-names: Felipe
+      - family-names: Parra
+        given-names: Rodrigo Gonzalo
+      - family-names: Schoeder
+        given-names: Clara T.
+      - family-names: Ramirez-Sarmiento
+        given-names: Cesar A.
+      - family-names: Meiler
+        given-names: Jens
+    journal: bioRxiv
+    year: 2026
+    doi: 10.64898/2026.01.22.701012
+    url: "https://www.biorxiv.org/content/10.64898/2026.01.22.701012v1"
+  # FrustraMPNN weights + data (the bundled ONNX export), CC BY 4.0.
+  - type: dataset
+    title: >-
+      FrustraMPNN: Full training runs/weights + Complete single-residue
+      frustration data for E. coli/Human AF validation datasets
+    authors:
+      - family-names: Beining
+        given-names: Max
+      - family-names: Engelberger
+        given-names: Felipe
+      - family-names: Parra
+        given-names: Rodrigo Gonzalo
+      - family-names: Schoeder
+        given-names: Clara
+      - family-names: Ramirez
+        given-names: Cesar
+      - family-names: Meiler
+        given-names: Jens
+    year: 2025
+    publisher:
+      name: Zenodo
+    doi: 10.5281/zenodo.17978321
+    license: CC-BY-4.0
