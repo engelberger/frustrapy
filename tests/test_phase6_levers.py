@@ -91,6 +91,7 @@ def _prepare_pdb(crn_pdb, tmp_path, residues):
     return pdb
 
 
+@pytest.mark.slow
 def test_flatten_scan_matches_per_residue(crn_pdb, tmp_path):
     """Lever 1: one pool over (res1+res2)×20 == two separate single-residue scans.
 
@@ -134,6 +135,7 @@ def test_flatten_scan_matches_per_residue(crn_pdb, tmp_path):
 # Lever 2 — functional: parallel batch == serial batch, byte for byte.
 # ----------------------------------------------------------------------------
 
+@pytest.mark.slow
 def test_dir_frustration_parallel_matches_serial(crn_pdb, tmp_path):
     """A parallel (n_procs>1) configurational batch matches the serial loop."""
     from frustrapy.analysis.frustration import dir_frustration

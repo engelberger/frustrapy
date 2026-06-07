@@ -20,6 +20,21 @@ import pytest
 DATA_DIR = os.path.join(os.path.dirname(__file__), "data")
 CRN_PDB = os.path.join(DATA_DIR, "1crn.pdb")
 
+# Any test that requests one of these fixtures runs the real LAMMPS/AWSEM toolchain,
+# so it belongs to the slow (e2e/parity) lane. Tests that shell out to the engine
+# directly (without these fixtures) carry an explicit `@pytest.mark.slow`.
+_HEAVY_FIXTURES = frozenset(
+    {"crn_configurational", "crn_mutational", "crn_singleresidue", "run_mode", "globin_family"}
+)
+
+
+def pytest_collection_modifyitems(config, items):
+    """Auto-tag every test that uses a LAMMPS-running fixture as ``slow`` so the
+    fast CI lane (``-m "not slow"``) can skip the engine while the e2e lane runs it."""
+    for item in items:
+        if _HEAVY_FIXTURES.intersection(getattr(item, "fixturenames", ())):
+            item.add_marker(pytest.mark.slow)
+
 
 @pytest.fixture(scope="session")
 def crn_pdb():
@@ -60,6 +75,26 @@ def crn_configurational(crn_pdb, tmp_path_factory):
         "job_dir": job_dir,
         "table": table,
     }
+
+
+@pytest.fixture(scope="session")
+def crn_mutational(crn_pdb, tmp_path_factory):
+    """Run 1CRN mutational once and share across the session (anchor: 232x14)."""
+    results_dir = str(tmp_path_factory.mktemp("crn_mut"))
+    result = _run_mode(crn_pdb, "mutational", results_dir)
+    job_dir = os.path.join(results_dir, "1crn.done")
+    table = os.path.join(job_dir, "FrustrationData", "1crn.pdb_mutational")
+    return {"result": result, "results_dir": results_dir, "job_dir": job_dir, "table": table}
+
+
+@pytest.fixture(scope="session")
+def crn_singleresidue(crn_pdb, tmp_path_factory):
+    """Run 1CRN singleresidue once and share across the session (anchor: 46x8)."""
+    results_dir = str(tmp_path_factory.mktemp("crn_sr"))
+    result = _run_mode(crn_pdb, "singleresidue", results_dir)
+    job_dir = os.path.join(results_dir, "1crn.done")
+    table = os.path.join(job_dir, "FrustrationData", "1crn.pdb_singleresidue")
+    return {"result": result, "results_dir": results_dir, "job_dir": job_dir, "table": table}
 
 
 @pytest.fixture

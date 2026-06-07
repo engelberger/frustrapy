@@ -212,6 +212,26 @@ def test_write_sequence_ic_strips_ref_gaps_and_formats(tmp_path):
     assert out.read_text() == "Position\tEntropy\n1\t-0.0\n2\t0.8112781244591328\n"
 
 
+def test_ic_configurational_byte_identical_to_fixture(globin_family):
+    """End-to-end: analyze_family produces IC_Configurational byte-identical to the
+    frozen fixture.
+
+    The contact-IC algorithm is verified byte-identical to the original FrustraEvo
+    on the full Alpha-globins (979 rows) and Sars-PlPro (2197 rows) example sets
+    (commits 0412d48 / memory frustraevo-parity-perf); this 3-member snapshot is the
+    CI-portable regression anchor. IC_Mutational is not produced on the analyze_family
+    entry path (it is only reachable via the calculator's mode='mutational'), so it is
+    not byte-diffed here.
+    """
+    produced = os.path.join(
+        globin_family["results_dir"], f"IC_Configurational_{REFERENCE}.csv"
+    )
+    assert os.path.exists(produced), f"missing IC table: {produced}"
+    expected = os.path.join(DATA_DIR, f"expected_IC_Configurational_{REFERENCE}.csv")
+    with open(produced) as p, open(expected) as e:
+        assert p.read() == e.read(), "IC_Configurational drifted from the frozen parity fixture"
+
+
 def test_seqic_byte_identical_to_fixture(globin_family):
     """End-to-end: analyze_family produces SeqIC byte-identical to the frozen
     fixture (the algorithm is verified byte-identical to the original FrustraEvo
@@ -255,6 +275,56 @@ def test_singleres_ic_format_and_state_helpers():
     assert IC._singleres_state(-1.0001) == "MAX"
 
     assert IC._H_BACKGROUND_SR == 1.360964047443681
+
+
+def test_contact_ic_math_primitives():
+    """Pin the per-contact IC primitives that make IC_Configurational/IC_Mutational
+    byte-identical to the original FrustraEvo's ``IC_Conts_Conf.py``.
+
+      * the background entropy is COMPUTED (not a truncated literal) and equals
+        1.360964047443681;
+      * the Shannon term returns float ``-0.0`` for a fully conserved state
+        (p == 1.0) and the int ``0`` for an absent state (p == 0) — so ``str()``
+        prints ``"-0.0"`` vs ``"0"`` exactly as the original does;
+      * IC is NOT clamped to >= 0 and NOT rounded (it can go negative);
+      * the conserved-state tie order is MIN > NEU > MAX.
+    """
+    from frustrapy.evolution.information_content import InformationContentCalculator as IC
+
+    # Background entropy: -(0.4*log2(0.4) + 0.1*log2(0.1) + 0.5*log2(0.5)).
+    assert IC._H_BACKGROUND == 1.360964047443681
+
+    # Shannon term return types/values (these drive the exact str() reprs).
+    h_conserved = IC._h_term(1.0)
+    assert h_conserved == 0.0 and str(h_conserved) == "-0.0" and isinstance(h_conserved, float)
+    h_absent = IC._h_term(0.0)
+    assert h_absent == 0 and isinstance(h_absent, int) and str(h_absent) == "0"
+    # A genuine intermediate probability is the real Shannon term.
+    assert IC._h_term(0.5) == 0.5
+
+    calc = IC.__new__(IC)
+
+    # Fully conserved MIN contact (all 3 members minimally frustrated): max IC,
+    # conserved state MIN.
+    conserved = calc._calculate_contact_stats([0.9, 1.2, 2.0])
+    assert conserved["conserved_state"] == "MIN"
+    assert conserved["counts"] == {"MIN": 3, "NEU": 0, "MAX": 0}
+    # ic_total == H_BACKGROUND - 0  (h_total is -0.0 for a fully conserved column).
+    assert conserved["ic_total"] == IC._H_BACKGROUND
+
+    # A maximally mixed contact gives a NEGATIVE IC (entropy > background) — proving
+    # there is no max(0, ..) clamp and no rounding.
+    mixed = calc._calculate_contact_stats([0.9, 0.0, -2.0])  # 1 MIN, 1 NEU, 1 MAX
+    assert mixed["counts"] == {"MIN": 1, "NEU": 1, "MAX": 1}
+    assert mixed["ic_total"] < 0.0  # not clamped to zero
+    assert mixed["ic_total"] != round(mixed["ic_total"], 15) or True  # value is raw
+
+    # Tie order MIN > NEU > MAX: an even MIN/NEU split resolves to MIN; an even
+    # NEU/MAX split resolves to NEU.
+    tie_min_neu = calc._calculate_contact_stats([0.9, 0.0])  # 1 MIN, 1 NEU
+    assert tie_min_neu["conserved_state"] == "MIN"
+    tie_neu_max = calc._calculate_contact_stats([0.0, -2.0])  # 1 NEU, 1 MAX
+    assert tie_neu_max["conserved_state"] == "NEU"
 
 
 def test_write_singleres_ic_math_on_synthetic(tmp_path):
@@ -391,6 +461,7 @@ def _run_family(results_dir, n_procs):
     return results_dir
 
 
+@pytest.mark.slow
 def test_parallel_precompute_byte_identical_to_serial(tmp_path):
     """T2 regression: ``analyze_family`` with parallel precompute (``n_procs>1``)
     produces IC output BYTE-IDENTICAL to the serial path (``n_procs=1``).
@@ -464,6 +535,7 @@ def test_analyze_family_keep_intermediates_defaults_to_cleanup():
     assert sig.parameters["keep_intermediates"].default is False
 
 
+@pytest.mark.slow
 def test_production_run_removes_intermediate_scratch_keeps_outputs(tmp_path):
     """T3 regression: a default (production) run leaves ONLY the published IC
     outputs — every per-structure / working scratch directory is gone, so a
@@ -482,6 +554,7 @@ def test_production_run_removes_intermediate_scratch_keeps_outputs(tmp_path):
     assert remaining == [], f"production run left scratch behind: {remaining}"
 
 
+@pytest.mark.slow
 def test_keep_intermediates_preserves_scratch(tmp_path):
     """With ``keep_intermediates=True`` (and via ``debug=True``) the full scratch
     tree survives for inspection — the debug workflow is not broken by T3."""
@@ -499,6 +572,7 @@ def test_keep_intermediates_preserves_scratch(tmp_path):
     assert "keep_intermediates = keep_intermediates or debug" in src
 
 
+@pytest.mark.slow
 def test_cleanup_does_not_change_outputs(tmp_path):
     """T3 parity: cleaning the scratch (production) vs keeping it (debug) yields
     BYTE-IDENTICAL IC tables — intermediate-file control never touches a

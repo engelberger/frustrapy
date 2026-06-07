@@ -153,6 +153,7 @@ def test_p0_5_get_frustration_filter_branches_on_mode(crn_pdb, run_mode, mode):
 
 
 # ----------------------------------------------------------------------- P0-6/7
+@pytest.mark.slow
 def test_p0_6_dir_frustration_returns_two_tuple_when_skipped(crn_pdb, tmp_path):
     """dir_frustration returns a 2-tuple even when the mode is already logged (skip)."""
     import shutil
@@ -187,6 +188,7 @@ def test_p0_6_dir_frustration_returns_two_tuple_when_skipped(crn_pdb, tmp_path):
     assert isinstance(second, tuple) and len(second) == 2  # pre-fix returned None
 
 
+@pytest.mark.slow
 def test_p0_7_dir_frustration_empty_order_list(crn_pdb, tmp_path):
     """An empty order_list returns ({}, None), not an UnboundLocalError on density."""
     import frustrapy
