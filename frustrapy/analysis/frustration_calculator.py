@@ -13,7 +13,7 @@ from ..core import Pdb
 from ..utils import get_os, replace_expr
 from ..utils.helpers import pdb_equivalences, renum_files
 from ..utils.decorators import log_execution_time
-from .mutations import mutate_res_parallel
+from .mutations import mutate_res_parallel, mutate_res_scan_parallel
 from ..visualization import (
     plot_5andens,
     plot_5adens_proportions,
@@ -860,6 +860,13 @@ class FrustrationCalculator:
             else pdb.atom[pdb.atom["ATOM"] == "ATOM"]["chain"].unique()
         )
 
+        # Lever 1 (flatten): collect every (residue, chain) to mutate FIRST, then
+        # run the whole grid through ONE persistent pool. The previous code looped
+        # serially over residues and re-forked a fresh pool inside each
+        # mutate_res_parallel call (N fork/join cycles, hard 20-way ceiling per
+        # cycle). Building the target list up front lets all N×20 LAMMPS evals share
+        # a single pool — on > 20 cores the scan keeps > 20 tasks in flight.
+        targets = []
         for chain_id in chains_to_analyze:
             residues_analyzed[chain_id] = []
             chain_residues = (
@@ -869,30 +876,40 @@ class FrustrationCalculator:
                     (pdb.atom["ATOM"] == "ATOM") & (pdb.atom["chain"] == chain_id)
                 ]["res_num"].unique()
             )
-
             for res in chain_residues:
-                try:
-                    # Run mutation analysis with specified CPU count
-                    pdb = mutate_res_parallel(
-                        pdb=pdb,
-                        res_num=res,
-                        chain=chain_id,
-                        split=True,
-                        method="threading",
-                        n_cpus=self.n_cpus,
-                    )
-                    plot_key = f"delta_frus_res{res}_chain{chain_id}"
-                    self.plots[plot_key] = plot_delta_frus(
-                        pdb=pdb,
-                        res_num=res,
-                        chain=chain_id,
-                        method="threading",
-                        save=True,
-                    )
-                except Exception as e:
-                    logger.error(
-                        f"Failed to analyze residue {res} chain {chain_id}: {str(e)}"
-                    )
+                targets.append((res, chain_id))
+
+        if not targets:
+            return
+
+        try:
+            pdb = mutate_res_scan_parallel(
+                pdb=pdb,
+                targets=targets,
+                split=True,
+                method="threading",
+                n_cpus=self.n_cpus,
+            )
+        except Exception as e:
+            logger.error(f"Mutation scan failed: {str(e)}")
+            return
+
+        # Per-residue delta-frustration plots (cheap, serial; isolated so one
+        # plotting failure does not abort the rest of the scan).
+        for res, chain_id in targets:
+            try:
+                plot_key = f"delta_frus_res{res}_chain{chain_id}"
+                self.plots[plot_key] = plot_delta_frus(
+                    pdb=pdb,
+                    res_num=res,
+                    chain=chain_id,
+                    method="threading",
+                    save=True,
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to plot residue {res} chain {chain_id}: {str(e)}"
+                )
 
     def _generate_visualizations(self, pdb: Pdb) -> None:
         """Generate molecular visualizations."""
@@ -1022,7 +1039,7 @@ class FrustrationCalculator:
         try:
             contacts_df = pd.read_csv(
                 contacts_file,
-                sep="\s+",
+                sep=r"\s+",
                 header=None,
                 skiprows=2,
                 usecols=[0, 1, 4, 5, 6, 7, 8, 9, 18],

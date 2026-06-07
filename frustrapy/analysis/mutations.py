@@ -317,7 +317,7 @@ def _process_amino_acid(
 
         frustra_table = pd.read_csv(
             dst_frusta_file,
-            sep="\s+",
+            sep=r"\s+",
             header=0,
             usecols=["Res", "ChainRes", "AA", "FrstIndex"],
         )
@@ -355,14 +355,14 @@ def _process_amino_acid(
                 logger.error(f"Parent directory {parent_done} contents: {os.listdir(parent_done) if os.path.exists(parent_done) else 'N/A'}")
             # Skip storing if missing
             logger.warning(f"Skipping storage for {aa} due to missing file.")
-            return {"aa": aa, "frustra_mut_file": None, "pdb": pdb}
+            return {"aa": aa, "res_num": res_num, "chain": chain, "ok": False}
         logger.debug(f"[_process_amino_acid] Moving file {src_frusta_file} to {dst_frusta_file}")
         shutil.move(src_frusta_file, dst_frusta_file)
         logger.debug(f"[_process_amino_acid] Successfully moved to {dst_frusta_file}")
 
         frustra_table = pd.read_csv(
             dst_frusta_file,
-            sep="\s+",
+            sep=r"\s+",
             header=0,
             usecols=[
                 "Res1",
@@ -397,30 +397,216 @@ def _process_amino_acid(
     if not debug:
         os.remove(output_pdb_path)
 
-    # After processing the mutation and calculating frustration, add the data to pdb.Mutations
-    mutation_key = f"Res_{res_num}_{chain}"
+    # Lever 7 (trim the worker payload): each worker writes its own `.part` file
+    # to disk (above) and returns only a tiny status dict. The full Pdb object is
+    # NOT pickled back to the parent — the parent reconstructs pdb.Mutations from
+    # the (res_num, chain) it already knows. Returning the Pdb here pickled the
+    # whole atom DataFrame across the pipe 20x per residue for no benefit.
+    logger.debug(f"[_process_amino_acid] Completed processing variant {aa}")
+    return {"aa": aa, "res_num": res_num, "chain": chain, "ok": True}
 
-    # Initialize Mutations dict if it doesn't exist
+
+# The 20 canonical amino-acid identities, in the FIXED order used to concatenate
+# per-variant results into the output table. This order is parity-load-bearing —
+# the merged `.part` files are written in exactly this sequence, matching the row
+# order the pre-flatten code (and frustratometeR) produced.
+AMINO_ACIDS = [
+    "LEU", "ASP", "ILE", "ASN", "THR", "VAL", "ALA", "GLY", "GLU", "ARG",
+    "LYS", "HIS", "GLN", "SER", "PRO", "PHE", "TYR", "MET", "TRP", "CYS",
+]
+
+
+def _resolve_pool_size(requested: Optional[int], n_tasks: int, cores: int) -> int:
+    """Resolve the worker count for the mutation pool (Lever 5).
+
+    ``min(requested_or_cores, cores, n_tasks)`` — capped at both the core budget
+    and the number of tasks, never oversubscribing. Crucially, because a flattened
+    scan presents ``n_residues * 20`` tasks, on a box with > 20 cores this returns
+    > 20: the old hard 20-way-per-residue ceiling is structurally gone.
+    """
+    requested = cores if requested is None else int(requested)
+    return max(1, min(requested, cores, n_tasks))
+
+
+def _residue_is_glycine(pdb: "Pdb", res_num: int, chain: str) -> bool:
+    return (
+        pdb.atom.loc[
+            (pdb.atom["res_num"] == res_num)
+            & (pdb.atom["chain"] == chain)
+            & (pdb.atom["atom_name"] == "CA"),
+            "res_name",
+        ].iloc[0]
+        == "GLY"
+    )
+
+
+def _write_mut_header(frustra_mut_file: str, mode: str) -> None:
+    with open(frustra_mut_file, "w") as f:
+        if mode in ["configurational", "mutational"]:
+            f.write("Res1 Res2 ChainRes1 ChainRes2 AA1 AA2 FrstIndex FrstState\n")
+        elif mode == "singleresidue":
+            f.write("Res ChainRes AA FrstIndex\n")
+
+
+def _concat_parts(
+    mutations_dir: str, mode: str, res_num: int, method: str, chain: str,
+    frustra_mut_file: str,
+) -> None:
+    """Parent-side deterministic merge (full P1-1 lock-free fix): append each
+    worker's `.part` file to the shared output in fixed amino-acid order. No
+    worker ever writes the shared file, so there is no append race regardless of
+    how many residues/variants run concurrently."""
+    with open(frustra_mut_file, "a") as out:
+        for aa in AMINO_ACIDS:
+            part = os.path.join(
+                mutations_dir, f"{mode}_Res{int(res_num)}_{method}_{chain}.{aa}.part"
+            )
+            if os.path.exists(part):
+                with open(part) as pf:
+                    out.write(pf.read())
+                os.remove(part)
+
+
+def mutate_res_scan_parallel(
+    pdb: "Pdb",
+    targets: list,
+    split: bool = True,
+    method: str = "threading",
+    n_cpus: Optional[int] = None,
+    pbar: Optional[tqdm] = None,
+) -> "Pdb":
+    """Flatten the whole ``(residue × amino-acid)`` mutation grid into ONE
+    persistent process pool — Phase 6 Lever 1, the only lever that changes the
+    asymptote.
+
+    The pre-flatten code re-forked a fresh ``Pool`` for **every** residue
+    (``_generate_singleresidue_analysis`` looped serially over residues, each call
+    to ``mutate_res_parallel`` standing up and tearing down its own 20-task pool).
+    For an N-residue scan that is N independent fork/join cycles, each capped at a
+    20-way ceiling, so a box with > 20 cores sits mostly idle. Here all
+    ``N × 20`` tasks are dispatched into a single pool: on > 20 cores the scan
+    keeps > 20 LAMMPS single-point evaluations in flight at once (the ceiling is
+    structurally gone) and the per-residue re-fork cost is paid once, not N times.
+
+    Args:
+        targets: list of ``(res_num, chain)`` tuples to mutate.
+
+    Returns the ``pdb`` with ``pdb.Mutations[method]`` populated for every target
+    and a per-scan ``pdb.MutationAnalysis`` metrics dict.
+    """
+    if not isinstance(split, bool):
+        raise ValueError("Split must be a boolean value!")
+    if method not in ["threading", "modeller"]:
+        raise ValueError("Method must be 'threading' or 'modeller'.")
+    if method == "modeller" and not split:
+        raise ValueError("Complex modeling with Modeller is not available!")
+
+    mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
+    os.makedirs(mutations_dir, exist_ok=True)
+    logger.debug(f"[mutate_res_scan_parallel] MutationsData directory: {mutations_dir}")
+
+    start_time = time.time()
+
+    # Validate every target, (re)create its header file, and build the flat task
+    # list spanning ALL residues. is_glycine is computed per residue (it is part of
+    # the worker arg-tuple for signature stability; the GLY geometry branch keys
+    # off the residue's actual name, not this flag).
+    args_list = []
+    target_files = {}
+    for res_num, chain in targets:
+        if not ((pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)).any():
+            raise ValueError(
+                f"Residue number {res_num} in chain '{chain}' does not exist!"
+            )
+        frustra_mut_file = os.path.join(
+            mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
+        )
+        if os.path.exists(frustra_mut_file):
+            os.remove(frustra_mut_file)
+        _write_mut_header(frustra_mut_file, pdb.mode)
+        target_files[(res_num, chain)] = frustra_mut_file
+        is_glycine = _residue_is_glycine(pdb, res_num, chain)
+        for aa in AMINO_ACIDS:
+            args_list.append(
+                (aa, pdb, res_num, chain, split, False, is_glycine, method)
+            )
+
+    # Lever 5: never oversubscribe — cap the pool at the number of TASKS as well as
+    # the core budget. The old code hardcoded ``Pool(cpu_count())`` even for a
+    # 20-task single residue, leaving (cores − 20) workers idle and risking
+    # oversubscription when stacked under an outer pool (P3-3).
+    if n_cpus is not None and (not isinstance(n_cpus, int) or n_cpus <= 0):
+        raise ValueError("n_cpus must be a positive integer or None")
+    n_processes = _resolve_pool_size(
+        n_cpus, len(args_list), multiprocessing.cpu_count()
+    )
+
+    own_pbar = pbar is None
+    if own_pbar:
+        pbar = tqdm(
+            total=len(args_list),
+            desc=f"Mutating {len(targets)} residue(s) × {len(AMINO_ACIDS)} variants",
+            position=0,
+            leave=True,
+            dynamic_ncols=True,
+            file=sys.stdout,
+        )
+
+    logger.debug(
+        f"[mutate_res_scan_parallel] {len(targets)} residue(s), "
+        f"{len(args_list)} tasks, {n_processes} workers"
+    )
+
+    pool = multiprocessing.Pool(processes=n_processes)
+    try:
+        for _result in pool.imap_unordered(_process_amino_acid, args_list):
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        pool.close()
+        pool.join()
+        if own_pbar and pbar is not None and pbar.disable is False:
+            pbar.close()
+
+    # Parent-side deterministic merge + Mutations bookkeeping, per target. The
+    # parent reconstructs pdb.Mutations entirely from (res_num, chain) — the
+    # workers no longer ship the Pdb back (Lever 7).
     if not hasattr(pdb, "Mutations"):
         pdb.Mutations = {}
     if method not in pdb.Mutations:
         pdb.Mutations[method] = {}
 
-    # Store mutation data
-    pdb.Mutations[method][mutation_key] = {
-        "Method": method,
-        "Res": res_num,
-        "Chain": chain,
-        "File": frustra_mut_file,
+    for (res_num, chain), frustra_mut_file in target_files.items():
+        _concat_parts(
+            mutations_dir, pdb.mode, res_num, method, chain, frustra_mut_file
+        )
+        pdb.Mutations[method][f"Res_{res_num}_{chain}"] = {
+            "Method": method,
+            "Res": res_num,
+            "Chain": chain,
+            "File": frustra_mut_file,
+        }
+        logger.info(
+            f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
+        )
+
+    total_time = time.time() - start_time
+    end_time = time.time()
+    pdb.MutationAnalysis = {
+        "n_cpus": n_processes,
+        "n_residues": len(targets),
+        "n_tasks": len(args_list),
+        "time_s": total_time,
+        "time_per_aa": total_time / max(1, len(args_list)),
+        "start_time": datetime.datetime.fromtimestamp(start_time).isoformat(),
+        "end_time": datetime.datetime.fromtimestamp(end_time).isoformat(),
     }
 
-    # Return both the mutation data and updated pdb object
-    logger.debug(f"[_process_amino_acid] Completed processing variant {aa}, frustra_mut_file: {frustra_mut_file}")
-    return {
-        "aa": aa,
-        "frustra_mut_file": frustra_mut_file,
-        "pdb": pdb,  # Add this to return the updated pdb object
-    }
+    display_success(
+        f"Mutation analysis completed successfully for {len(targets)} residue(s); "
+        f"{len(args_list)} mutations processed."
+    )
+    return pdb
 
 
 def mutate_res_parallel(
@@ -432,191 +618,16 @@ def mutate_res_parallel(
     n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
 ) -> "Pdb":
-    """Parallel version of mutate_res with n_cpus parameter."""
-    logger.debug(f"[mutate_res_parallel] Starting parallel mutations for residue {res_num}, chain {chain}")
-    start_time = time.time()
-    logger.info(f"\nAnalyzing mutations for residue {res_num} in chain {chain}")
+    """Parallel single-residue mutation scan.
 
-    # Validate inputs (same as mutate_res)
-    if not isinstance(split, bool):
-        logger.error("Split must be a boolean value!")
-        raise ValueError("Split must be a boolean value!")
-
-    if method not in ["threading", "modeller"]:
-        logger.error(
-            f"Invalid method '{method}'. Available methods: 'threading', 'modeller'."
-        )
-        raise ValueError("Method must be 'threading' or 'modeller'.")
-
-    if not ((pdb.atom["res_num"] == res_num) & (pdb.atom["chain"] == chain)).any():
-        logger.error(f"Residue number {res_num} in chain '{chain}' does not exist!")
-        raise ValueError(f"Residue number {res_num} in chain '{chain}' does not exist!")
-
-    if method == "modeller" and not split:
-        logger.error("Complex modeling with Modeller is not available!")
-        raise ValueError("Complex modeling with Modeller is not available!")
-
-    # Setup output directory and file
-    mutations_dir = os.path.join(pdb.job_dir, "MutationsData")
-    os.makedirs(mutations_dir, exist_ok=True)
-    logger.debug(f"[mutate_res_parallel] Using MutationsData directory: {mutations_dir}")
-    frustra_mut_file = os.path.join(
-        mutations_dir, f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.txt"
+    Thin wrapper over :func:`mutate_res_scan_parallel` with a single target. Kept
+    for backwards compatibility and as the W-d benchmark SUT; a multi-residue scan
+    should call :func:`mutate_res_scan_parallel` directly so all variants share one
+    persistent pool (Lever 1).
+    """
+    return mutate_res_scan_parallel(
+        pdb, [(res_num, chain)], split=split, method=method, n_cpus=n_cpus, pbar=pbar
     )
-
-    if os.path.exists(frustra_mut_file):
-        os.remove(frustra_mut_file)
-
-    # Write header to the output file
-    with open(frustra_mut_file, "w") as f:
-        if pdb.mode in ["configurational", "mutational"]:
-            f.write("Res1 Res2 ChainRes1 ChainRes2 AA1 AA2 FrstIndex FrstState\n")
-        elif pdb.mode == "singleresidue":
-            f.write("Res ChainRes AA FrstIndex\n")
-
-    # Define amino acid codes
-    amino_acids = [
-        "LEU",
-        "ASP",
-        "ILE",
-        "ASN",
-        "THR",
-        "VAL",
-        "ALA",
-        "GLY",
-        "GLU",
-        "ARG",
-        "LYS",
-        "HIS",
-        "GLN",
-        "SER",
-        "PRO",
-        "PHE",
-        "TYR",
-        "MET",
-        "TRP",
-        "CYS",
-    ]
-
-    # Create our own progress bar if none was provided
-    if pbar is None:
-        pbar = tqdm(
-            total=len(amino_acids),
-            desc=f"Processing mutations for residue {res_num}",
-            position=0,
-            leave=True,
-            dynamic_ncols=True,
-            file=sys.stdout,
-        )
-
-    # Check if the residue is glycine
-    is_glycine = (
-        pdb.atom.loc[
-            (pdb.atom["res_num"] == res_num)
-            & (pdb.atom["chain"] == chain)
-            & (pdb.atom["atom_name"] == "CA"),
-            "res_name",
-        ].iloc[0]
-        == "GLY"
-    )
-
-    logger.debug("Starting parallel mutation processing")
-    process_start = time.time()
-
-    # Create process pool
-    # Determine number of processes
-    if n_cpus is not None:
-        if not isinstance(n_cpus, int) or n_cpus <= 0:
-            raise ValueError("n_cpus must be a positive integer or None")
-        n_processes = min(n_cpus, multiprocessing.cpu_count())
-    else:
-        n_processes = multiprocessing.cpu_count()
-    pool = multiprocessing.Pool(processes=n_processes)
-
-    # Create arguments list
-    args_list = [
-        (aa, pdb, res_num, chain, split, False, is_glycine, method)
-        for aa in amino_acids
-    ]
-
-    # Process mutations in parallel with progress bar
-    results = []
-    try:
-        for result in pool.imap_unordered(_process_amino_acid, args_list):
-            # Debug: log each mutation result
-            logger.debug(f"[mutate_res_parallel] Received result: aa={result.get('aa')}, frustra_mut_file={result.get('frustra_mut_file')}")
-            results.append(result)
-            # Update pdb object with mutation data from each result
-            if "pdb" in result:
-                # Update mutation data
-                if not hasattr(pdb, "Mutations"):
-                    pdb.Mutations = {}
-                if method not in pdb.Mutations:
-                    pdb.Mutations[method] = {}
-
-                mutation_key = f"Res_{res_num}_{chain}"
-                if mutation_key not in pdb.Mutations[method]:
-                    pdb.Mutations[method][mutation_key] = result["pdb"].Mutations[
-                        method
-                    ][mutation_key]
-
-            if pbar is not None:
-                pbar.update(1)
-                pbar.set_postfix({"residue": f"{res_num}"}, refresh=False)
-    finally:
-        if pbar is not None and pbar.disable is False:
-            pbar.close()
-
-    pool.close()
-    pool.join()
-
-    # P1-1 minimal append-race safety: now that all workers have finished, the
-    # PARENT (single-threaded) concatenates each worker's partial file into the
-    # shared frustra_mut_file in deterministic amino-acid order. The header was
-    # already written above. This replaces the prior 20-way concurrent append.
-    with open(frustra_mut_file, "a") as out:
-        for aa in amino_acids:
-            part = os.path.join(
-                mutations_dir,
-                f"{pdb.mode}_Res{int(res_num)}_{method}_{chain}.{aa}.part",
-            )
-            if os.path.exists(part):
-                with open(part) as pf:
-                    out.write(pf.read())
-                os.remove(part)
-
-    # Debug: inspect MutationsData directory after processing
-    try:
-        logger.debug(f"[mutate_res_parallel] Final MutationsData contents: {os.listdir(mutations_dir)}")
-    except Exception as e:
-        logger.error(f"[mutate_res_parallel] Could not list MutationsData directory: {e}", exc_info=True)
-
-    total_time = time.time() - start_time
-
-    # Record runtime metrics for benchmarking
-    end_time = time.time()
-    start_iso = datetime.datetime.fromtimestamp(start_time).isoformat()
-    end_iso = datetime.datetime.fromtimestamp(end_time).isoformat()
-    metrics = {
-        "n_cpus": n_processes,
-        "time_s": total_time,
-        "time_per_aa": total_time / len(amino_acids),
-        "start_time": start_iso,
-        "end_time": end_iso,
-    }
-    pdb.MutationAnalysis = metrics
-
-    # Log only the final storage location
-    logger.info(
-        f"The frustration data for residue {res_num} is stored in {frustra_mut_file}"
-    )
-    logger.debug(f"[mutate_res_parallel] Completed in {total_time:.2f}s")
-
-    # Success message
-    success_msg = f"Mutation analysis completed successfully for residue {chain}:{res_num}.\n{len(amino_acids)} mutations processed."
-    display_success(success_msg)
-
-    return pdb
 
 def mutate_res(
     pdb: "Pdb",
@@ -722,27 +733,20 @@ def mutate_res(
             if debug:
                 logger.debug(f"Processing mutation to {aa}")
             aa_start = time.time()
-            result = _process_amino_acid(
+            _process_amino_acid(
                 (aa, pdb, res_num, chain, split, debug, is_glycine, method)
             )
-            # Update pdb object with mutation data
-            if "pdb" in result:
-                if not hasattr(pdb, "Mutations"):
-                    pdb.Mutations = {}
-                if method not in pdb.Mutations:
-                    pdb.Mutations[method] = {}
-
-                mutation_key = f"Res_{res_num}_{chain}"
-                if mutation_key not in pdb.Mutations[method]:
-                    pdb.Mutations[method][mutation_key] = result["pdb"].Mutations[
-                        method
-                    ][mutation_key]
-
+            # The worker writes its own `.part` file and returns only a status
+            # dict (Lever 7) — pdb.Mutations is reconstructed by the parent below.
             if debug:
                 logger.debug(f"Processed {aa} in {time.time() - aa_start:.2f} seconds")
             pbar.update(1)
 
     process_time = time.time() - process_start
+
+    # Parent-side deterministic merge of the per-variant `.part` files (matches the
+    # parallel path; workers no longer touch the shared output file).
+    _concat_parts(mutations_dir, pdb.mode, res_num, method, chain, frustra_mut_file)
 
     # Update the pdb object with mutation information
     if not hasattr(pdb, "Mutations"):

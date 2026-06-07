@@ -337,7 +337,7 @@ def organize_single_residue_data(
             try:
                 mutation_df = pd.read_csv(
                     mutation_file,
-                    sep="\s+",  # Split on whitespace
+                    sep=r"\s+",  # Split on whitespace
                     names=[
                         "Res",
                         "ChainRes",
