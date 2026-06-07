@@ -159,7 +159,12 @@ def test_result_dict_shape(globin_family):
     res = globin_family["result"]
     assert set(res.keys()) == {"job_id", "output_dir", "files", "contacts"}
     assert res["job_id"] == "globin3"
-    assert set(res["files"].keys()) == {"data", "sequence_ic", "contact_maps"}
+    assert set(res["files"].keys()) == {
+        "data",
+        "sequence_ic",
+        "single_residue_ic",
+        "contact_maps",
+    }
     # contact_maps=False by default -> no PNG produced
     assert res["files"]["contact_maps"] is None
     assert set(res["contacts"].keys()) == {"information_content", "summary"}
@@ -217,6 +222,123 @@ def test_seqic_byte_identical_to_fixture(globin_family):
     expected = os.path.join(DATA_DIR, f"expected_SeqIC_{REFERENCE}.tab")
     with open(produced) as p, open(expected) as e:
         assert p.read() == e.read(), "SeqIC drifted from the frozen parity fixture"
+
+
+def test_singleres_ic_format_and_state_helpers():
+    """Pin the single-residue IC primitives that make the table byte-identical to
+    the original FrustraEvo's R output (Scripts/Logo.R + add_ref).
+
+      * R ``cat`` formatting == C ``%.7g`` for these magnitudes, with (negative)
+        zero printed as ``"0"`` (NOT ``-0.0``);
+      * the single-residue state cutoffs are 0.55 / -1 (strict), NOT the contact
+        cutoffs 0.78 / -1;
+      * the background entropy uses ``log2`` and equals 1.360964047443681.
+    """
+    from frustrapy.evolution.information_content import InformationContentCalculator as IC
+
+    # R cat / %.7g formatting (7 significant digits, trailing zeros dropped).
+    assert IC._r_cat_format(0.9523107012) == "0.9523107"
+    assert IC._r_cat_format(1.2888292) == "1.288829"
+    assert IC._r_cat_format(0.95) == "0.95"
+    # Both +0.0 and -0.0 print as a bare "0" (R suppresses the sign of zero).
+    assert IC._r_cat_format(0.0) == "0"
+    assert IC._r_cat_format(-0.0) == "0"
+    assert IC._r_cat_format(0.0 * -0.0382) == "0"
+    # Genuine negatives keep their sign (single-residue IC can go negative).
+    assert IC._r_cat_format(-0.03823013) == "-0.03823013"
+
+    # Single-residue cutoffs: > 0.55 -> MIN, < -1 -> MAX, else NEU (strict).
+    assert IC._singleres_state(0.56) == "MIN"
+    assert IC._singleres_state(0.55) == "NEU"  # boundary is NOT minimally
+    assert IC._singleres_state(0.78) == "MIN"  # 0.78 is the *contact* cutoff
+    assert IC._singleres_state(-1.0) == "NEU"  # boundary is NOT maximally
+    assert IC._singleres_state(-1.0001) == "MAX"
+
+    assert IC._H_BACKGROUND_SR == 1.360964047443681
+
+
+def test_write_singleres_ic_math_on_synthetic(tmp_path):
+    """``_write_singleres_ic`` reproduces the Logo.R math + add_ref annotation on
+    a hand-checked synthetic 2-structure family.
+
+    Two structures, reference ``r`` with two residues (PDB 5, 6). Column 1 is
+    MIN in both; column 2 is MIN in one and MAX in the other.
+    """
+    from frustrapy.evolution.information_content import InformationContentCalculator as IC
+    import math
+
+    equiv = tmp_path / "equivalences"
+    equiv.mkdir()
+    sr_root = tmp_path / "Frustration_SR"
+
+    def write_member(sid, rows):
+        # equivalence file: MSA_pos -> PDB_pos (5-col layout)
+        (equiv / f"Equival_{sid}.txt").write_text(
+            "MSA_pos\tPDB_pos\tResidue\tChain\tStructure\n"
+            + "".join(f"{m}\t{p}\tA\tA\t{sid}\n" for m, p in rows["equiv"])
+        )
+        d = sr_root / f"{sid}.done" / "FrustrationData"
+        d.mkdir(parents=True)
+        (d / f"{sid}.pdb_singleresidue").write_text(
+            "Res ChainRes DensityRes AA NativeEnergy DecoyEnergy SDEnergy FrstIndex\n"
+            + "".join(
+                f"{res} A 0.0 V -1 -1 1 {frst}\n" for res, frst in rows["sr"]
+            )
+        )
+
+    # r: col1=MIN(0.9), col2=MIN(0.9); s: col1=MIN(0.9), col2=MAX(-2.0)
+    write_member("r", {"equiv": [(1, 5), (2, 6)], "sr": [(5, 0.9), (6, 0.9)]})
+    write_member("s", {"equiv": [(1, 5), (2, 6)], "sr": [(5, 0.9), (6, -2.0)]})
+
+    calc = IC.__new__(IC)
+    calc.results_dir = tmp_path
+    calc.reference_pdb = "r"
+    calc.frustration_sr_dir = sr_root
+    calc.equivalences_dir = equiv
+    calc.valid_ids = ["r", "s"]
+
+    out = calc._write_singleres_ic()
+    assert out == tmp_path / "IC_SingleRes_r.csv"
+    lines = out.read_text().splitlines()
+    assert lines[0].split("\t") == [
+        "Res", "AA_Ref", "Num_Ref", "Prot_Ref", "%Min", "%Neu", "%Max",
+        "CantMin", "CantNeu", "CantMax", "ICMin", "ICNeu", "ICMax", "ICTot", "FrustIC",
+    ]
+
+    # Column 1: both MIN -> p_min=1, fully conserved.
+    total = 2
+    corr = (3 - 1) / (2 * math.log(2) * total)
+    ic_tot1 = IC._H_BACKGROUND_SR - 0.0 - corr  # shannon(p=1)=0
+    c1 = lines[1].split("\t")
+    assert c1[:4] == ["1", "A", "5", "r"]
+    assert c1[4:10] == ["1", "0", "0", "2", "0", "0"]  # %Min %Neu %Max counts
+    assert c1[10] == IC._r_cat_format(ic_tot1)         # ICMin = 1*ic_tot
+    assert c1[13] == IC._r_cat_format(ic_tot1)         # ICTot
+    assert c1[14] == "MIN"
+
+    # Column 2: one MIN, one MAX -> p_min=p_max=0.5, tie -> MIN (original order).
+    p = 0.5
+    shannon = -(2 * (p * math.log2(p)))
+    ic_tot2 = IC._H_BACKGROUND_SR - shannon - corr
+    c2 = lines[2].split("\t")
+    assert c2[4:10] == ["0.5", "0", "0.5", "1", "0", "1"]
+    assert c2[13] == IC._r_cat_format(ic_tot2)
+    assert c2[14] == "MIN"  # n_max == n_min -> tie falls through to MIN
+
+
+def test_singleres_ic_byte_identical_to_fixture(globin_family):
+    """End-to-end: analyze_family produces IC_SingleRes byte-identical to the
+    frozen fixture. The algorithm is verified byte-identical to the original
+    FrustraEvo on the full Alpha-globins (140 cols) and Sars-PlPro (309 cols)
+    example sets; this 3-member snapshot is the CI-portable regression anchor
+    (it also exercises the negative-IC, no-clamp path on a small sample)."""
+    produced = os.path.join(
+        globin_family["results_dir"], f"IC_SingleRes_{REFERENCE}.csv"
+    )
+    assert os.path.exists(produced), f"missing IC_SingleRes table: {produced}"
+    expected = os.path.join(DATA_DIR, f"expected_IC_SingleRes_{REFERENCE}.csv")
+    with open(produced) as p, open(expected) as e:
+        assert p.read() == e.read(), "IC_SingleRes drifted from the frozen fixture"
 
 
 def test_frustration_state_distribution_non_degenerate(globin_family):

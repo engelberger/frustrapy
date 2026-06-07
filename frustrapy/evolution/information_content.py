@@ -583,6 +583,192 @@ class InformationContentCalculator:
             logger.error(f"Calculation failed: {str(e)}")
             raise FrustraEvoError(f"Information content calculation failed: {str(e)}")
 
+    # Background frustration-state entropy used by the ORIGINAL FrustraEvo
+    # single-residue IC step (``Scripts/Logo.R``). Logo.R is R code, so its
+    # ``log2`` is C ``log2`` — mirror it with ``math.log2`` (NOT ``math.log(p, 2)``,
+    # which the *contact* IC port uses to match its Python original). On the same
+    # libm these agree, but keep the provenance explicit:
+    #     -(0.4*log2(0.4) + 0.1*log2(0.1) + 0.5*log2(0.5)) = 1.360964047443681
+    _H_BACKGROUND_SR = -(
+        0.4 * math.log2(0.4)
+        + 0.1 * math.log2(0.1)
+        + 0.5 * math.log2(0.5)
+    )
+
+    @staticmethod
+    def _r_cat_format(x: float) -> str:
+        """Format a double the way the original FrustraEvo's R single-residue
+        step prints it. ``Logo.R`` emits every IC value with R's default
+        ``cat`` (``getOption("digits") == 7``), which for these magnitudes is
+        exactly C ``%.7g``; R also prints a (possibly negative) zero as ``"0"``.
+        Verified to round-trip every value of the original ``IC_SingleRes`` files
+        byte-for-byte."""
+        if x == 0:  # True for both +0.0 and -0.0; R prints "0"
+            return "0"
+        return "%.7g" % x
+
+    @staticmethod
+    def _singleres_state(frst_index: float) -> str:
+        """Classify a single-residue ``FrstIndex`` into a frustration state with
+        the ORIGINAL FrustraEvo single-residue cutoffs (``Functions.py:604-609``):
+        ``> 0.55`` -> minimally (``MIN``), ``< -1`` -> maximally (``MAX``), else
+        neutral (``NEU``). These are the single-residue cutoffs (0.55 / -1), NOT
+        the contact cutoffs (0.78 / -1) used by the IC_Conf/IC_Mut path."""
+        if frst_index > 0.55:
+            return "MIN"
+        if frst_index < -1:
+            return "MAX"
+        return "NEU"
+
+    def _write_singleres_ic(self) -> Path:
+        """Write the per-residue frustration information-content table
+        (``IC_SingleRes``), byte-faithful to the original FrustraEvo.
+
+        Port of ``Scripts/Logo.R`` + the ``add_ref`` annotation
+        (``Functions.py:664-692``). For every reference-gap-stripped MSA column
+        (the shared 1..N coordinate, same as IC_Conf's ``Res``) it counts, across
+        all family structures that have a residue there, how many are minimally /
+        neutrally / maximally frustrated **at the single-residue level**, then
+        computes the corrected frustration information content:
+
+            correction = (3 - 1) / (2 * ln(2) * total)      # small-sample
+            shannon    = -(p_min*log2(p_min) + p_neu*log2(p_neu) + p_max*log2(p_max))
+            IC_total   = H_background - shannon - correction
+            IC_state   = p_state * IC_total
+
+        with ``H_background`` computed via :data:`_H_BACKGROUND_SR`. There is NO
+        clamp and NO rounding — IC_total may be negative (states more mixed than
+        the background). The conserved-state tie order is the original's
+        (``Functions.py:69-76``): ``MAX`` if it strictly dominates, else ``NEU``
+        if it strictly beats ``MIN``, else ``MIN``.
+
+        The per-structure, per-position state is rederived from each member's
+        single-residue frustration table (the same tables the equivalences were
+        built from): the equivalence file gives ``MSA_pos -> PDB_pos`` (``N/A``
+        for a structure gap) and the single-residue table gives that residue's
+        ``FrstIndex``. Values are written with :meth:`_r_cat_format` so the file
+        is byte-identical to the R-produced original.
+
+        Returns:
+            Path to the written ``IC_SingleRes_<reference_pdb>.csv`` file.
+        """
+        structure_ids = self.valid_ids or self.msa_data.identifiers
+
+        # counts[msa_pos] = {"MIN": n, "NEU": n, "MAX": n} across all structures
+        counts: Dict[int, Dict[str, int]] = {}
+        for structure_id in structure_ids:
+            # FrstIndex by PDB residue number from this member's single-residue
+            # frustration table (Res in col 0, FrstIndex in col 7).
+            sr_file = (
+                self.frustration_sr_dir
+                / f"{structure_id}.done/FrustrationData/{structure_id}.pdb_singleresidue"
+            )
+            if not sr_file.exists():
+                logger.warning(
+                    f"Missing single-residue table for {structure_id}; "
+                    f"skipping in IC_SingleRes"
+                )
+                continue
+            frst_by_res: Dict[str, float] = {}
+            with sr_file.open() as f:
+                next(f)  # header
+                for line in f:
+                    sp = line.split()
+                    if len(sp) > 7:
+                        frst_by_res[sp[0]] = float(sp[7])
+
+            equiv_file = self.equivalences_dir / f"Equival_{structure_id}.txt"
+            with equiv_file.open() as f:
+                next(f)  # header
+                for line in f:
+                    fields = line.rstrip("\n").split("\t")
+                    msa_pos, pdb_pos = fields[0], fields[1]
+                    if pdb_pos == "N/A":
+                        continue  # structure has a gap at this column
+                    frst_index = frst_by_res.get(pdb_pos)
+                    if frst_index is None:
+                        continue
+                    state = self._singleres_state(frst_index)
+                    bucket = counts.setdefault(
+                        int(msa_pos), {"MIN": 0, "NEU": 0, "MAX": 0}
+                    )
+                    bucket[state] += 1
+
+        # Reference residue/number per shared column (add_ref's vectorAA/num).
+        ref_equiv = self._load_equivalences(self.reference_pdb)
+        ref_n = len(ref_equiv)
+
+        output_file = (
+            self.results_dir / f"IC_SingleRes_{self.reference_pdb}.csv"
+        )
+        header = (
+            "Res\tAA_Ref\tNum_Ref\tProt_Ref\t%Min\t%Neu\t%Max\t"
+            "CantMin\tCantNeu\tCantMax\tICMin\tICNeu\tICMax\tICTot\tFrustIC"
+        )
+        with output_file.open("w") as out:
+            out.write(header + "\n")
+            for pos in range(1, ref_n + 1):
+                bucket = counts.get(pos, {"MIN": 0, "NEU": 0, "MAX": 0})
+                n_min, n_neu, n_max = bucket["MIN"], bucket["NEU"], bucket["MAX"]
+                total = n_min + n_neu + n_max
+                if total == 0:
+                    # Cannot happen for a valid reference (it is non-gap at every
+                    # retained column, so it always contributes >= 1); guard
+                    # against a 0/0 NaN rather than emit one.
+                    logger.warning(
+                        f"No single-residue states at column {pos}; skipping"
+                    )
+                    continue
+
+                # Logo.R math (Scripts/Logo.R:39-67).
+                correction = (3 - 1) / (2 * math.log(2) * total)
+                p_min = n_min / total
+                p_neu = n_neu / total
+                p_max = n_max / total
+
+                def _sh(p: float) -> float:
+                    return p * math.log2(p) if p > 0 else 0
+
+                # Sum order matches Logo.R: min + neu + max.
+                shannon = -(_sh(p_min) + _sh(p_neu) + _sh(p_max))
+                ic_total = self._H_BACKGROUND_SR - shannon - correction
+                ic_min = p_min * ic_total
+                ic_neu = p_neu * ic_total
+                ic_max = p_max * ic_total
+
+                # Conserved state, original tie order (Functions.py:69-76).
+                if n_max > n_neu:
+                    estado = "MAX" if n_max > n_min else "MIN"
+                else:
+                    estado = "NEU" if n_neu > n_min else "MIN"
+
+                ref_res = ref_equiv[pos]
+                out.write(
+                    "\t".join(
+                        [
+                            str(pos),
+                            ref_res.residue,
+                            str(ref_res.pdb_pos),
+                            self.reference_pdb,
+                            self._r_cat_format(p_min),
+                            self._r_cat_format(p_neu),
+                            self._r_cat_format(p_max),
+                            str(n_min),
+                            str(n_neu),
+                            str(n_max),
+                            self._r_cat_format(ic_min),
+                            self._r_cat_format(ic_neu),
+                            self._r_cat_format(ic_max),
+                            self._r_cat_format(ic_total),
+                            estado,
+                        ]
+                    )
+                    + "\n"
+                )
+
+        logger.debug(f"Wrote single-residue IC table: {output_file}")
+        return output_file
+
     def _write_sequence_ic(self) -> Path:
         """Write the per-column sequence Shannon entropy table (SeqIC).
 
