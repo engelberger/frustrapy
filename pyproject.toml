@@ -80,6 +80,14 @@ perf = ["psutil"]
 # Dynamic-trajectory residue clustering (detect_dynamic_clusters). Imported lazily
 # inside the function; absent on a bare install — install with frustrapy[clustering].
 clustering = ["scipy", "scikit-learn", "python-igraph", "leidenalg", "statsmodels"]
+# Optional PyRosetta mutation backend (method='pyrosetta'). PyRosetta itself is NOT
+# on PyPI and is license-gated (free for academic/non-commercial use under the
+# RosettaCommons license); it cannot be a normal dependency. This extra pulls the
+# small `pyrosetta-installer` helper — after `pip install frustrapy[pyrosetta]` run
+#   python -c "import pyrosetta_installer; pyrosetta_installer.install_pyrosetta()"
+# to download and install the licensed PyRosetta wheel. Imported lazily inside the
+# mutation worker; a bare install keeps method='threading' fully functional.
+pyrosetta = ["pyrosetta-installer"]
 all = ["frustrapy[viz,perf,clustering]"]
 
 [project.urls]
