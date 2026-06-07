@@ -127,6 +127,8 @@ artifacts = [
     "*.pl",
     "*.sh",
     "frustrapy/core/scripts/AWSEMFiles/**/*",
+    # The bundled FrustraMPNN ONNX export consumed by frustrapy.mpnn.analyze.
+    "frustrapy/mpnn/weights/*.onnx",
 ]
 
 [tool.hatch.build]

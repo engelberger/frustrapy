@@ -9,7 +9,7 @@ in the ``mpnn`` extra and imported lazily inside the inference code, so ``import
 ``import frustrapy.mpnn`` work on a bare install; calling :func:`analyze` without the extra
 raises a clear install hint.
 
-Example (available once M1 wires the inference path)::
+Example::
 
     import frustrapy.mpnn as mpnn
     result = mpnn.analyze("protein.pdb", chains=["A"])

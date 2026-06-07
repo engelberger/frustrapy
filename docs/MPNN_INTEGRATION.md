@@ -2,8 +2,19 @@
 
 Design for the `frustrapy.mpnn` module: a deep-learning predictor of single-residue local
 energetic frustration, integrated as a first-class FrustraPy capability alongside the
-LAMMPS/AWSEM frustration engine. This document is the M0 deliverable (audit + design); the
-inference path is wired in M1.
+LAMMPS/AWSEM frustration engine. This document covers the M0 audit + design and the M1
+inference path (now wired).
+
+## Status
+
+- M0 (audit + design + module skeleton): done.
+- M1 (inference path): done. `frustrapy.mpnn.analyze(pdb)` parses the backbone, runs the bundled
+  ONNX export on the ONNX Runtime CPU provider, and returns an `MPNNResult`. The
+  `frustrampnn_v6_dynamic_fixed.onnx` weight is bundled under `frustrapy/mpnn/weights/` and
+  force-included in the wheel (`pyproject.toml`). The parser produces inputs bit-identical to the
+  reference (`frustraMPNN-2/scripts/benchmark_onnx_models.py`); on 1CRN the output matches the
+  recorded probe below (range, class counts, determinism). Tests: `tests/test_mpnn.py`.
+- M2 (validation panel vs the reference), M3 (public API + README/wiki): pending.
 
 ## Source assets
 
@@ -108,8 +119,8 @@ frustrapy/mpnn/
   __init__.py     public API (analyze, MPNNResult, constants); no heavy import at module load
   constants.py    alphabet, AA maps, thresholds, MIN_RESIDUES_FOR_KNN  (pure data)
   contract.py     MPNNResult dataclass (the output data contract)
-  analyze.py      analyze(pdb, ...) orchestration  (wired in M1)
-  weights/        bundled ONNX  (added in M1)
+  analyze.py      analyze(pdb, ...) orchestration
+  weights/        bundled ONNX  (frustrampnn_v6_dynamic_fixed.onnx)
 ```
 
 `onnxruntime` is imported lazily inside the inference code, never at `import frustrapy` or
@@ -117,7 +128,7 @@ frustrapy/mpnn/
 library and `import frustrapy.mpnn` working; calling `analyze()` without the extra raises a clear
 install hint.
 
-### Public API (target, wired in M1)
+### Public API
 
 ```python
 import frustrapy.mpnn as mpnn
