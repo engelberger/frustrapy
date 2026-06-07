@@ -9,12 +9,17 @@ missing. The writer/reader bodies and the round-trip parity gate are O3.
 import importlib.util
 
 import numpy as np
+import pandas as pd
 import pytest
 
 from frustrapy.output import (
     FORMAT_VERSION,
     GZIP_LEVEL,
     FrustrationStore,
+    FrustrationCorpus,
+    TrainingDataset,
+    build_training_dataset,
+    read_corpus_from,
     compound_dtype_for_schema,
     structure_group_path,
     dataset_path,
@@ -130,3 +135,141 @@ def test_schema_for_table_key_round_trips():
     assert store_mod.schema_for_table_key("singleresidue") is S.SINGLERESIDUE_TABLE
     with pytest.raises(ValueError):
         store_mod.schema_for_table_key("nope")
+
+
+# --------------------------------------------------------------------------- #
+# Corpus aggregation + training-data export (O4) — pure, no h5py needed
+# --------------------------------------------------------------------------- #
+
+
+class _FakeReader:
+    """Minimal reader exposing iter_tables, for the pure-logic O4 tests."""
+
+    def __init__(self, tables):
+        # tables: list of (structure_id, mode, key, DataFrame)
+        self._tables = tables
+
+    def iter_tables(self, mode=None, key=None):
+        for sid, m, k, df in self._tables:
+            if mode is not None and m != mode:
+                continue
+            if key is not None and k != key:
+                continue
+            yield sid, m, k, df
+
+
+def _singleres_df(res_start=1):
+    return pd.DataFrame(
+        {
+            "Res": [res_start, res_start + 1],
+            "ChainRes": ["A", "A"],
+            "DensityRes": [1.0, 2.0],
+            "AA": ["M", "K"],
+            "NativeEnergy": [-1.5, -2.5],
+            "DecoyEnergy": [0.0, 0.1],
+            "SDEnergy": [1.0, 1.0],
+            "FrstIndex": [0.5, -1.2],
+        }
+    )
+
+
+def test_read_corpus_from_prepends_structure_id_and_concatenates():
+    reader = _FakeReader(
+        [
+            ("a", "singleresidue", "singleresidue", _singleres_df(1)),
+            ("b", "singleresidue", "singleresidue", _singleres_df(10)),
+        ]
+    )
+    df = read_corpus_from(reader, "singleresidue", "singleresidue")
+    assert list(df.columns)[0] == "StructureId"
+    assert len(df) == 4
+    assert df["StructureId"].tolist() == ["a", "a", "b", "b"]
+
+
+def test_read_corpus_from_empty_returns_typed_frame():
+    df = read_corpus_from(_FakeReader([]), "singleresidue", "singleresidue")
+    assert len(df) == 0
+    assert list(df.columns) == ["StructureId", *S.SINGLERESIDUE_TABLE.column_names]
+
+
+def test_read_corpus_from_rejects_unknown_key():
+    with pytest.raises(ValueError):
+        read_corpus_from(_FakeReader([]), "singleresidue", "not_a_table")
+
+
+def test_build_training_dataset_residue_level():
+    reader = _FakeReader(
+        [
+            ("a", "singleresidue", "singleresidue", _singleres_df(1)),
+            ("b", "singleresidue", "singleresidue", _singleres_df(10)),
+        ]
+    )
+    td = build_training_dataset(reader, level="residue")
+    assert isinstance(td, TrainingDataset)
+    assert td.n_samples == 4
+    assert td.feature_names == list(S.RESIDUE_FEATURE_COLUMNS)
+    assert td.n_features == len(S.RESIDUE_FEATURE_COLUMNS)
+    assert list(td.ids.columns) == ["StructureId", "Res", "ChainRes", "AA"]
+    # feature values are exact float64 from the source table
+    fi = td.feature_names.index("FrstIndex")
+    assert td.X[:, fi].tolist() == [0.5, -1.2, 0.5, -1.2]
+    # to_frame puts ids first, features after
+    frame = td.to_frame()
+    assert list(frame.columns) == ["StructureId", "Res", "ChainRes", "AA", *td.feature_names]
+
+
+def test_build_training_dataset_custom_features():
+    reader = _FakeReader([("a", "singleresidue", "singleresidue", _singleres_df(1))])
+    td = build_training_dataset(reader, level="residue", feature_columns=["FrstIndex"])
+    assert td.feature_names == ["FrstIndex"]
+    assert td.X.shape == (2, 1)
+
+
+def test_build_training_dataset_empty_corpus():
+    td = build_training_dataset(_FakeReader([]), level="residue")
+    assert td.n_samples == 0
+    assert td.n_features == len(S.RESIDUE_FEATURE_COLUMNS)
+
+
+def test_build_training_dataset_rejects_bad_level():
+    with pytest.raises(ValueError):
+        build_training_dataset(_FakeReader([]), level="atom")
+
+
+def test_build_training_dataset_rejects_mode_level_mismatch():
+    with pytest.raises(ValueError):
+        build_training_dataset(_FakeReader([]), level="residue", mode="configurational")
+
+
+def test_build_training_dataset_rejects_nonnumeric_feature():
+    with pytest.raises(ValueError):
+        build_training_dataset(_FakeReader([]), level="residue", feature_columns=["AA"])
+
+
+def test_build_training_dataset_rejects_unknown_feature():
+    with pytest.raises(ValueError):
+        build_training_dataset(_FakeReader([]), level="residue", feature_columns=["Nope"])
+
+
+def test_training_dataset_save_npz_roundtrips(tmp_path):
+    reader = _FakeReader([("a", "singleresidue", "singleresidue", _singleres_df(1))])
+    td = build_training_dataset(reader, level="residue")
+    path = str(tmp_path / "train.npz")
+    td.save_npz(path)
+    loaded = np.load(path, allow_pickle=False)
+    assert loaded["X"].shape == td.X.shape
+    assert loaded["feature_names"].tolist() == td.feature_names
+    assert str(loaded["level"]) == "residue"
+
+
+def test_contact_level_default_mode_is_configurational():
+    spec = store_mod._LEVEL_SPECS["contact"]
+    assert spec.default_mode == "configurational"
+    assert set(spec.modes) == {"configurational", "mutational"}
+
+
+def test_corpus_construction_does_not_open():
+    corpus = FrustrationCorpus(["a.h5", "b.h5"])
+    assert corpus.paths == ["a.h5", "b.h5"]
+    with pytest.raises(RuntimeError):
+        corpus.list_structures()

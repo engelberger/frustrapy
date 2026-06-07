@@ -264,6 +264,45 @@ TABLE_SCHEMAS = {
 }
 
 
+# --------------------------------------------------------------------------- #
+# ML training-data column roles (for FrustrationStore.to_training_dataset, O4)
+# --------------------------------------------------------------------------- #
+# Identifier columns locate a sample (which structure, which residue or contact);
+# feature columns are the numeric frustration measurements a model learns from. These
+# live here so the training-data export and the output contract share one definition;
+# a caller can override the feature set per call.
+
+#: Per-residue (single-residue level) identifier and default feature columns.
+RESIDUE_ID_COLUMNS = ("Res", "ChainRes", "AA")
+RESIDUE_FEATURE_COLUMNS = (
+    "DensityRes",
+    "NativeEnergy",
+    "DecoyEnergy",
+    "SDEnergy",
+    "FrstIndex",
+)
+
+#: Per-contact level identifier and default feature columns.
+CONTACT_ID_COLUMNS = (
+    "Res1",
+    "Res2",
+    "ChainRes1",
+    "ChainRes2",
+    "AA1",
+    "AA2",
+    "Welltype",
+    "FrstState",
+)
+CONTACT_FEATURE_COLUMNS = (
+    "DensityRes1",
+    "DensityRes2",
+    "NativeEnergy",
+    "DecoyEnergy",
+    "SDEnergy",
+    "FrstIndex",
+)
+
+
 #: Public return shapes (documented, not enforced here).
 RETURN_SHAPES = {
     "calculate_frustration": (
