@@ -80,6 +80,7 @@ class InformationContentCalculator:
         pdb_dir: Optional[Path] = None,
         mode: str = "configurational",
         n_procs: Optional[int] = None,
+        keep_intermediates: bool = False,
     ):
         self.msa_data = msa_data
         self.results_dir = Path(results_dir)
@@ -90,6 +91,12 @@ class InformationContentCalculator:
         # concurrently in :meth:`_precompute_frustration`. None => use all
         # cores; 1 => serial (byte-identical to the pre-T2 path).
         self.n_procs = n_procs
+        # T3: when False (production), per-structure frustration runs clean
+        # their own LAMMPS scratch as they go (only FrustrationData tables are
+        # kept), and :meth:`_cleanup_intermediates` removes the whole working
+        # tree once the final IC tables exist. When True, every intermediate is
+        # kept for debugging. Output is byte-identical either way.
+        self.keep_intermediates = keep_intermediates
 
         # Identifiers (in MSA order) that passed the sequence check against
         # their PDB. Populated by _validate_sequences; the original FrustraEvo
@@ -321,7 +328,12 @@ class InformationContentCalculator:
                         # globs `*_{mode}.{ext}` there), which collides across
                         # concurrent workers. Off => parity-safe + faster.
                         visualization=False,
-                        debug=True,
+                        # T3: in production (keep_intermediates=False) each run
+                        # cleans its own job dir as it finishes, keeping only the
+                        # FrustrationData tables the IC step reads — this caps
+                        # peak disk at cluster scale. FrustrationData (the parsed
+                        # tables) is untouched by that cleanup, so parity holds.
+                        debug=self.keep_intermediates,
                         n_cpus=1,
                     )
                 )
@@ -337,7 +349,7 @@ class InformationContentCalculator:
                         results_dir=str(self.frustration_sr_dir),
                         graphics=False,
                         visualization=False,  # see note on the contact job above
-                        debug=True,
+                        debug=self.keep_intermediates,  # T3: see contact job above
                         n_cpus=1,
                     )
                 )
@@ -360,6 +372,41 @@ class InformationContentCalculator:
         )
         with ProcessPoolExecutor(max_workers=n_workers) as ex:
             list(ex.map(_evo_frustration_worker, jobs))
+
+    # Working subdirectories under ``results_dir`` that hold per-structure /
+    # per-family scratch and are NOT part of the published result set. The final
+    # outputs (``IC_*``, ``SeqIC_*``) live at the ``results_dir`` root and
+    # ``plots/`` holds the optional contact maps, so neither is listed here.
+    _INTERMEDIATE_DIRS = (
+        "Frustration",
+        "Frustration_SR",
+        "_frust_inputs",
+        "equivalences",
+        "pdbs",
+        "msa",
+        "data",
+        "logs",
+    )
+
+    def _cleanup_intermediates(self) -> None:
+        """Remove the per-structure / working scratch once the final IC tables
+        are written (T3 cluster-scale intermediate-file control).
+
+        No-op when ``keep_intermediates`` is set (debug workflow keeps the full
+        tree). Otherwise every directory in :attr:`_INTERMEDIATE_DIRS` is
+        deleted, leaving only the published outputs (``IC_*``/``SeqIC_*`` at the
+        results-dir root, plus ``plots/`` if contact maps were requested). The
+        parsed IC tables have already been consumed by ``calculate()`` /
+        ``_write_sequence_ic`` / ``_write_singleres_ic`` by the time this runs,
+        so dropping the scratch never changes an output file.
+        """
+        if self.keep_intermediates:
+            return
+        for name in self._INTERMEDIATE_DIRS:
+            target = self.results_dir / name
+            if target.exists():
+                shutil.rmtree(target, ignore_errors=True)
+                logger.debug(f"Removed intermediate directory: {target}")
 
     def _load_contact_matrices(self) -> List[ContactMatrix]:
         """Load frustration contact matrices for all structures using legacy approach"""
@@ -418,7 +465,7 @@ class InformationContentCalculator:
                         mode=self.mode,
                         results_dir=str(self.frustration_dir),
                         graphics=False,
-                        debug=True,
+                        debug=self.keep_intermediates,  # T3: clean as you go
                     )
 
                 contact_count = 0
@@ -1277,7 +1324,7 @@ class InformationContentCalculator:
                 mode="singleresidue",
                 results_dir=str(self.frustration_sr_dir),
                 graphics=False,
-                debug=True,
+                debug=self.keep_intermediates,  # T3: clean as you go
             )
         with sr_file.open() as f:
             return f.readlines()

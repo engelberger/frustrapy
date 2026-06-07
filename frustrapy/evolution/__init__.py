@@ -17,6 +17,7 @@ def analyze_family(
     results_dir: Optional[Union[str, Path]] = None,
     debug: bool = False,
     n_procs: Optional[int] = None,
+    keep_intermediates: bool = False,
 ) -> Dict:
     """
     Analyze evolutionary frustration patterns in a protein family.
@@ -28,14 +29,27 @@ def analyze_family(
         pdb_dir: Directory containing PDB files
         contact_maps: Whether to generate contact maps
         results_dir: Output directory
-        debug: Enable debug mode
+        debug: Enable debug mode. Implies ``keep_intermediates=True`` (a debug
+            run keeps the full scratch tree for inspection).
         n_procs: Number of per-structure frustration calculations to run
             concurrently (T2 performance). None => use all available cores;
             1 => serial. Output is byte-identical regardless of this value.
+        keep_intermediates: Control the per-structure scratch the analysis
+            generates (T3 cluster-scale intermediate-file control). When False
+            (default, production): each member's LAMMPS run keeps only its
+            ``FrustrationData/`` tables as it goes (the ~27 MB binary + deck are
+            dropped immediately), and the whole working tree
+            (``Frustration*/``, ``_frust_inputs/``, ``equivalences/``,
+            ``pdbs/``, ``msa/``, ``data/``, ``logs/``) is removed once the final
+            IC tables are written — only ``IC_*``/``SeqIC_*`` (and ``plots/`` if
+            ``contact_maps``) remain. When True (debug): every intermediate file
+            is kept. The final outputs are byte-identical either way.
 
     Returns:
         Dict containing analysis results and paths to output files
     """
+    # A debug run keeps everything; otherwise honor the explicit knob.
+    keep_intermediates = keep_intermediates or debug
     try:
         # Convert paths
         fasta_file = Path(fasta_file)
@@ -53,6 +67,7 @@ def analyze_family(
             reference_pdb=reference_pdb,
             pdb_dir=pdb_dir,
             n_procs=n_procs,
+            keep_intermediates=keep_intermediates,
         )
 
         # Setup required files and directories
@@ -86,6 +101,10 @@ def analyze_family(
                 reference_pdb=reference_pdb,
             )
             generator.generate_contact_maps(ic_results)
+
+        # T3: drop the per-structure scratch now that every final IC table has
+        # been written (no-op when keep_intermediates/debug is set).
+        calculator._cleanup_intermediates()
 
         # Convert list of contacts to dictionary with indices as keys
         contact_data = ic_results.to_dict(orient="records")
