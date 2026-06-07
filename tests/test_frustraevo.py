@@ -159,7 +159,7 @@ def test_result_dict_shape(globin_family):
     res = globin_family["result"]
     assert set(res.keys()) == {"job_id", "output_dir", "files", "contacts"}
     assert res["job_id"] == "globin3"
-    assert set(res["files"].keys()) == {"data", "contact_maps"}
+    assert set(res["files"].keys()) == {"data", "sequence_ic", "contact_maps"}
     # contact_maps=False by default -> no PNG produced
     assert res["files"]["contact_maps"] is None
     assert set(res["contacts"].keys()) == {"information_content", "summary"}
@@ -174,6 +174,49 @@ def test_ic_csv_written_with_expected_columns(globin_family):
     df = pd.read_csv(csv, sep="\t")
     assert list(df.columns) == IC_COLUMNS
     assert len(df) > 0
+
+
+def test_write_sequence_ic_strips_ref_gaps_and_formats(tmp_path):
+    """SeqIC = per-column Shannon entropy over the reference-gap-stripped MSA.
+
+    Parity port of FrustraEvo's ``Scripts/Seq_IC.py``. Pins, on a synthetic MSA:
+      * columns where the REFERENCE is a gap are dropped, survivors renumbered 1..N;
+      * a fully conserved column yields the NumPy ``-0.0`` repr (not ``0.0``);
+      * a mixed column yields the exact full-precision ``str(float64)`` repr;
+      * entropy is order-independent (sequence order must not change values);
+      * the ``Position\\tEntropy`` header and tab layout are byte-exact.
+    """
+    from frustrapy.evolution.information_content import InformationContentCalculator
+
+    # Reference "ref" has a LEADING gap (col 0) -> that column is stripped.
+    # Col 1 is fully conserved (all A); col 2 is mixed (B,B,C,B).
+    msa = tmp_path / "msa"
+    msa.mkdir()
+    (msa / "MSA_Final.fasta").write_text(
+        ">ref\n-AB\n>s1\nXAB\n>s2\n-AC\n>s3\n-AB\n"
+    )
+
+    calc = InformationContentCalculator.__new__(InformationContentCalculator)
+    calc.results_dir = tmp_path
+    calc.reference_pdb = "ref"
+    calc.msa_dir = msa
+
+    out = calc._write_sequence_ic()
+    assert out == tmp_path / "SeqIC_ref.tab"
+    # 2 surviving columns (the leading ref-gap column is dropped), 1-based.
+    assert out.read_text() == "Position\tEntropy\n1\t-0.0\n2\t0.8112781244591328\n"
+
+
+def test_seqic_byte_identical_to_fixture(globin_family):
+    """End-to-end: analyze_family produces SeqIC byte-identical to the frozen
+    fixture (the algorithm is verified byte-identical to the original FrustraEvo
+    on the full Alpha-globins (140 cols) and Sars-PlPro (309 cols) example sets;
+    this 3-member snapshot is the CI-portable anchor)."""
+    produced = os.path.join(globin_family["results_dir"], f"SeqIC_{REFERENCE}.tab")
+    assert os.path.exists(produced), f"missing SeqIC table: {produced}"
+    expected = os.path.join(DATA_DIR, f"expected_SeqIC_{REFERENCE}.tab")
+    with open(produced) as p, open(expected) as e:
+        assert p.read() == e.read(), "SeqIC drifted from the frozen parity fixture"
 
 
 def test_frustration_state_distribution_non_degenerate(globin_family):
