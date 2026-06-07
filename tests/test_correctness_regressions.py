@@ -1,17 +1,17 @@
-"""One regression per P0 correctness fix landed in Phase 1.
+"""Regression tests for correctness fixes in the calculation and IO paths.
 
-Each test is written to FAIL on the pre-fix code and PASS post-fix (the Phase 1 EXIT
-GATE). Register IDs match ROADMAP.md S3 Phase 1 and the tech-debt register.
+Each test is written to FAIL on the pre-fix code and PASS afterwards, pinning a
+specific bug so it cannot silently return:
 
-  P0-1  test.py             -- no pickle.load over an os.walk (arbitrary-code-execution)
-  P0-2  PDBToCoordinates.py -- glycine H-Beta uses xyz_H[0], not xyz_N[0]
-  P0-3  PDBToCoordinates.py -- a residue missing its O atom is skipped, not a crash
-  P0-4  helpers.py          -- complete_backbone fails loudly + never overwrites input
-  P0-5  frustration.py      -- get_frustration filter branches on pdb.mode (no KeyError)
-  P0-6  frustration.py      -- dir_frustration always returns a 2-tuple
-  P0-7  frustration.py      -- dir_frustration initializes density_results before use
-  P0-13 frustration_calc.py -- _download_pdb validates + drops --no-check-certificate
-  P0-14 frustration_calc.py -- PDB parsed by fixed columns, not whitespace splitting
+  - no pickle.load over an os.walk (arbitrary-code-execution risk)
+  - glycine H-Beta uses the interpolated H x-coordinate, not the N x-coordinate
+  - a residue missing its O atom is skipped, not a crash
+  - complete_backbone fails loudly and never overwrites the input PDB
+  - get_frustration filters branch on pdb.mode (no KeyError)
+  - dir_frustration always returns a 2-tuple
+  - dir_frustration initializes density_results before use
+  - _download_pdb validates its argument and drops --no-check-certificate
+  - PDB records parsed by fixed columns, not whitespace splitting
 """
 
 import inspect
@@ -55,8 +55,8 @@ def _run_pdb_to_coords(tmp_path, pdb_lines):
     return proc, coord_text
 
 
-# --------------------------------------------------------------------------- P0-1
-def test_p0_1_no_pickle_load_in_source():
+# ---------------------------------------------------------------------------
+def test_no_pickle_load_in_source():
     """No module deserializes pickle from untrusted/walked files (ACE risk)."""
     offenders = []
     tests_dir = os.path.join(REPO_ROOT, "tests")
@@ -80,8 +80,8 @@ def test_p0_1_no_pickle_load_in_source():
     assert not offenders, f"pickle.load found in: {offenders}"
 
 
-# --------------------------------------------------------------------------- P0-2
-def test_p0_2_glycine_hbeta_uses_interpolated_x(tmp_path):
+# ---------------------------------------------------------------------------
+def test_glycine_hbeta_uses_interpolated_x(tmp_path):
     """The glycine H-Beta pseudo-atom x must be the N/CA/C interpolation, not N.x."""
     n_x, ca_x, c_x = 1.000, 2.000, 3.000
     lines = [
@@ -101,8 +101,8 @@ def test_p0_2_glycine_hbeta_uses_interpolated_x(tmp_path):
     assert hbeta_x != pytest.approx(n_x, abs=1e-5)
 
 
-# --------------------------------------------------------------------------- P0-3
-def test_p0_3_residue_missing_o_does_not_crash(tmp_path):
+# ---------------------------------------------------------------------------
+def test_residue_missing_o_does_not_crash(tmp_path):
     """A residue lacking its backbone O is skipped, not a hard KeyError crash."""
     lines = [
         # Complete residue 1.
@@ -123,8 +123,8 @@ def test_p0_3_residue_missing_o_does_not_crash(tmp_path):
     assert "C-Alpha" in coord_text
 
 
-# --------------------------------------------------------------------------- P0-4
-def test_p0_4_complete_backbone_validates_and_no_inplace_overwrite():
+# ---------------------------------------------------------------------------
+def test_complete_backbone_validates_and_no_inplace_overwrite():
     """complete_backbone fails loudly and never renames the input file."""
     from frustrapy.utils.helpers import complete_backbone
 
@@ -135,9 +135,9 @@ def test_p0_4_complete_backbone_validates_and_no_inplace_overwrite():
     assert "os.rename(" not in src, "must not rename in place (use os.replace job copy)"
 
 
-# --------------------------------------------------------------------------- P0-5
+# ---------------------------------------------------------------------------
 @pytest.mark.parametrize("mode", ["configurational", "mutational", "singleresidue"])
-def test_p0_5_get_frustration_filter_branches_on_mode(crn_pdb, run_mode, mode):
+def test_get_frustration_filter_branches_on_mode(crn_pdb, run_mode, mode):
     """get_frustration filtering must work in every mode without a KeyError."""
     from frustrapy.analysis.frustration import get_frustration
 
@@ -152,9 +152,9 @@ def test_p0_5_get_frustration_filter_branches_on_mode(crn_pdb, run_mode, mode):
     assert len(by_res) >= 1
 
 
-# ----------------------------------------------------------------------- P0-6/7
+# -----------------------------------------------------------------------
 @pytest.mark.slow
-def test_p0_6_dir_frustration_returns_two_tuple_when_skipped(crn_pdb, tmp_path):
+def test_dir_frustration_returns_two_tuple_when_skipped(crn_pdb, tmp_path):
     """dir_frustration returns a 2-tuple even when the mode is already logged (skip)."""
     import shutil
 
@@ -189,7 +189,7 @@ def test_p0_6_dir_frustration_returns_two_tuple_when_skipped(crn_pdb, tmp_path):
 
 
 @pytest.mark.slow
-def test_p0_7_dir_frustration_empty_order_list(crn_pdb, tmp_path):
+def test_dir_frustration_empty_order_list(crn_pdb, tmp_path):
     """An empty order_list returns ({}, None), not an UnboundLocalError on density."""
     import frustrapy
 
@@ -211,8 +211,8 @@ def test_p0_7_dir_frustration_empty_order_list(crn_pdb, tmp_path):
     assert density is None
 
 
-# --------------------------------------------------------------------------- P0-13
-def test_p0_13_download_pdb_hardened():
+# ---------------------------------------------------------------------------
+def test_download_pdb_hardened():
     """_download_pdb validates, bounds, and does not disable TLS verification."""
     from frustrapy.analysis.frustration_calculator import FrustrationCalculator
 
@@ -222,8 +222,8 @@ def test_p0_13_download_pdb_hardened():
     assert "timeout=" in src, "download must be time-bounded"
 
 
-# --------------------------------------------------------------------------- P0-14
-def test_p0_14_fixed_width_pdb_parsing(tmp_path):
+# ---------------------------------------------------------------------------
+def test_fixed_width_pdb_parsing(tmp_path):
     """Fixed-column parsing survives altLoc/adjacent fields that shift whitespace splits."""
     from frustrapy.analysis.frustration_calculator import FrustrationCalculator
 

@@ -1,14 +1,14 @@
 """Packaging guardrails: the install must resolve all runtime deps and import cleanly.
 
-These lock in the Phase 0 fixes:
-  * P0-A -- a stock install resolved ZERO runtime deps (the Poetry backend ignored
+These lock in the install fixes:
+  * a stock install resolved ZERO runtime deps (the Poetry backend ignored
     setup.py's install_requires). The PEP 621 / hatchling pyproject must declare the
     full core runtime set.
-  * P0-B -- ``tqdm`` was a phantom dependency: imported at ``frustration.py`` and
+  * ``tqdm`` was a phantom dependency: imported at ``frustration.py`` and
     ``mutations.py`` but declared nowhere, so ``import frustrapy`` blew up on a clean
     install.
 
-And the Phase 7 demotion:
+And the optional-extra demotion:
   * The four clustering-only deps (scipy, scikit-learn, python-igraph, leidenalg)
     moved out of the core set into the ``clustering`` optional extra (lazify-before-
     demote). They must be in the extra and NOT in the core set, and ``import
@@ -23,7 +23,7 @@ import pytest
 PYPROJECT = Path(__file__).resolve().parent.parent / "pyproject.toml"
 
 # The core runtime set every clean install must provide to `import frustrapy` and run
-# the no-graphics analysis path. Phase 7 (lazify-before-demote) moved the four
+# the no-graphics analysis path. A later change moved the four
 # clustering-only deps OUT of this set into the `clustering` extra below.
 REQUIRED_RUNTIME = {
     "numpy",
@@ -37,7 +37,7 @@ REQUIRED_RUNTIME = {
     "logomaker",
 }
 
-# Phase 7: demoted to the `clustering` optional extra. Imported lazily inside
+# Demoted to the `clustering` optional extra. Imported lazily inside
 # detect_dynamic_clusters, so they must NOT be in the core set (else the demotion is
 # a no-op and a bare install still drags in the heavy clustering stack).
 CLUSTERING_EXTRA = {
@@ -70,14 +70,14 @@ def _declared_extra(extra):
 
 
 def test_pyproject_declares_full_runtime_set():
-    """P0-A + P0-B: every core runtime dependency, including tqdm, is declared."""
+    """Every core runtime dependency, including tqdm, is declared."""
     declared = _declared_runtime_deps()
     missing = REQUIRED_RUNTIME - declared
     assert not missing, f"pyproject.toml is missing runtime deps: {sorted(missing)}"
 
 
 def test_clustering_deps_demoted_to_extra():
-    """Phase 7: clustering deps live in the `clustering` extra, not the core set."""
+    """Clustering deps live in the `clustering` extra, not the core set."""
     extra = _declared_extra("clustering")
     core = _declared_runtime_deps()
     missing = CLUSTERING_EXTRA - extra
@@ -87,7 +87,7 @@ def test_clustering_deps_demoted_to_extra():
 
 
 def test_tqdm_is_declared_not_phantom():
-    """P0-B: tqdm specifically (the former phantom import) must be declared."""
+    """tqdm specifically (the former phantom import) must be declared."""
     assert "tqdm" in _declared_runtime_deps()
 
 

@@ -18,7 +18,7 @@ These tests pin:
     rank — same backbone, AWSEM coarse-grains the side chain, so the indices track
     closely. This is the T5 "sane + consistent with threading" exit gate.
 
-NOTE on PATH (tech-debt P1-22): the per-variant calculation spawns a bare
+NOTE on PATH: the per-variant calculation spawns a bare
 ``python3`` subprocess, so run ``pytest`` from an activated venv (see conftest.py).
 """
 
