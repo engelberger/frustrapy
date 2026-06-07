@@ -91,15 +91,25 @@ pyrosetta = ["pyrosetta-installer"]
 # Optional compressed HDF5 output store for high-throughput runs (frustrapy.output.store).
 # h5py is imported lazily inside the store; the default text output does not need it.
 hdf5 = ["h5py"]
-all = ["frustrapy[viz,perf,clustering,hdf5]"]
+# Terminal CLI (`frustrapy` console script). typer drives arg parsing + rich help;
+# rich (already core) renders progress/tables/panels. Imported lazily by
+# frustrapy/cli/main.py so the core library never requires typer — `import frustrapy`
+# stays CLI-free.
+cli = ["typer>=0.12"]
+all = ["frustrapy[viz,perf,clustering,hdf5,cli]"]
+
+[project.scripts]
+frustrapy = "frustrapy.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/engelberger/frustrapy"
 Repository = "https://github.com/engelberger/frustrapy"
 
 [dependency-groups]
-dev = ["ruff>=0.6", "pytest>=8", "pytest-cov"]
-test = ["pytest>=8", "pytest-cov"]
+# tomli backports the stdlib tomllib (added in 3.11) for the dependency-declaration
+# test on Python 3.10.
+dev = ["ruff>=0.6", "pytest>=8", "pytest-cov", "tomli; python_version < '3.11'"]
+test = ["pytest>=8", "pytest-cov", "tomli; python_version < '3.11'"]
 
 [tool.hatch.build.targets.wheel]
 packages = ["frustrapy"]
