@@ -1,3 +1,5 @@
+# Runtime dependencies (mirrors [project.dependencies] in pyproject.toml).
+# Authoritative source is pyproject.toml; this file is kept for convenience.
 numpy
 pandas
 biopython
@@ -6,6 +8,8 @@ scipy
 scikit-learn
 python-igraph
 leidenalg
-psutil  # optional, for memory logging
-kaleido  # optional, for static image export 
-py3Dmol==2.4.2
+tqdm
+# Optional (see pyproject [project.optional-dependencies]):
+psutil      # perf: memory logging
+kaleido     # viz: static image export
+py3Dmol>=2.4.2  # viz: 3D structure viewer

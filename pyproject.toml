@@ -1,14 +1,101 @@
-[tool.poetry]
+[build-system]
+# Hatchling: uv's default backend, ships non-.py package data by default, and
+# needs the least config for a package whose hard part is shipping the AWSEM/Perl/
+# shell + precompiled LAMMPS assets under frustrapy/core/scripts/. >=1.27 is
+# PEP 639-aware (needed for the SPDX `license` string below).
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
 name = "frustrapy"
 version = "0.1.1"
-description = ""
-authors = ["Felipe Engelberger <felipeengelberger@gmail.com>"]
+description = "A Python package for protein frustration analysis"
 readme = "README.md"
+# Single Python floor. Replaces the prior 3-way mismatch (setup.py >=3.11,
+# Poetry pyproject ^3.10). >=3.10 matches the README and the install path today.
+# NOTE (risk R1): the dev_frustraevo rework (Phase 8) may need >=3.11 — surface
+# before finalizing, do not silently bump.
+requires-python = ">=3.10"
+# The LICENSE file on disk is GPL v3 (GNU GENERAL PUBLIC LICENSE / Version 3).
+# `-or-later` per ROADMAP §3 (primary source overrides the MIT classifier the old
+# setup.py carried). GPL binaries force GPL regardless of intent.
+license = "GPL-3.0-or-later"
+license-files = ["LICENSE"]
+authors = [
+    { name = "Felipe Engelberger", email = "felipeengelberger@gmail.com" },
+]
+keywords = ["protein", "frustration", "structural-biology", "awsem", "frustratometer"]
+classifiers = [
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS",
+    "Topic :: Scientific/Engineering :: Bio-Informatics",
+    # No "License :: OSI Approved :: ..." trove classifier: the PEP 639 SPDX
+    # `license` string above is the single source of truth.
+]
 
-[tool.poetry.dependencies]
-python = "^3.10"
+# Runtime dependencies — the VERIFIED minimal set required to `import frustrapy`
+# and run the no-graphics analysis path (9 packages, == the Empirical Anchor set).
+# tqdm was a phantom dep (imported frustration.py:15 / mutations.py:8, declared in
+# none of setup.py / pyproject.toml / requirements.txt). scipy/scikit-learn/
+# python-igraph/leidenalg are CORE (not optional) because __init__.py:13 eagerly
+# imports analysis.clustering, which imports them at module top — they can only be
+# demoted to an extra AFTER that import is lazified (Phase 7, lazify-before-demote).
+dependencies = [
+    "numpy",
+    "pandas",
+    "biopython",
+    "plotly",
+    "scipy",
+    "scikit-learn",
+    "python-igraph",
+    "leidenalg",
+    "tqdm",
+]
 
+[project.optional-dependencies]
+# 3D viewers + static PNG export, all deferred (imported inside functions):
+#   py3Dmol (structure.py), IPython.display (structure.py), kaleido (Plotly PNG).
+viz = ["py3Dmol>=2.4.2", "ipython", "kaleido"]
+# Optional memory logging; psutil imported lazily in utils/decorators.py.
+perf = ["psutil"]
+all = ["frustrapy[viz,perf]"]
 
-[build-system]
-requires = ["poetry-core"]
-build-backend = "poetry.core.masonry.api"
+[project.urls]
+Homepage = "https://github.com/engelberger/frustrapy"
+Repository = "https://github.com/engelberger/frustrapy"
+
+[dependency-groups]
+dev = ["ruff>=0.6", "pytest>=8", "pytest-cov"]
+test = ["pytest>=8", "pytest-cov"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["frustrapy"]
+# Force-include the subprocess toolchain assets so they always travel with the
+# wheel even if a future .gitignore / VCS-exclusion rule would drop them:
+#   the 4 precompiled LAMMPS binaries, the Perl + shell scripts, and the AWSEM
+#   gamma/coeff data tree. Consumed at calc time via core/pdb.py -> the subprocess
+#   fan-out in frustration_calculator.py (PdbCoords2Lammps.sh, *.pl, lmp_serial_*).
+artifacts = [
+    "frustrapy/core/scripts/lmp_serial_*",
+    "*.pl",
+    "*.sh",
+    "frustrapy/core/scripts/AWSEMFiles/**/*",
+]
+
+[tool.hatch.build]
+# Never ship bytecode caches.
+exclude = [
+    "**/__pycache__",
+    "**/*.pyc",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.uv]
+# Bare specifiers by design — uv.lock does the exact pinning.

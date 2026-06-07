@@ -6,9 +6,17 @@ from ..utils import get_os
 
 logger = logging.getLogger(__name__)
 
+# Default wall-clock ceiling for a single LAMMPS single-point energy run. A wedged
+# run must not hang the caller indefinitely (CLAUDE.md §8: every subprocess.run
+# needs a timeout). 1CRN runs in ~1 s; this is generous for large proteins.
+DEFAULT_LAMMPS_TIMEOUT = 3600
+
 
 class LammpsRunner:
     """Handles LAMMPS calculations for frustration analysis."""
+
+    # get_os() value -> the suffix used in the committed binary names.
+    _OS_SUFFIX = {"linux": "Linux", "osx": "MacOS"}
 
     def __init__(
         self,
@@ -17,6 +25,7 @@ class LammpsRunner:
         seq_dist: int,
         scripts_dir: str,
         debug: bool = False,
+        timeout: Optional[int] = DEFAULT_LAMMPS_TIMEOUT,
     ):
         """
         Initialize LAMMPS runner.
@@ -27,12 +36,14 @@ class LammpsRunner:
             seq_dist: Sequence distance parameter
             scripts_dir: Directory containing LAMMPS scripts and executables
             debug: Enable debug logging
+            timeout: Per-run wall-clock ceiling in seconds (None disables it)
         """
         self.job_dir = job_dir
         self.pdb_base = pdb_base
         self.seq_dist = seq_dist
         self.scripts_dir = scripts_dir
         self.debug = debug
+        self.timeout = timeout
         self.os_type = get_os()
 
         logger.debug(f"Initialized LammpsRunner with:")
@@ -43,38 +54,33 @@ class LammpsRunner:
         logger.debug(f"  os_type: {self.os_type}")
 
     def run(self) -> None:
-        """Run LAMMPS calculation based on OS type."""
-        if self.os_type == "linux":
-            self._run_linux()
-        elif self.os_type == "osx":
-            self._run_osx()
-        else:
+        """Run the LAMMPS single-point calculation.
+
+        Unified across Linux and macOS: both copy the OS-appropriate binary into
+        the job dir, then execute it with absolute paths, the input fed on stdin,
+        and cwd pinned to the job dir. This fixes the historical macOS bugs
+        (relative ``.in`` opened before chdir; stdin never actually fed to the
+        process) while preserving the verified Linux behavior, and drops the
+        ``shell=True`` form (P0-C/P0-D ≡ P1-5/6/7).
+        """
+        try:
+            os_name = self._OS_SUFFIX[self.os_type]
+        except KeyError:
             raise ValueError(f"Unsupported operating system: {self.os_type}")
 
-    def _run_linux(self) -> None:
-        """Run LAMMPS calculation on Linux."""
-        self._copy_lammps_executable("Linux")
-        self._execute_lammps_linux()
-
-    def _run_osx(self) -> None:
-        """Run LAMMPS calculation on MacOS."""
-        self._copy_lammps_executable("MacOS")
-        subprocess.run(["chmod", "+x", f"lmp_serial_{self.seq_dist}_MacOS"])
-        self._execute_lammps_osx()
+        self._copy_lammps_executable(os_name)
+        self._execute_lammps(os_name)
 
     def _copy_lammps_executable(self, os_name: str) -> None:
-        """Copy LAMMPS executable for the appropriate OS."""
-        subprocess.run(
-            [
-                "cp",
-                os.path.join(self.scripts_dir, f"lmp_serial_{self.seq_dist}_{os_name}"),
-                self.job_dir,
-            ]
-        )
+        """Copy the OS-appropriate LAMMPS executable into the job dir."""
+        src = os.path.join(self.scripts_dir, f"lmp_serial_{self.seq_dist}_{os_name}")
+        if not os.path.exists(src):
+            raise FileNotFoundError(f"LAMMPS executable not found: {src}")
+        subprocess.run(["cp", src, self.job_dir], check=True, timeout=self.timeout)
 
-    def _execute_lammps_linux(self) -> None:
-        """Execute LAMMPS on Linux with error handling."""
-        executable = os.path.join(self.job_dir, f"lmp_serial_{self.seq_dist}_Linux")
+    def _execute_lammps(self, os_name: str) -> None:
+        """Execute LAMMPS with the input on stdin and cwd pinned to the job dir."""
+        executable = os.path.join(self.job_dir, f"lmp_serial_{self.seq_dist}_{os_name}")
         input_file = os.path.join(self.job_dir, f"{self.pdb_base}.in")
 
         if not os.path.exists(executable):
@@ -84,48 +90,27 @@ class LammpsRunner:
 
         os.chmod(executable, 0o755)
 
-        cmd = f"{executable} < {input_file}"
-        logger.debug(f"Executing LAMMPS command: {cmd}")
+        logger.debug(f"Executing LAMMPS: {executable} < {input_file}")
         logger.debug(f"Working directory: {self.job_dir}")
 
-        self._execute_lammps(cmd)
-
-    def _execute_lammps_osx(self) -> None:
-        """Execute LAMMPS on MacOS with error handling."""
-        with open(f"{self.pdb_base}.in") as f:
-            input_data = f.read()
-        self._execute_lammps(f"./lmp_serial_{self.seq_dist}_MacOS", input_data)
-
-    def _execute_lammps(self, cmd: str, input_data: Optional[str] = None) -> None:
-        """Execute LAMMPS command with proper error handling."""
         try:
-            logger.debug(f"Executing command: {cmd}")
-            logger.debug(f"Working directory: {self.job_dir}")
-            logger.debug(f"Directory contents: {os.listdir(self.job_dir)}")
-
-            # Ensure we're in the correct directory
-            original_dir = os.getcwd()
-            os.chdir(self.job_dir)
-
-            try:
+            with open(input_file) as stdin_f:
                 result = subprocess.run(
-                    cmd,
-                    shell=True,
+                    [executable],
+                    stdin=stdin_f,
+                    cwd=self.job_dir,
                     check=True,
                     capture_output=True,
                     text=True,
+                    timeout=self.timeout,
                 )
 
-                if self.debug:
-                    logger.debug("LAMMPS Output:")
-                    logger.debug(result.stdout)
-                    if result.stderr:
-                        logger.debug("LAMMPS Errors:")
-                        logger.debug(result.stderr)
-
-            finally:
-                # Restore original directory
-                os.chdir(original_dir)
+            if self.debug:
+                logger.debug("LAMMPS Output:")
+                logger.debug(result.stdout)
+                if result.stderr:
+                    logger.debug("LAMMPS Errors:")
+                    logger.debug(result.stderr)
 
         except subprocess.CalledProcessError as e:
             logger.error(f"LAMMPS execution failed with return code {e.returncode}")
@@ -135,8 +120,8 @@ class LammpsRunner:
             logger.error("Error details:")
             logger.error(e.stderr)
             raise
-        except Exception as e:
-            logger.error(f"Unexpected error running LAMMPS: {str(e)}")
-            logger.error(f"Command: {cmd}")
+        except subprocess.TimeoutExpired as e:
+            logger.error(f"LAMMPS execution timed out after {self.timeout}s")
+            logger.error(f"Command: {e.cmd}")
             logger.error(f"Working directory: {self.job_dir}")
             raise
