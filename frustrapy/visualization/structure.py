@@ -1,6 +1,7 @@
 import os
 import logging
 from ..core import Pdb
+from ..core.constants import FRST_HIGHLY_MAX, FRST_MINIMALLY_MIN_CONTACT
 from Bio.SeqUtils import seq1
 
 logger = logging.getLogger(__name__)
@@ -261,10 +262,13 @@ def view_mutate_contacts_py3dmol(
     compared to the wild-type residue.
 
     Generates a separate viewer for each mutation variant at the specified positions.
-    Contacts are colored based on the delta frustration (Mutant - WT):
-    - Red: Delta < -delta_threshold (Frustration increased)
-    - Blue: Delta > delta_threshold (Frustration decreased)
-    - Gray: -delta_threshold <= Delta <= delta_threshold (Neutral change)
+    Each contact is colored by the *mutant's* configurational/mutational contact
+    frustration state, using the same asymmetric cutoffs as the 2D plots and
+    frustratometeR (visualization.R:618-620):
+    - Red (highly frustrated):    FrstIndex <= -1.0
+    - Green (minimally frustrated): FrstIndex >= 0.78
+    - Gray (neutral):              -1.0 < FrstIndex < 0.78
+    The cylinder radius still encodes the magnitude of the change |Mutant - WT|.
 
     Args:
         pdb: Pdb object with mutation data.
@@ -273,8 +277,9 @@ def view_mutate_contacts_py3dmol(
         method: Mutation method key ("threading" or "modeller").
         width: Viewer width in pixels.
         height: Viewer height in pixels.
-        delta_threshold: Absolute threshold for coloring contacts red/blue.
-                         Contacts with |Delta Frst| > threshold are colored.
+        delta_threshold: DEPRECATED and ignored. Contact coloring now follows the
+                         fixed frustratometeR contact cutoffs (-1.0 / 0.78); kept in
+                         the signature only for backward compatibility.
         show_neutral_labels: Whether to display labels for neutral delta frustration contacts (default: True).
         show_neutral_contacts: Whether to display cylinders for neutral delta frustration contacts (default: True).
     """
@@ -449,10 +454,15 @@ def view_mutate_contacts_py3dmol(
                 wt_frst = wt_frustration_map.get(contact_key, 0) # Assume 0 if contact absent in WT
                 delta_frst = mut_frst - wt_frst
 
-                # Determine state and color based on mutant frustration value thresholds
-                if mut_frst <= -delta_threshold:
+                # Classify the mutant contact by its absolute frustration index,
+                # using the SAME asymmetric configurational/mutational contact cutoffs
+                # as the 2D plot (plots.py) and frustratometeR (visualization.R:618-620):
+                #   highly frustrated   FrstIndex <= -1.0   -> red
+                #   minimally frustrated FrstIndex >= 0.78   -> green
+                #   neutral             otherwise           -> gray
+                if mut_frst <= FRST_HIGHLY_MAX:
                     state_str = 'high_frustration'
-                elif mut_frst >= delta_threshold:
+                elif mut_frst >= FRST_MINIMALLY_MIN_CONTACT:
                     state_str = 'low_frustration'
                 else:
                     state_str = 'neutral'

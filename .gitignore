@@ -51,3 +51,18 @@ bench_results/
 # agent-fleet git worktrees (one per running agent)
 .worktrees/
 .devcontainer/homes/
+
+# cleanroom R&D notes (study/analysis only — NEVER commit; not part of FrustraPy)
+.rnd/
+
+# --- Personal dev-info / agent operating files (the package ships CODE only) ---
+# Internal planning, audit, vision and agent-harness artifacts. Kept out of the
+# published package; already-tracked ones are excised from history separately.
+CLAUDE.md
+ROADMAP.md
+VISION.md
+AGENTS.md
+docs/audit/
+docs/plans/
+.devcontainer/
+.claude/
