@@ -246,10 +246,15 @@ class InformationContentCalculator:
 
                 # 3. Calculate frustration using FrustraPy
                 pdb_file = self.pdb_dest_dir / f"{structure_id}.pdb"
+                # graphics=False: the IC calculation only reads the
+                # `.pdb_{mode}` frustration table, not the per-structure plots.
+                # Generating them for every family member is wasteful and pulls
+                # in the optional `kaleido` dependency (plot_5andens write_image).
                 pdb, plots, density_results, _ = calculate_frustration(
                     pdb_file=str(pdb_file),
                     mode=self.mode,
                     results_dir=str(self.frustration_dir),
+                    graphics=False,
                     debug=True,
                 )
 
@@ -266,7 +271,13 @@ class InformationContentCalculator:
                         try:
                             fields = line.strip().split()
                             pdb_pos1, pdb_pos2 = int(fields[0]), int(fields[1])
-                            frust_value = float(fields[9])  # FrstIndex column
+                            # FrstIndex is column index 11 in the 14-column
+                            # configurational/mutational table (Res1 Res2
+                            # ChainRes1 ChainRes2 DensityRes1 DensityRes2 AA1 AA2
+                            # NativeEnergy DecoyEnergy SDEnergy FrstIndex Welltype
+                            # FrstState). Index 9 is DecoyEnergy — reading it here
+                            # mis-classified every contact as highly frustrated.
+                            frust_value = float(fields[11])  # FrstIndex column
 
                             # Only process if both positions are mapped
                             if pdb_pos1 in rev_equiv_map and pdb_pos2 in rev_equiv_map:
@@ -413,10 +424,16 @@ class InformationContentCalculator:
             results = []
             for i in range(self.msa_data.length):
                 for j in range(i + 1, self.msa_data.length):
-                    # Collect values for this contact pair
+                    # Collect values for this contact pair.
+                    # Contacts are stored 1-based (MSA_pos starts at 1 in the
+                    # equivalence files, see _save_structure_equivalences), so the
+                    # 0-based loop indices i, j must be shifted by +1 to read the
+                    # correct cell — matching the 1-based ref_equiv[i + 1] lookup
+                    # below. Use `is not None` so legitimate 0.0 frustration
+                    # contacts are not dropped by a truthiness test.
                     values = []
                     for matrix in matrices:
-                        if value := matrix.get_contact(i, j):
+                        if (value := matrix.get_contact(i + 1, j + 1)) is not None:
                             values.append(value)
 
                     # Only process if multiple contacts exist

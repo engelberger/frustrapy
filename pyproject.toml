@@ -66,6 +66,7 @@ dependencies = [
     "rich",
     "matplotlib",
     "seaborn",
+    "logomaker",
 ]
 
 [project.optional-dependencies]

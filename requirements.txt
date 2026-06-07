@@ -12,6 +12,7 @@ tqdm
 rich              # utils/ui.py Rich display, imported by the core engine
 matplotlib        # benchmark/plotting.py (seaborn/matplotlib benchmark figures)
 seaborn           # benchmark/plotting.py
+logomaker         # evolution/sequence_logo.py sequence logos (Phase-7 demotion candidate)
 # Optional (see pyproject [project.optional-dependencies]):
 psutil      # perf: memory logging
 kaleido     # viz: static image export

@@ -138,7 +138,8 @@ results = analyze_family(
 )
 
 # Access results
-logo_path = results["files"]["logo"]
-contact_maps = results["files"]["contact_maps"]
+ic_csv = results["files"]["data"]               # per-contact information-content table
+contact_map = results["files"]["contact_maps"]  # PNG path, or None if contact_maps=False
+summary = results["contacts"]["summary"]        # MIN / NEU / MAX contact counts
 ```
 """
