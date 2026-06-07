@@ -37,23 +37,35 @@ classifiers = [
     # `license` string above is the single source of truth.
 ]
 
-# Runtime dependencies — the VERIFIED minimal set required to `import frustrapy`
-# and run the no-graphics analysis path (9 packages, == the Empirical Anchor set).
-# tqdm was a phantom dep (imported frustration.py:15 / mutations.py:8, declared in
-# none of setup.py / pyproject.toml / requirements.txt). scipy/scikit-learn/
-# python-igraph/leidenalg are CORE (not optional) because __init__.py:13 eagerly
-# imports analysis.clustering, which imports them at module top — they can only be
-# demoted to an extra AFTER that import is lazified (Phase 7, lazify-before-demote).
+# Runtime dependencies required to `import frustrapy` and run the no-graphics
+# analysis path. tqdm was a phantom dep (imported frustration.py / mutations.py,
+# declared nowhere). scipy/scikit-learn/python-igraph/leidenalg are CORE because
+# __init__.py:13 eagerly imports analysis.clustering, which imports them at module
+# top — demotable only AFTER that import is lazified (Phase 7, lazify-before-demote).
+#
+# The Phase 2 dev_benchmark merge added three more hard deps:
+#   * rich      — utils/ui.py (Rich display) is imported by the core engine
+#                 (frustration.py / frustration_calculator.py / mutations.py), so it
+#                 is required just to `import frustrapy`.
+#   * matplotlib, seaborn — benchmark/plotting.py; pulled in eagerly because
+#                 __init__.py imports `benchmark`, whose __init__ imports `plotting`.
+#                 CANDIDATES for a `benchmark` extra in Phase 7 once that chain is
+#                 lazified (lazify-before-demote), same pattern as the clustering deps.
+# plotly pinned <6: plotly 6.x removed the deprecated `titlefont` property the
+# graphics path still uses (resolve fully in Phase 5/7).
 dependencies = [
     "numpy",
     "pandas",
     "biopython",
-    "plotly",
+    "plotly<6",
     "scipy",
     "scikit-learn",
     "python-igraph",
     "leidenalg",
     "tqdm",
+    "rich",
+    "matplotlib",
+    "seaborn",
 ]
 
 [project.optional-dependencies]

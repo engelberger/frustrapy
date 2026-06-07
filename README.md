@@ -135,6 +135,35 @@ for root, dirs, files in os.walk(results_dir):
                         print(f"Least frustrated: {least_frustrated}")
 ```
 
+### Advanced Usage with Performance Profiling
+
+```python
+# Single PDB detailed analysis with custom CPU count
+pdb, plots, density, single = frustrapy.calculate_frustration(
+    pdb_file="example.pdb",
+    mode="singleresidue",
+    results_dir=results,
+    chain="A",
+    residues={"A": [144]},
+    debug=True,
+    n_cpus=4  # Use 4 cores for mutation analysis
+)
+```
+
+# Benchmarking CPU Scaling
+```python
+# Run performance benchmark for varying CPU counts
+from frustrapy.benchmark import run_benchmark
+df = run_benchmark(
+    pdb_file="example.pdb",
+    chain="A",
+    residues=144,
+    cpu_list=[1, 2, 4, 8],
+    results_dir="bench_results",
+)
+print(df)
+```
+
 ## Package Structure
 
 ```

@@ -21,6 +21,9 @@ from .visualization.plots import (
 )
 from .visualization.structure import view_frustration_pymol
 
+# New Benchmark Module
+from . import benchmark
+
 # Define what's available when using "from frustrapy import *"
 __all__ = [
     # Core classes
@@ -40,4 +43,5 @@ __all__ = [
     "plot_5adens_proportions",
     "plot_delta_frus",
     "view_frustration_pymol",
+    "benchmark"
 ]

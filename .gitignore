@@ -40,6 +40,8 @@ Results_example/
 jupyter_results/
 example_pdbs/*.pdb
 *.done/
+scripts/benchmark_results*/
+bench_results/
 
 # Intentionally NOT ignored:
 #   - test sources (tests/, test_*.py)  -> a real test suite must be committable
