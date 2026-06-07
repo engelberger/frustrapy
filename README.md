@@ -17,7 +17,7 @@ Plotly visualizations and parallel mutation analysis on top of the original meth
 **Disclaimer:** This is an unofficial reimplementation. Use at your own risk and
 verify results against the original frustratometeR when possible.
 
-## How it works (the one fact that matters)
+## How it works
 
 FrustraPy does **not** reimplement the AWSEM energy model in Python. Like
 frustratometeR, it shells out to the **same precompiled AWSEM/LAMMPS binaries**
