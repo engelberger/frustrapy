@@ -1,0 +1,23 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "frustrapy-native"
+version = "0.0.1"
+description = "Native C++ (and optional CUDA) compute core for FrustraPy frustration backends"
+readme = "README.md"
+requires-python = ">=3.9"
+license = "MIT"
+authors = [{ name = "Felipe Engelberger" }]
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["src/frustrapy_native"]
+
+[tool.scikit-build.cmake.define]
+# Default CPU-only build. Turn the CUDA path on at install time on a machine with nvcc:
+#   pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON
+FRUSTRAPY_NATIVE_CUDA = "OFF"
