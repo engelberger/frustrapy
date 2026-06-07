@@ -88,7 +88,15 @@ clustering = ["scipy", "scikit-learn", "python-igraph", "leidenalg", "statsmodel
 # to download and install the licensed PyRosetta wheel. Imported lazily inside the
 # mutation worker; a bare install keeps method='threading' fully functional.
 pyrosetta = ["pyrosetta-installer"]
-all = ["frustrapy[viz,perf,clustering]"]
+# Terminal CLI (`frustrapy` console script). typer drives arg parsing + rich help;
+# rich (already core) renders progress/tables/panels. Imported lazily by
+# frustrapy/cli/main.py so the core library never requires typer — `import frustrapy`
+# stays CLI-free.
+cli = ["typer>=0.12"]
+all = ["frustrapy[viz,perf,clustering,cli]"]
+
+[project.scripts]
+frustrapy = "frustrapy.cli.main:main"
 
 [project.urls]
 Homepage = "https://github.com/engelberger/frustrapy"
