@@ -1,7 +1,7 @@
 """Plot the cross-backend / core-scaling benchmark from bench_*.json.
 
 Two per-machine, ratio-based figures (host arm64 native vs container x86_64 emulated are
-NEVER merged on one wall-time axis — emulation inflates absolute container times; only
+NEVER merged on one wall-time axis - emulation inflates absolute container times; only
 within-machine ratios are valid). Parity Spearman annotated where measured.
 """
 import argparse, json, os
@@ -44,7 +44,7 @@ def fig_scaling(host, cont, out):
         ax.set_xlabel("CPU threads"); ax.set_title(title, fontsize=10)
         ax.grid(True, alpha=0.3); ax.legend(fontsize=9)
     axes[0].set_ylabel("Speedup vs 1 thread (native AWSEM kernel)")
-    fig.suptitle("FrustraPy native CPU core-scaling — kernel speedup vs threads (parity Spearman = 1.0000, bit-identical)",
+    fig.suptitle("FrustraPy native CPU core-scaling - kernel speedup vs threads (parity Spearman = 1.0000, bit-identical)",
                  fontsize=12, y=1.0)
     fig.tight_layout()
     fig.savefig(out, dpi=130, bbox_inches="tight")
@@ -80,7 +80,7 @@ def fig_backends(cont, out):
         ax.text(i + w, p, f"{p:.2f}s\n(x{t})", ha="center", va="bottom", fontsize=8)
     ax.set_xticks(list(x)); ax.set_xticklabels(labels)
     ax.set_ylabel("End-to-end wall time (s)")
-    ax.set_title("Backend comparison, same machine — dev container x86_64 EMULATED\n"
+    ax.set_title("Backend comparison, same machine - dev container x86_64 EMULATED\n"
                  f"{cont['meta']['pdb']} {cont['meta']['n_ca']} res · all FrstIndex parity Spearman = 1.0000 · "
                  "absolute times emulation-inflated (ratios valid, representative lammps timing needs native x86_64 cluster)",
                  fontsize=10)
@@ -111,7 +111,7 @@ def fig_metal(metal_recs, out):
         ax.text(i + w, met[i], f"{met[i]:.1f}ms\n{sv:.0f}x vs x1\n{sv14:.1f}x vs x14", ha="center", va="bottom", fontsize=7.5)
     ax.set_yscale("log"); ax.set_xticks(list(x)); ax.set_xticklabels(modes)
     ax.set_ylabel("AWSEM kernel wall time (ms, log scale)")
-    ax.set_title("Backend kernel time on host Apple-Silicon arm64 (SAME machine) — CPU vs Metal GPU\n"
+    ax.set_title("Backend kernel time on host Apple-Silicon arm64 (SAME machine) - CPU vs Metal GPU\n"
                  "3pgk_A 415 res · Metal–CPU FrstIndex parity Spearman = 1.00000 (max|Δ| ~1e-6, f32) · "
                  "configurational is GPU-overhead-bound (light work)", fontsize=10)
     ax.grid(True, axis="y", alpha=0.3, which="both"); ax.legend()
