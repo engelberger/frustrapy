@@ -19,6 +19,9 @@ from ..visualization import (
     plot_5adens_proportions,
     plot_contact_map,
     plot_delta_frus,
+    plot_frustration_classes,
+    write_pml,
+    write_cxc,
 )
 from .chain_selector import NonHetSelect, ChainSelect
 from ..core.data_classes import FrustrationDensity, FrustrationDensityResults
@@ -801,6 +804,16 @@ class FrustrationCalculator:
         os.makedirs(images_dir, exist_ok=True)
         logger.debug(f"Created/verified Images directory: {images_dir}")
 
+        # Class-colored frustration figure for every mode (the surface compared
+        # against the PyMOL/ChimeraX scripts in the cross-surface consistency
+        # check). Isolated so a plotting failure does not abort the run.
+        try:
+            self.plots["plot_frustration_classes"] = plot_frustration_classes(
+                pdb, save=True
+            )
+        except Exception as e:
+            logger.error(f"Failed to generate frustration-class plot: {str(e)}")
+
         if pdb.mode != "singleresidue":
             logger.debug("Generating plots for configurational/mutational mode")
 
@@ -924,76 +937,57 @@ class FrustrationCalculator:
                 )
 
     def _generate_visualizations(self, pdb: Pdb) -> None:
-        """Generate molecular visualizations."""
-        if pdb.mode == "singleresidue":
-            return
+        """Generate molecular-visualization scripts from the parsed tables.
 
+        Writes a PyMOL ``.pml`` and a ChimeraX ``.cxc`` (plus a ``.pb``
+        pseudobond file for the contact modes) into ``VisualizationScripts/``,
+        driven directly by the ``FrustrationData/{base}.pdb_{mode}`` table. This
+        replaces the legacy ``GenerateVisualizations.pl`` subprocess; the
+        Python ``.pml`` generator is byte-identical to the Perl on the
+        configurational/mutational panel (see
+        ``tests/test_visualization.py``). The Perl script is kept in
+        ``core/scripts/`` as the parity oracle but is no longer invoked.
+
+        Covers all three modes: configurational and mutational draw the
+        red/green contact links; single-residue colors each residue's cartoon
+        by its single-residue class (the Perl produced no single-residue view).
+        """
         logger.debug("Generating visualizations...")
         visualization_dir = os.path.join(pdb.job_dir, "VisualizationScripts")
         os.makedirs(visualization_dir, exist_ok=True)
 
-        # Generate visualization scripts
+        table_path = os.path.join(
+            pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}"
+        )
+        if not os.path.exists(table_path):
+            logger.warning(
+                f"Frustration table not found at {table_path}; "
+                "skipping visualization script generation"
+            )
+            return
+
         try:
-            # Find the auxiliar file in the job directory
-            auxiliar_file = os.path.join(pdb.job_dir, f"{pdb.pdb_base}_{pdb.mode}.pdb_auxiliar")
-            if not os.path.exists(auxiliar_file):
-                logger.warning(f"Auxiliar file not found at {auxiliar_file}, visualization may be incomplete")
-                # Check if it exists with a different name
-                for filename in os.listdir(pdb.job_dir):
-                    if filename.endswith("_auxiliar"):
-                        auxiliar_file = os.path.join(pdb.job_dir, filename)
-                        logger.debug(f"Found auxiliar file with different name: {auxiliar_file}")
-                        break
-            
-            if os.path.exists(auxiliar_file):
-                logger.debug(f"Using auxiliar file: {auxiliar_file}")
-                # First copy it to where the script expects it
-                aux_basename = os.path.basename(auxiliar_file)
-                parent_dir_aux_file = os.path.join(os.path.dirname(pdb.job_dir), aux_basename)
-                safe_copy(auxiliar_file, parent_dir_aux_file, overwrite=True)
-                
-                # Now run the script with the correct path
-                run_subprocess([
-                    "perl",
-                    os.path.join(pdb.scripts_dir, "GenerateVisualizations.pl"),
-                    aux_basename,  # Use just the basename
-                    pdb.pdb_base,
-                    os.path.dirname(pdb.job_dir),
-                    pdb.mode,
-                ], cwd=os.path.dirname(pdb.job_dir))  # Run from the parent directory
-                
-                # Clean up the copied file
-                if os.path.exists(parent_dir_aux_file) and parent_dir_aux_file != auxiliar_file:
-                    os.remove(parent_dir_aux_file)
-            else:
-                logger.warning("No suitable auxiliar file found for visualization generation")
+            pml_path = os.path.join(
+                visualization_dir, f"{pdb.pdb_base}.pdb_{pdb.mode}.pml"
+            )
+            write_pml(table_path, pml_path, pdb.pdb_base, pdb.mode)
+
+            cxc_path = os.path.join(
+                visualization_dir, f"{pdb.pdb_base}.pdb_{pdb.mode}.cxc"
+            )
+            write_cxc(table_path, cxc_path, pdb.pdb_base, pdb.mode)
         except Exception as e:
             if self.debug:
-                logger.debug(f"Failed to generate visualization scripts: {str(e)}", exc_info=True)
-                logger.debug(f"Job directory contents: {os.listdir(pdb.job_dir)}")
-                logger.debug(f"Images directory contents: {os.listdir(visualization_dir)}")
                 logger.debug(
-                    f"FrustrationData contents: {os.listdir(pdb.frustration_dir)}"
+                    f"Failed to generate visualization scripts: {str(e)}",
+                    exc_info=True,
                 )
             else:
                 logger.error(f"Failed to generate visualization scripts: {str(e)}")
             raise
 
-        # Move visualization files
-        for ext in ["pml", "tcl", "jml"]:
-            # Look in both job_dir and parent directory
-            search_dirs = [pdb.job_dir, os.path.dirname(pdb.job_dir)]
-            for search_dir in search_dirs:
-                pattern = os.path.join(search_dir, f"*_{pdb.mode}.{ext}")
-                for file_path in glob.glob(pattern):
-                    dest_path = os.path.join(
-                        visualization_dir, os.path.basename(file_path)
-                    )
-                    if os.path.exists(dest_path):
-                        os.remove(dest_path)
-                    shutil.move(file_path, visualization_dir)
-
-        # Copy required files
+        # Co-locate the structure (referenced by `load` / `open`) and the PyMOL
+        # draw_links.py helper (referenced by `run draw_links.py`).
         files_to_copy = [
             (
                 os.path.join(pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb"),

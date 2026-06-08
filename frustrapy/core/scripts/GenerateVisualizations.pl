@@ -1,3 +1,8 @@
+# LEGACY. The PyMOL (.pml) generation here is reimplemented in pure Python in
+# frustrapy/visualization/pymol_script.py, which the live path now uses. This
+# script is no longer invoked at runtime; it is kept as the byte-for-byte parity
+# oracle (tests/test_visualization.py) and as the reference for the .jml/.tcl
+# (VMD/Jmol) output that the Python generator does not yet emit.
 #----------Create the files and print the headers if needed--------
 
 open(JML, ">$ARGV[2]/$ARGV[1]\_$ARGV[3].jml");
