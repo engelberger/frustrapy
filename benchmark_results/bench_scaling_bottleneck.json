@@ -1,0 +1,91 @@
+{
+  "pdb": "AF-P04637.pdb",
+  "n_res": 393,
+  "cores": 14,
+  "scaling_mutational": [
+    {
+      "threads": 1,
+      "mean_s": 1.811280500027351,
+      "std_s": 0.003891420707107077,
+      "speedup": 1.0,
+      "efficiency": 1.0
+    },
+    {
+      "threads": 2,
+      "mean_s": 0.9331505410373211,
+      "std_s": 0.0037695378922139654,
+      "speedup": 1.9410378287021852,
+      "efficiency": 0.9705189143510926
+    },
+    {
+      "threads": 3,
+      "mean_s": 0.6652995420154184,
+      "std_s": 0.001230040151665219,
+      "speedup": 2.722503753031855,
+      "efficiency": 0.9075012510106184
+    },
+    {
+      "threads": 4,
+      "mean_s": 0.5152949580224231,
+      "std_s": 0.002850060694242644,
+      "speedup": 3.515036333711872,
+      "efficiency": 0.878759083427968
+    },
+    {
+      "threads": 6,
+      "mean_s": 0.3477799999527633,
+      "std_s": 0.0007675971422562581,
+      "speedup": 5.2081215143865816,
+      "efficiency": 0.8680202523977636
+    },
+    {
+      "threads": 8,
+      "mean_s": 0.2644582079956308,
+      "std_s": 0.0008471320192842978,
+      "speedup": 6.849023570700728,
+      "efficiency": 0.856127946337591
+    },
+    {
+      "threads": 10,
+      "mean_s": 0.21409379108808935,
+      "std_s": 0.00022193157634355058,
+      "speedup": 8.460219658038078,
+      "efficiency": 0.8460219658038077
+    },
+    {
+      "threads": 12,
+      "mean_s": 0.20379787497222424,
+      "std_s": 0.002750456491599286,
+      "speedup": 8.887631925868765,
+      "efficiency": 0.7406359938223971
+    },
+    {
+      "threads": 14,
+      "mean_s": 0.20808716607280076,
+      "std_s": 0.020967359878783905,
+      "speedup": 8.704431581300222,
+      "efficiency": 0.6217451129500159
+    }
+  ],
+  "amdahl_serial_fraction": 0.035000000000000024,
+  "amdahl_ceiling_speedup": 28.57142857142855,
+  "bottleneck": {
+    "n_res": 393,
+    "prep_s": 1.3330719160148874,
+    "density_kernel_s": 0.0007088748971000314,
+    "decoy_kernel_s": 0.2081890000263229,
+    "io_glue_s": 0.0,
+    "e2e_mutational_s": 0.4465962910326198,
+    "e2e_std_s": 0.03241959475755135,
+    "kernel_total_s": 0.20889787492342293,
+    "phases": {
+      "configurational_kernel_allcores_s": 0.0007088748971000314,
+      "configurational_kernel_serial_s": 0.0006874579703435302,
+      "mutational_kernel_allcores_s": 0.20889787492342293,
+      "mutational_kernel_serial_s": 1.8026996250264347,
+      "singleresidue_kernel_allcores_s": 0.026107082958333194,
+      "singleresidue_kernel_serial_s": 0.1992767920019105
+    },
+    "note": "prep = PdbCoords2Lammps subprocess + parse + gamma; per-variant e2e is dominated by whichever of {prep, kernel, io+glue} is largest -- if prep/io dominate, optimise data prep (reuse scaffolding across the N*20 variants) not the kernel."
+  }
+}

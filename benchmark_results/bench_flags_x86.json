@@ -1,0 +1,411 @@
+{
+  "configs": [
+    "O2",
+    "O3",
+    "O3_march_native",
+    "O3_x86v3",
+    "O3_ffast_math"
+  ],
+  "records": [
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.4861862276641962,
+      "std_s": 0.04428499746685408,
+      "speedup_vs_O3": 1.031743618235562,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.05654064299596939,
+      "std_s": 0.00211835707916659,
+      "speedup_vs_O3": 1.0669784565470755,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 8.70095575900632,
+      "std_s": 0.05448463685616288,
+      "speedup_vs_O3": 0.9965561696704848,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 0.949227107669382,
+      "std_s": 0.02009422674098031,
+      "speedup_vs_O3": 1.0516765650023066,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.5016195376665564,
+      "std_s": 0.03789004712260495,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.06032764799601864,
+      "std_s": 0.0013939494931723563,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 8.670991143667683,
+      "std_s": 0.07738989009584867,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 0.9982799040008103,
+      "std_s": 0.03504952581847084,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_march_native",
+      "flags": "-O3 -march=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.45871709732940263,
+      "std_s": 0.0015581395657798137,
+      "speedup_vs_O3": 1.093527013897949,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 4.3749946574153636e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_march_native",
+      "flags": "-O3 -march=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.0537693156657042,
+      "std_s": 0.004470841047111128,
+      "speedup_vs_O3": 1.1219716533327122,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 4.3749946574153636e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_march_native",
+      "flags": "-O3 -march=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 8.745498181330428,
+      "std_s": 0.0186581226717348,
+      "speedup_vs_O3": 0.9914805267672687,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.9984014443252818e-15,
+        "rmse": 3.3622990497353595e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_march_native",
+      "flags": "-O3 -march=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 0.9595891773302961,
+      "std_s": 0.02012051735626789,
+      "speedup_vs_O3": 1.0403200948745137,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.9984014443252818e-15,
+        "rmse": 3.3622990497353595e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_x86v3",
+      "flags": "-O3 -march=x86-64-v3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.45192194732953794,
+      "std_s": 0.0005192810831479353,
+      "speedup_vs_O3": 1.109969410936308,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 4.3058561563040327e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_x86v3",
+      "flags": "-O3 -march=x86-64-v3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.05504595133243129,
+      "std_s": 0.0026914983543232913,
+      "speedup_vs_O3": 1.0959506836695463,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 4.3058561563040327e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_x86v3",
+      "flags": "-O3 -march=x86-64-v3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 8.602825995001089,
+      "std_s": 0.013312149592208066,
+      "speedup_vs_O3": 1.0079235763580716,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.9984014443252818e-15,
+        "rmse": 3.333129936618921e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_x86v3",
+      "flags": "-O3 -march=x86-64-v3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 0.8971599373277664,
+      "std_s": 0.00038605785393160884,
+      "speedup_vs_O3": 1.112711192804969,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.9984014443252818e-15,
+        "rmse": 3.333129936618921e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.38152729099965654,
+      "std_s": 0.0013231701026679779,
+      "speedup_vs_O3": 1.3147671202032254,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.887379141862766e-15,
+        "rmse": 4.0489949735145254e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.04628949433390517,
+      "std_s": 0.003787361344410329,
+      "speedup_vs_O3": 1.3032686760596366,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.887379141862766e-15,
+        "rmse": 4.0489949735145254e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 7.1282256893318845,
+      "std_s": 0.001835084245135419,
+      "speedup_vs_O3": 1.2164305006005498,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 3.48223812658358e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 0.7633311416672465,
+      "std_s": 0.01373740942688969,
+      "speedup_vs_O3": 1.3077940221597606,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.220446049250313e-15,
+        "rmse": 3.48223812658358e-16,
+        "class_agreement": 1.0
+      }
+    }
+  ]
+}

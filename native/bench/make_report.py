@@ -128,10 +128,50 @@ def fig_flags(flags, out):
     return recs
 
 
+def fig_scaling_bottleneck(sb, out):
+    if not sb:
+        return
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5.4))
+    sc = sb["scaling_mutational"]
+    thr = [r["threads"] for r in sc]
+    spd = [r["speedup"] for r in sc]
+    eff = [r["efficiency"] for r in sc]
+    ax1.plot(thr, spd, "o-", color="#08519c", label="measured speedup", lw=2, ms=6)
+    ax1.plot([1, max(thr)], [1, max(thr)], "k--", alpha=0.4, label="ideal (directly proportional)")
+    s = sb["amdahl_serial_fraction"]
+    ax1.plot(thr, [1 / (s + (1 - s) / p) for p in thr], ":", color="#d62728",
+             label=f"Amdahl fit (s={s:.3f}, ceiling ~{sb['amdahl_ceiling_speedup']:.0f}x)")
+    ax1b = ax1.twinx()
+    ax1b.plot(thr, eff, "s-", color="#2ca02c", alpha=0.6, label="efficiency")
+    ax1b.set_ylabel("parallel efficiency (speedup / cores)", color="#2ca02c")
+    ax1b.set_ylim(0, 1.05); ax1b.axhline(1.0, ls=":", c="#2ca02c", alpha=0.3)
+    ax1.set_xlabel("CPU threads"); ax1.set_ylabel("speedup vs 1 thread")
+    ax1.set_title(f"CPU scaling, mutational kernel ({sb['pdb']}, {sb['n_res']} res)\n"
+                  "near-linear to 10 perf cores; plateau past that is the host's 10+4 hetero cores, not Amdahl",
+                  fontsize=9.5)
+    ax1.grid(True, alpha=0.3); ax1.legend(fontsize=8, loc="upper left")
+    b = sb["bottleneck"]
+    parts = [("data prep\n(subprocess+parse+gamma)", b["prep_s"], "#d62728"),
+             ("density kernel", b["density_kernel_s"], "#9ecae1"),
+             ("decoy kernel\n(the real compute)", b["decoy_kernel_s"], "#08519c")]
+    ax2.bar([p[0] for p in parts], [p[1] for p in parts], color=[p[2] for p in parts])
+    for i, p in enumerate(parts):
+        ax2.text(i, p[1], f"{p[1]*1000:.0f} ms", ha="center", va="bottom", fontsize=9)
+    ax2.set_ylabel("time per single variant (s)")
+    ax2.set_title("Bottleneck: data prep dominates one per-variant calc\n"
+                  "DMS scan redoes prep per mutant -> amortize prep across the N x 20 variants",
+                  fontsize=9.5)
+    ax2.grid(True, axis="y", alpha=0.3)
+    fig.tight_layout(); fig.savefig(out, dpi=130, bbox_inches="tight")
+    print("wrote", out)
+
+
 def main():
     os.makedirs(f"{BR}/plots", exist_ok=True)
     sample = loadj(f"{BR}/bench_sample_mut.json")
     flags = loadj(f"{BR}/bench_flags_x86.json")
+    fig_scaling_bottleneck(loadj(f"{BR}/bench_scaling_bottleneck.json"),
+                           f"{BR}/plots/fig7_cpu_scaling_bottleneck.png")
     fits = fig_sample(sample, f"{BR}/plots/fig5_size_sample_fit.png") if sample else {}
     fig_flags(flags, f"{BR}/plots/fig6_flag_sweep.png") if flags else None
     # dump fit summary for the report

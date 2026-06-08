@@ -1,0 +1,411 @@
+{
+  "configs": [
+    "O2",
+    "O3",
+    "O3_native",
+    "O3_unroll",
+    "O3_ffast_math"
+  ],
+  "records": [
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.10221163901345183,
+      "std_s": 0.00020262736626644394,
+      "speedup_vs_O3": 1.0044087441731167,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.10229576367419213,
+      "std_s": 0.001024393562347489,
+      "speedup_vs_O3": 0.9994433368402502,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 1.9474154723187287,
+      "std_s": 0.07603067720136308,
+      "speedup_vs_O3": 0.9740568041638975,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O2",
+      "flags": "-O2",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 1.8927091530058533,
+      "std_s": 0.0031871797514895646,
+      "speedup_vs_O3": 0.9996675398609258,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.10266226398137708,
+      "std_s": 0.00036961230115475766,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.10223881939115624,
+      "std_s": 3.035932287473113e-05,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 1.8968932913461078,
+      "std_s": 0.005243201557154444,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3",
+      "flags": "-O3",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 1.892079902657618,
+      "std_s": 0.004138984231730249,
+      "speedup_vs_O3": 1.0,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_native",
+      "flags": "-O3 -mcpu=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.10224005599350978,
+      "std_s": 0.00023042814244908627,
+      "speedup_vs_O3": 1.0041295750844865,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_native",
+      "flags": "-O3 -mcpu=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.10287191699414204,
+      "std_s": 0.0005325871699530266,
+      "speedup_vs_O3": 0.9938457683935077,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_native",
+      "flags": "-O3 -mcpu=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 2.2225175416485095,
+      "std_s": 0.27878819274890354,
+      "speedup_vs_O3": 0.8534885578176917,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_native",
+      "flags": "-O3 -mcpu=native",
+      "portable": false,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 2.0282677083741874,
+      "std_s": 0.12974509951865393,
+      "speedup_vs_O3": 0.9328551131814181,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_unroll",
+      "flags": "-O3 -funroll-loops",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.10245834663510323,
+      "std_s": 0.00010456668523732974,
+      "speedup_vs_O3": 1.0019902463095574,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_unroll",
+      "flags": "-O3 -funroll-loops",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.10213995802526672,
+      "std_s": 0.00036734982990775997,
+      "speedup_vs_O3": 1.000967900984109,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_unroll",
+      "flags": "-O3 -funroll-loops",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 1.8929488890183468,
+      "std_s": 0.0032688714067643,
+      "speedup_vs_O3": 1.0020837341941158,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_unroll",
+      "flags": "-O3 -funroll-loops",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 1.894126597365054,
+      "std_s": 0.0022569259037152813,
+      "speedup_vs_O3": 0.9989194519995215,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 1,
+      "mean_s": 0.10527927762207885,
+      "std_s": 0.00021874722901108983,
+      "speedup_vs_O3": 0.9751421770759477,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.887379141862766e-15,
+        "rmse": 5.243182982624492e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P01308.pdb",
+      "threads": 0,
+      "mean_s": 0.1049819723314916,
+      "std_s": 0.00014092991042214884,
+      "speedup_vs_O3": 0.9738702476300067,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 1.887379141862766e-15,
+        "rmse": 5.243182982624492e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 1,
+      "mean_s": 1.9522592360541846,
+      "std_s": 0.0025923890201915334,
+      "speedup_vs_O3": 0.9716400651688144,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.6645352591003757e-15,
+        "rmse": 4.42935409639484e-16,
+        "class_agreement": 1.0
+      }
+    },
+    {
+      "config": "O3_ffast_math",
+      "flags": "-O3 -ffast-math",
+      "portable": true,
+      "flag_reached_compiler": false,
+      "pdb": "AF-P24941.pdb",
+      "threads": 0,
+      "mean_s": 2.239858083659783,
+      "std_s": 0.24121137068665446,
+      "speedup_vs_O3": 0.8447320464009408,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 2.6645352591003757e-15,
+        "rmse": 4.42935409639484e-16,
+        "class_agreement": 1.0
+      }
+    }
+  ]
+}
