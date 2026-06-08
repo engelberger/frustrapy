@@ -14,6 +14,7 @@ from __future__ import annotations
 from typing import Dict, Type, Union
 
 from .atomic import AtomicBackend
+from .atomic_tmol import AtomicTmolBackend
 from .base import FrustrationBackend
 from .lammps import LammpsBackend
 from .native import NativeBackend
@@ -25,6 +26,7 @@ _REGISTRY: Dict[str, Type[FrustrationBackend]] = {
     LammpsBackend.name: LammpsBackend,
     NativeBackend.name: NativeBackend,
     AtomicBackend.name: AtomicBackend,
+    AtomicTmolBackend.name: AtomicTmolBackend,
 }
 
 
@@ -74,6 +76,7 @@ __all__ = [
     "LammpsBackend",
     "NativeBackend",
     "AtomicBackend",
+    "AtomicTmolBackend",
     "DEFAULT_BACKEND",
     "available_backends",
     "register_backend",
