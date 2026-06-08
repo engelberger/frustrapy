@@ -1,0 +1,380 @@
+{
+  "meta": {
+    "machine": "container-x86_64-emulated",
+    "uname_machine": "x86_64",
+    "cpu_count": 14,
+    "pdb": "3pgk_A.pdb",
+    "n_ca": 415,
+    "seq_dist": 12,
+    "repeats": 3,
+    "threads": [
+      1,
+      2,
+      4,
+      8,
+      14
+    ],
+    "modes": [
+      "configurational",
+      "mutational",
+      "singleresidue"
+    ],
+    "native_built": true,
+    "has_metal": false,
+    "has_cuda": false,
+    "available_backends": [
+      "lammps",
+      "native CPU (serial + multicore)"
+    ]
+  },
+  "records": [
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 0.002396267998847179,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 0.0023993079958017915,
+      "speedup": 0.9987329692728355,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 0.002406017010798678,
+      "speedup": 0.9959480702306994,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 0.00245809399348218,
+      "speedup": 0.9748479940966712,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 0.00243647099705413,
+      "speedup": 0.983499496503115,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "lammps (reference)",
+      "threads": 1,
+      "wall_s": 0.6836092999874381,
+      "speedup": 0.7258714692759569,
+      "spearman": 1.0,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "native CPU x1 (serial)",
+      "threads": 1,
+      "wall_s": 0.49621248699259013,
+      "speedup": 1.0,
+      "spearman": 0.9999999919791691,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "native CPU x2",
+      "threads": 2,
+      "wall_s": 0.5033552529930603,
+      "speedup": 0.9858096921448665,
+      "spearman": 0.9999999919791691,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "native CPU x4",
+      "threads": 4,
+      "wall_s": 0.5288092999981018,
+      "speedup": 0.9383580942966989,
+      "spearman": 0.9999999919791691,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "native CPU x8",
+      "threads": 8,
+      "wall_s": 0.5094703040085733,
+      "speedup": 0.9739772526255818,
+      "spearman": 0.9999999919791691,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "configurational",
+      "kind": "e2e",
+      "backend_label": "native CPU x14",
+      "threads": 14,
+      "wall_s": 0.4871717290079687,
+      "speedup": 1.0185576408611214,
+      "spearman": 0.9999999919791691,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 16.476271527004428,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 8.359639757007244,
+      "speedup": 1.9709308063417008,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 4.287399920998723,
+      "speedup": 3.842951866073269,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 2.209778356991592,
+      "speedup": 7.456074259608254,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 1.8026716509921243,
+      "speedup": 9.139918252964423,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "lammps (reference)",
+      "threads": 1,
+      "wall_s": 15.565630550001515,
+      "speedup": 1.1434761721229514,
+      "spearman": 1.0,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "native CPU x1 (serial)",
+      "threads": 1,
+      "wall_s": 17.798927637995803,
+      "speedup": 1.0,
+      "spearman": 0.9999999999999999,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "native CPU x2",
+      "threads": 2,
+      "wall_s": 9.02800844500598,
+      "speedup": 1.9715231489223548,
+      "spearman": 0.9999999999999999,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "native CPU x4",
+      "threads": 4,
+      "wall_s": 4.914031057996908,
+      "speedup": 3.622062503864419,
+      "spearman": 0.9999999999999999,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "native CPU x8",
+      "threads": 8,
+      "wall_s": 2.8371866550005507,
+      "speedup": 6.273442604357784,
+      "spearman": 0.9999999999999999,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "mutational",
+      "kind": "e2e",
+      "backend_label": "native CPU x14",
+      "threads": 14,
+      "wall_s": 2.7281724120111903,
+      "speedup": 6.524121261410511,
+      "spearman": 0.9999999999999999,
+      "n_units": 2882
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 1.1233831129939063,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 0.5769020769948838,
+      "speedup": 1.9472682761789897,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 0.29806467500748113,
+      "speedup": 3.768924019479029,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 0.1595899819949409,
+      "speedup": 7.039183155177737,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 0.134254926990252,
+      "speedup": 8.36753732751628,
+      "bit_identical": true
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "lammps (reference)",
+      "threads": 1,
+      "wall_s": 1.7345090539893135,
+      "speedup": 0.9115174264226352,
+      "spearman": 1.0,
+      "n_units": 415
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "native CPU x1 (serial)",
+      "threads": 1,
+      "wall_s": 1.5810352289990988,
+      "speedup": 1.0,
+      "spearman": 1.0,
+      "n_units": 415
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "native CPU x2",
+      "threads": 2,
+      "wall_s": 1.038338724989444,
+      "speedup": 1.5226584456003718,
+      "spearman": 1.0,
+      "n_units": 415
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "native CPU x4",
+      "threads": 4,
+      "wall_s": 0.7750934349896852,
+      "speedup": 2.0397995359361274,
+      "spearman": 1.0,
+      "n_units": 415
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "native CPU x8",
+      "threads": 8,
+      "wall_s": 0.6204604839876993,
+      "speedup": 2.548164258322764,
+      "spearman": 1.0,
+      "n_units": 415
+    },
+    {
+      "machine": "container-x86_64-emulated",
+      "mode": "singleresidue",
+      "kind": "e2e",
+      "backend_label": "native CPU x14",
+      "threads": 14,
+      "wall_s": 0.6132938230002765,
+      "speedup": 2.577940898319444,
+      "spearman": 1.0,
+      "n_units": 415
+    }
+  ]
+}

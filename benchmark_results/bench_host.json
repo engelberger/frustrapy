@@ -1,0 +1,214 @@
+{
+  "meta": {
+    "machine": "host-arm64",
+    "uname_machine": "arm64",
+    "cpu_count": 14,
+    "pdb": "3pgk_A.pdb",
+    "n_ca": 415,
+    "seq_dist": 12,
+    "repeats": 3,
+    "threads": [
+      1,
+      2,
+      4,
+      8,
+      10,
+      14
+    ],
+    "modes": [
+      "configurational",
+      "mutational",
+      "singleresidue"
+    ],
+    "native_built": true,
+    "has_metal": true,
+    "has_cuda": false,
+    "available_backends": [
+      "lammps",
+      "native CPU (serial + multicore)",
+      "native Metal"
+    ]
+  },
+  "records": [
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 0.0008480000542476773,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 0.0007983330870047212,
+      "speedup": 1.0622133393334634,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 0.0007934580789878964,
+      "speedup": 1.0687395802048578,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 0.0008853750769048929,
+      "speedup": 0.9577862268408641,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 10,
+      "wall_s": 0.0008360840147361159,
+      "speedup": 1.0142522034885721,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "configurational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 0.0008402499370276928,
+      "speedup": 1.0092235856004939,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 3.7904494159156457,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 1.9496859160717577,
+      "speedup": 1.9441333522851068,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 0.9905377920949832,
+      "speedup": 3.8266580499658285,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 0.513227750081569,
+      "speedup": 7.385511432913004,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 10,
+      "wall_s": 0.4260850000428036,
+      "speedup": 8.89599355887878,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "mutational",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 0.38169183291029185,
+      "speedup": 9.930653708292748,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 1,
+      "wall_s": 0.26195937499869615,
+      "speedup": 1.0,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 2,
+      "wall_s": 0.13729254202917218,
+      "speedup": 1.9080379103406397,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 4,
+      "wall_s": 0.07235191704239696,
+      "speedup": 3.6206279765219285,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 8,
+      "wall_s": 0.03768870793282986,
+      "speedup": 6.950606411489865,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 10,
+      "wall_s": 0.03660662507172674,
+      "speedup": 7.156064632711018,
+      "bit_identical": true
+    },
+    {
+      "machine": "host-arm64",
+      "mode": "singleresidue",
+      "kind": "kernel",
+      "backend": "native-cpu",
+      "threads": 14,
+      "wall_s": 0.035147833987139165,
+      "speedup": 7.453073071147112,
+      "bit_identical": true
+    }
+  ]
+}

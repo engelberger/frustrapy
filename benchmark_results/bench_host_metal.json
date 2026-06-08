@@ -1,0 +1,92 @@
+[
+  {
+    "machine": "host-arm64",
+    "mode": "configurational",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x1",
+    "threads": 1,
+    "wall_s": 0.0008331669960170984,
+    "speedup_vs_cpu1": 1.0,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "configurational",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x14",
+    "threads": 14,
+    "wall_s": 0.0007932920707389712,
+    "speedup_vs_cpu1": 1.0502651252280673,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "configurational",
+    "kind": "kernel-metalcmp",
+    "backend": "metal",
+    "threads": 0,
+    "wall_s": 0.006979790981858969,
+    "speedup_vs_cpu1": 0.11936847366669942,
+    "spearman": 0.999999999498698
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "mutational",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x1",
+    "threads": 1,
+    "wall_s": 3.7961515419883654,
+    "speedup_vs_cpu1": 1.0,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "mutational",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x14",
+    "threads": 14,
+    "wall_s": 0.40732570900581777,
+    "speedup_vs_cpu1": 9.319695413417044,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "mutational",
+    "kind": "kernel-metalcmp",
+    "backend": "metal",
+    "threads": 0,
+    "wall_s": 0.025565708987414837,
+    "speedup_vs_cpu1": 148.48606560675032,
+    "spearman": 0.9999999999999999
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "singleresidue",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x1",
+    "threads": 1,
+    "wall_s": 0.2704078749520704,
+    "speedup_vs_cpu1": 1.0,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "singleresidue",
+    "kind": "kernel-metalcmp",
+    "backend": "native-cpu-x14",
+    "threads": 14,
+    "wall_s": 0.033697540988214314,
+    "speedup_vs_cpu1": 8.024558084123864,
+    "spearman": 1.0
+  },
+  {
+    "machine": "host-arm64",
+    "mode": "singleresidue",
+    "kind": "kernel-metalcmp",
+    "backend": "metal",
+    "threads": 0,
+    "wall_s": 0.01240116695407778,
+    "speedup_vs_cpu1": 21.805034635321498,
+    "spearman": 1.0
+  }
+]

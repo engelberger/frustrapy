@@ -284,7 +284,14 @@ FrustrationResult compute_frustration_metal(const StructureView& s, const Params
 
     const MTL::ResourceOptions kShared = MTL::ResourceStorageModeShared;
     auto mkbuf = [&](const void* ptr, std::size_t bytes) {
-        return device->newBuffer(ptr, std::max<std::size_t>(bytes, 1), kShared);
+        const std::size_t len = std::max<std::size_t>(bytes, 1);
+        // Output / empty buffers carry no initial bytes: use the length-only overload.
+        // newBuffer(ptr=nullptr, len) maps to newBufferWithBytes(nullptr, len) which
+        // memcpy's from null and crashes, so never pass a null pointer here.
+        if (ptr == nullptr || bytes == 0) {
+            return device->newBuffer(len, kShared);
+        }
+        return device->newBuffer(ptr, len, kShared);
     };
 
     MTL::Buffer* b_coord = mkbuf(coordf.data(), coordf.size() * sizeof(float));

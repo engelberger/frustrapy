@@ -77,8 +77,8 @@ inline float m_theta(float r, float rmin, float rmax, float kappa) {
 }
 
 inline float m_theta_clamped(float r, float rmin, float rmax, float kappa) {
-    const float half = 8.0f * 2.302585f / kappa;
-    if (r < rmin - half || r > rmax + half) return 0.0f;
+    const float hwidth = 8.0f * 2.302585f / kappa;
+    if (r < rmin - hwidth || r > rmax + hwidth) return 0.0f;
     return m_theta(r, rmin, rmax, kappa);
 }
 
