@@ -1,0 +1,62 @@
+{
+  "LJLKEnergyTerm": {
+    "measured_pose0": [
+      -417.95831298828125,
+      240.71466064453125,
+      298.2765197753906
+    ],
+    "baseline_pose0": [
+      -417.95831298828125,
+      240.71466064453125,
+      298.2765197753906
+    ],
+    "max_abs_diff": 0.0,
+    "status": "PASS"
+  },
+  "LKBallEnergyTerm": {
+    "measured_pose0": [
+      422.03961181640625,
+      172.1964111328125,
+      1.5785890817642212,
+      10.994601249694824
+    ],
+    "baseline_pose0": [
+      422.03961181640625,
+      172.19644165039062,
+      1.5785889625549316,
+      10.994600296020508
+    ],
+    "max_abs_diff": 3.0517578125e-05,
+    "status": "PASS"
+  },
+  "ElecEnergyTerm": {
+    "measured_pose0": [
+      -136.29248046875
+    ],
+    "baseline_pose0": [
+      -136.29248
+    ],
+    "max_abs_diff": 4.68749988158379e-07,
+    "status": "PASS"
+  },
+  "HBondEnergyTerm": {
+    "measured_pose0": [
+      -55.67561340332031
+    ],
+    "baseline_pose0": [
+      -55.67562484741211
+    ],
+    "max_abs_diff": 1.1444091796875e-05,
+    "status": "PASS"
+  },
+  "RefEnergyTerm": {
+    "measured_pose0": [
+      -41.275001525878906
+    ],
+    "baseline_pose0": [
+      -41.275001525878906
+    ],
+    "max_abs_diff": 0.0,
+    "status": "PASS"
+  }
+}

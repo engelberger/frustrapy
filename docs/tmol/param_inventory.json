@@ -1,0 +1,215 @@
+{
+  "meta": {
+    "mission": "TMOL-PARAM-SOURCING (#36)",
+    "gate": "docs/tmol/TMOL_LANE_DECISION.md (TMOL-GATE #35, approved)",
+    "tmol_clone": "/workspace/tmol_src (engelberger/tmol master f4d0916)",
+    "purpose": "Catalog every Rosetta-DB-derived constant tmol consumes for the in-scope frustration energy terms, tag each group with a license tier and a sourcing decision, and define the two build profiles. This file is a contract, not shipped params. No tmol file is vendored by this mission.",
+    "tiers": {
+      "REUSE": "usable directly for the academic / non-commercial default tier; free under the Rosetta Software Non-Commercial License Agreement for that audience",
+      "LOADER": "not safe to vendor in a permissive redistributable build; supplied at runtime via ParameterDatabase.from_file(path) from a user Rosetta DB or an open source",
+      "REDERIVE": "re-derive ONLY where a tier is blocked AND the value has a clean public origin; targeted, never blanket"
+    },
+    "scope_note": "lk_ball ships NO parameter file of its own: it reuses ljlk.global_parameters (the lkb_water_* fields) and ljlk.atom_type_parameters (LJLKParamResolver). Verified at tmol/score/lk_ball/lk_ball_energy_term.py:8,26-27,34. It is therefore covered by groups ljlk.global_parameters and ljlk.atom_type_parameters, not a separate row.",
+    "no_public_origin_note": "Every in-scope group is a fitted Rosetta-database value (beta_nov2016/ref2015) with no clean public table independent of the Rosetta DB, so all are public_origin=false and stay behind the loader in the permissive profile. The functional forms are published (cited per group); the specific fitted constants are not. lj_lambda=3.5 (the Lazaridis-Karplus correlation length) is the lone value with a clean public origin, but it is one constant inside an otherwise Rosetta-fit atom table, so re-deriving it does not unblock the group and the group stays LOADER."
+  },
+  "groups": [
+    {
+      "id": "ljlk.global_parameters",
+      "terms": ["fa_atr", "fa_rep", "fa_sol", "lk_ball"],
+      "file": "tmol/database/default/scoring/ljlk.yaml",
+      "lines": "1-20",
+      "loader": "tmol/database/scoring/ljlk.py:12 (LJLKGlobalParameters), structured at :40-46 (LJLKDatabase.from_file)",
+      "shape": "14 scalar fields (max_dis, spline_start, lj_switch_dis2sigma, lj_hbond_OH_donor_dis, lj_hbond_hdis, lj_hbond_dis, lk_min_dis2sigma, lkb_water_dist, lkb_water_angle_{sp2,sp3,ring}, lkb_water_tors_{sp2,sp3,ring} angle lists)",
+      "provenance_header": "none in file",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse the tmol globals directly. Permissive: load at runtime, do not vendor. Lazaridis-Karplus solvation form is published; the fitted Rosetta constants are not.",
+      "source_citation": "Lazaridis & Karplus 1999, Proteins 35:133 (LK solvation form, lambda=3.5); fitted constants from the Rosetta etable, refit in Alford et al. 2017, JCTC 13:3031. Values: Rosetta DB, no clean public table -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "ljlk.atom_type_parameters",
+      "terms": ["fa_atr", "fa_rep", "fa_sol", "lk_ball"],
+      "file": "tmol/database/default/scoring/ljlk.yaml",
+      "lines": "21-67",
+      "loader": "tmol/database/scoring/ljlk.py:30 (LJLKAtomTypeParameters), field at :42",
+      "shape": "35 atom types x 6 fields (name, lj_radius, lj_wdepth, lk_dgfree, lk_lambda, lk_volume)",
+      "provenance_header": "none in file (example: CNH2 lj_radius 1.968297, lj_wdepth 0.094638, lk_dgfree 3.70334)",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. These are the Rosetta etable Lennard-Jones radii/well-depths and Lazaridis-Karplus solvation parameters.",
+      "source_citation": "Rosetta etable (database/chemical atom_properties), refit for ref2015 in Alford et al. 2017, JCTC 13:3031. Values: Rosetta DB, no clean public table -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "elec.global_parameters",
+      "terms": ["fa_elec"],
+      "file": "tmol/database/default/scoring/elec.yaml",
+      "lines": "1-6",
+      "loader": "tmol/database/scoring/elec.py:9 (GlobalParams), field at :33",
+      "shape": "5 scalar fields (elec_min_dis 1.6, elec_max_dis 5.5, elec_sigmoidal_die_D 79.931, elec_sigmoidal_die_D0 6.648, elec_sigmoidal_die_S 0.441546)",
+      "provenance_header": "none in file",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. The sigmoidal distance-dependent dielectric form is published; the fitted D/D0/S constants are Rosetta values.",
+      "source_citation": "Sigmoidal dielectric form: Mehler & Solmajer 1991, Protein Eng 4:903. Fitted constants from Rosetta fa_elec, ref2015 (Alford et al. 2017, JCTC 13:3031). Values: Rosetta DB -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "elec.atom_cp_reps_parameters",
+      "terms": ["fa_elec"],
+      "file": "tmol/database/default/scoring/elec.yaml",
+      "lines": "8-193",
+      "loader": "tmol/database/scoring/elec.py:18 (CountPairReps), field at :34",
+      "shape": "182 rows x 3 fields (res, atm_inner, atm_outer) count-pair representative-atom map",
+      "provenance_header": "none in file",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. Count-pair connectivity descends from the Rosetta DB; kept behind the loader with the rest of the elec group rather than re-derived piecemeal.",
+      "source_citation": "Rosetta fa_elec count-pair definitions (database/scoring). No standalone public table -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "elec.atom_charge_parameters",
+      "terms": ["fa_elec"],
+      "file": "tmol/database/default/scoring/elec.yaml",
+      "lines": "194-787",
+      "loader": "tmol/database/scoring/elec.py:25 (PartialCharges), field at :35",
+      "shape": "589 rows x 3 fields (res, atom, charge) per-atom partial charges",
+      "provenance_header": "none in file",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. ref2015 partial charges descend from the Rosetta DB.",
+      "source_citation": "Rosetta ref2015 partial charges (Alford et al. 2017, JCTC 13:3031). Values: Rosetta DB -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "ref.weights",
+      "terms": ["ref"],
+      "file": "tmol/database/default/scoring/ref.yaml",
+      "lines": "1-23",
+      "loader": "tmol/database/scoring/ref.py:8 (RefDatabase), weights field at :9",
+      "shape": "22 entries (20 canonical residues + CYD + HIS_D), residue -> float reference weight (example ALA 2.3386, PRO -5.1227, TRP 3.035)",
+      "provenance_header": "none in file",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. ref2015 per-residue reference energies are a fitted Rosetta set.",
+      "source_citation": "ref2015 reference energies, Park et al. 2016, JCTC 12:6201 and Alford et al. 2017, JCTC 13:3031. Tabulated only in the Rosetta DB -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.global_parameters",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "2-7",
+      "loader": "tmol/database/scoring/hbond.py:10 (GlobalParams), field at :75/94",
+      "shape": "5 scalar fields (hb_sp2_range_span 1.6, hb_sp2_BAH180_rise 0.75, hb_sp2_outer_width 0.357, hb_sp3_softmax_fade 2.5, threshold_distance 6.0)",
+      "provenance_header": "none on this block",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta hydrogen-bond model, O'Meara et al. 2015, JCTC 11:609. Fitted constants: Rosetta DB -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.donor_atom_types",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "9-20",
+      "loader": "tmol/database/scoring/hbond.py:19 (DonorAtomType), field at :76",
+      "shape": "11 rows x 2 fields (d atom type -> donor_type label)",
+      "provenance_header": "none on this block",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta hbond chemical-type map, O'Meara et al. 2015, JCTC 11:609 -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.donor_type_params",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "22-34",
+      "loader": "tmol/database/scoring/hbond.py:31 (DonorTypeParam), field at :77",
+      "shape": "11 rows x 2 fields (name -> weight)",
+      "provenance_header": "none on this block",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta hbond donor weights, O'Meara et al. 2015, JCTC 11:609 -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.acceptor_atom_types",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "35-47",
+      "loader": "tmol/database/scoring/hbond.py:25 (AcceptorAtomType), field at :80",
+      "shape": "8 rows x 2 fields (a atom type -> acceptor_type label)",
+      "provenance_header": "none on this block",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta hbond chemical-type map, O'Meara et al. 2015, JCTC 11:609 -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.acceptor_type_params",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "48-57",
+      "loader": "tmol/database/scoring/hbond.py:37 (AcceptorTypeParam), field at :81",
+      "shape": "8 rows x 2 fields (name -> weight, example hbacc_IME 1.17)",
+      "provenance_header": "none on this block",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta hbond acceptor weights, O'Meara et al. 2015, JCTC 11:609 -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.polynomial_parameters",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "58-115",
+      "loader": "tmol/database/scoring/hbond.py:43 (PolynomialParameters), field at :83",
+      "shape": "56 rows x 17 fields (name, dimension, xmin, xmax, min_val, max_val, degree, c_a..c_k) energy polynomials",
+      "provenance_header": "EXPLICIT: hbond.yaml:58 comment 'Parameters imported from rosetta sp2_elec_params @v2017.48-dev59886' (the gate's anchor and the only provenance comment in the whole default/scoring tree)",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor. This is the explicitly-Rosetta-imported group and the strongest case against vendoring in a permissive build.",
+      "source_citation": "Imported from Rosetta sp2_elec_params @v2017.48-dev59886 (file comment); model in O'Meara et al. 2015, JCTC 11:609. Coefficients: Rosetta DB -> NO-PUBLIC-ORIGIN."
+    },
+    {
+      "id": "hbond.pair_parameters",
+      "terms": ["hbond"],
+      "file": "tmol/database/default/scoring/hbond.yaml",
+      "lines": "116-end",
+      "loader": "tmol/database/scoring/hbond.py:65 (PairParameters), field at :82",
+      "shape": "88 rows x 5 fields (donor_type, acceptor_type, AHdist, cosBAH, cosAHD polynomial-name references)",
+      "provenance_header": "none on this block (references the polynomial_parameters group above)",
+      "tier": {"academic": "REUSE", "permissive": "LOADER"},
+      "public_origin": false,
+      "decision": "Academic: reuse directly. Permissive: load at runtime, do not vendor.",
+      "source_citation": "Rosetta donor/acceptor pair-to-polynomial map, O'Meara et al. 2015, JCTC 11:609 -> NO-PUBLIC-ORIGIN."
+    }
+  ],
+  "build_profiles": {
+    "academic": {
+      "audience": "not-for-profit research, government, universities (free under the Rosetta Software Non-Commercial License Agreement)",
+      "description": "FrustraPy default and the academic tier of the atomic backend. Reuses tmol Apache code AND the tmol default parameter database directly via ParameterDatabase.get_default().",
+      "includes_params": true,
+      "param_loader": "tmol.database.ParameterDatabase.get_default() -> from_file(<package>/default) (tmol/database/__init__.py:19-23,31-35)",
+      "param_files": [
+        "tmol/database/default/scoring/ljlk.yaml",
+        "tmol/database/default/scoring/elec.yaml",
+        "tmol/database/default/scoring/ref.yaml",
+        "tmol/database/default/scoring/hbond.yaml"
+      ],
+      "notice": "docs/tmol/NOTICE_tmol.md (Apache-2.0 section 4 attribution for the reused tmol code)"
+    },
+    "permissive": {
+      "audience": "anyone, including for-profit (the standalone tmol-webgpu repo, mission #40, and any commercial path)",
+      "description": "Ships tmol Apache CODE plus the parameter-loader seam and NO non-commercial parameter file. Parameters are user-supplied at runtime (under the user's own Rosetta license) or come from genuinely open published values.",
+      "includes_params": false,
+      "param_loader": "tmol.database.ParameterDatabase.from_file(user_supplied_dir) (tmol/database/__init__.py:31-35); the build vendors none of the default scoring YAMLs",
+      "vendored_code_only": true,
+      "notice": "docs/tmol/NOTICE_tmol.md",
+      "excluded_param_files": [
+        "tmol/database/default/scoring/ljlk.yaml",
+        "tmol/database/default/scoring/elec.yaml",
+        "tmol/database/default/scoring/ref.yaml",
+        "tmol/database/default/scoring/hbond.yaml"
+      ]
+    }
+  }
+}

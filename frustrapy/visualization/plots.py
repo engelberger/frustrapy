@@ -182,8 +182,13 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         contact_matrix.iloc[pos2_idx, pos1_idx] = frustration_value
         contact_matrix.iloc[pos1_idx, pos2_idx] = frustration_value
 
-    # Set lower triangle to zero for visualization
-    contact_matrix.values[np.tril_indices(contact_matrix.shape[0], k=0)] = 0.0
+    # Set lower triangle to zero for visualization. Operate on a writable copy:
+    # under pandas >= 3.0 (copy-on-write) ``DataFrame.values`` can return a
+    # read-only view, so in-place assignment into it raises. Building the array,
+    # zeroing the triangle, then writing it back keeps the heatmap identical.
+    _cm = contact_matrix.to_numpy(copy=True)
+    _cm[np.tril_indices(_cm.shape[0], k=0)] = 0.0
+    contact_matrix.iloc[:, :] = _cm
 
     # Create plotly heatmap
     logger.debug("Generating plotly heatmap")
