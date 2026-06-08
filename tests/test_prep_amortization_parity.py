@@ -316,6 +316,134 @@ def test_native_geometry_reuse_bit_identical(base, mode, tmp_path):
     assert np.array_equal(one_shot["frst_index"], rho_only["frst_index"])
 
 
+def _wt_job(base, mode, results_dir, chain=None):
+    """Run a WT frustration calc (optionally restricted to one chain) and return
+    ``(job_dir, pdb_base)``. The chain-restricted form mirrors the saturation scan,
+    which computes each mutant over only the target residue's chain."""
+    import frustrapy
+
+    src = STRUCT_PDB[base]
+    if os.path.exists(results_dir):
+        shutil.rmtree(results_dir)
+    os.makedirs(results_dir)
+    local = os.path.join(results_dir, os.path.basename(src))
+    shutil.copy2(src, local)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pdb, _, _, _ = frustrapy.calculate_frustration(
+            pdb_file=local, mode=mode, chain=chain, results_dir=results_dir,
+            graphics=False, visualization=False, debug="ERROR", backend="native",
+            seq_dist=SEQ_DIST,
+        )
+    return pdb.job_dir, pdb.pdb_base
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+@pytest.mark.parametrize("base", ["1crn", "1zni"])
+@pytest.mark.parametrize("mode", list(MODES))
+def test_prepared_context_tables_match_baseline(base, mode, tmp_path):
+    """The prepared-structure context (I1) reproduces the stored lammps tables for
+    all three modes, single- and multi-chain: the per-residue density, contact list
+    and FrstIndex computed once via prepare_structure and one compute_variant_frustration
+    call match the golden baseline within the native CPU tolerance (Spearman 1.0,
+    100 percent sign agreement), and equal the non-amortized native one-shot bit-for-bit."""
+    import numpy as np
+    from frustrapy.backends import native as nbk
+
+    job, pbase = _wt_job(base, "configurational", str(tmp_path / f"prep_{base}"))
+    prep = nbk.prepare_structure(job, pbase, SEQ_DIST)
+    out = nbk.compute_variant_frustration(prep, mode, res_type=prep.res_type, n_threads=1)
+
+    ref = _rows(os.path.join(BASELINE, f"{base}.pdb_{mode}"))
+    fc = _FRST_COL[mode]
+    got = list(out["frst_index"])
+    assert len(got) == len(ref) > 0, f"{base} {mode}: row count {len(got)} vs {len(ref)}"
+    ref_frst = [float(r[fc]) for r in ref]
+    max_d = max(abs(a - b) for a, b in zip(ref_frst, got))
+    assert max_d <= _NATIVE_TOL, f"{base} {mode}: prepared FrstIndex max diff {max_d}"
+    assert _spearman(ref_frst, got) >= 0.9999, f"{base} {mode}: prepared Spearman low"
+    for x, y in zip(ref_frst, got):
+        if abs(x) > 1e-2 and abs(y) > 1e-2:
+            assert (x > 0) == (y > 0), f"{base} {mode}: sign mismatch {x} vs {y}"
+
+    # The geometry-reused (prepared) result equals the non-amortized native one-shot
+    # bit-for-bit -- prep amortization changes no numbers (CPU max|dFrstIndex| = 0).
+    import frustrapy_native as fn
+    kw = _core_inputs(base, str(tmp_path / f"oneshot_{base}"))
+    one = fn.compute_frustration(mode=mode, n_threads=1, **kw)
+    assert np.array_equal(np.asarray(got), one["frst_index"]), (
+        f"{base} {mode}: prepared != native one-shot"
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+@pytest.mark.parametrize("base", ["1crn", "1zni"])
+def test_prepared_context_scan_matches_baseline(base, tmp_path):
+    """The amortized saturation scan (prep once per chain, then a res_type swap per
+    variant reusing the cached geometry) reproduces the golden per-variant FrstIndex
+    within the native CPU tolerance with full sign agreement, selects the correct
+    (res_num, chain) per target (multi-chain), and -- for the non-glycine variants
+    that are a pure identity swap -- equals a fresh native compute bit-for-bit
+    (CPU max|dFrstIndex| = 0), proving geometry reuse changes no numbers."""
+    import numpy as np
+    from frustrapy.analysis.mutations import AMINO_ACIDS
+    from frustrapy.backends import native as nbk
+
+    for (res, chain) in _scan_targets(base):
+        job, pbase = _wt_job(
+            base, "singleresidue", str(tmp_path / f"scan_{base}_{res}_{chain}"), chain=chain
+        )
+        prep = nbk.prepare_structure(job, pbase, SEQ_DIST)
+        idx = prep.site_index(res, chain)
+        ref = _rows(os.path.join(BASELINE, f"scan_{base}_Res{res}_{chain}.txt"))
+        assert len(ref) == len(AMINO_ACIDS) == 20
+
+        for k, aa in enumerate(AMINO_ACIDS):
+            out = nbk.compute_variant_frustration(
+                prep, "singleresidue", site=(res, chain), new_aa=aa, n_threads=1
+            )
+            fi = float(out["frst_index"][idx])
+            ref_aa, ref_fi = ref[k][2], float(ref[k][3])
+            assert nbk._THREE_TO_ONE[aa] == ref_aa, (
+                f"{base} Res{res}/{chain}: AA order {aa} vs {ref_aa}"
+            )
+            assert abs(fi - ref_fi) <= _NATIVE_TOL, (
+                f"{base} Res{res}/{chain} {aa}: FrstIndex {fi} vs baseline {ref_fi}"
+            )
+            if abs(fi) > 1e-2 and abs(ref_fi) > 1e-2:
+                assert (fi > 0) == (ref_fi > 0), (
+                    f"{base} Res{res}/{chain} {aa}: sign mismatch {fi} vs {ref_fi}"
+                )
+            # Non-glycine variant: the reused-geometry result is bit-for-bit a fresh
+            # native recompute on the same coords (no precomputed geometry passed).
+            if prep.resnames[idx] != "GLY" and aa != "GLY":
+                rt = np.array(prep.res_type, dtype=np.int32)
+                rt[idx] = nbk._aa_to_res_type(aa)
+                fresh = nbk.compute_variant_frustration(
+                    prep, "singleresidue", res_type=rt, n_threads=1
+                )
+                # Drop the cached geometry to force a recompute, then compare.
+                import frustrapy_native as fn
+                gd, gw, gp, bg = prep.gammas
+                recompute = fn.compute_frustration(
+                    coord=prep.coord, res_type=rt, chain_id=prep.chain_id,
+                    res_seqid=prep.seqid, gamma_direct=gd, gamma_water=gw,
+                    gamma_protein=gp, burial_gamma=bg, mode="singleresidue",
+                    well_kappa=prep.coeff["well_kappa"], kappa_sigma=prep.coeff["kappa_sigma"],
+                    treshold=prep.coeff["treshold"], well_r_min0=prep.coeff["well_r_min0"],
+                    well_r_max0=prep.coeff["well_r_max0"], well_r_min1=prep.coeff["well_r_min1"],
+                    well_r_max1=prep.coeff["well_r_max1"], burial_kappa=prep.coeff["burial_kappa"],
+                    k_burial=prep.coeff["k_burial"], contact_cutoff=prep.coeff["contact_cutoff"],
+                    contact_min_sep=prep.coeff["contact_min_sep"], seq_dist=SEQ_DIST,
+                    n_decoys=prep.coeff["n_decoys"], seed=1, n_threads=1,
+                )
+                assert np.array_equal(fresh["frst_index"], recompute["frst_index"]), (
+                    f"{base} Res{res}/{chain} {aa}: amortized != fresh recompute"
+                )
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("base", ["1crn", "1zni"])
 def test_saturation_scan_reproduces(base, tmp_path):

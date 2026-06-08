@@ -23,7 +23,8 @@ default is unaffected.
 from __future__ import annotations
 
 import os
-from typing import TYPE_CHECKING, Dict, List, Tuple
+from dataclasses import dataclass, field
+from typing import TYPE_CHECKING, Dict, List, Optional, Tuple
 
 from .base import FrustrationBackend
 
@@ -219,6 +220,287 @@ def _read_gammas(job_dir: str):
         for k in range(3):
             burial[i, k] = float(rows[i][k])
     return gamma_direct, gamma_water, gamma_protein, np.ascontiguousarray(burial)
+
+
+_ONE_TO_THREE = {v: k for k, v in _THREE_TO_ONE.items()}
+
+
+def _aa_to_res_type(aa: str) -> int:
+    """Map a one- or three-letter amino acid code to the AWSEM gamma index 0..19,
+    the same mapping :func:`_parse_structure` applies to a residue name."""
+    one = aa if len(aa) == 1 else _THREE_TO_ONE.get(aa.upper(), "G")
+    return _SE_MAP[ord(one) - ord("A")]
+
+
+def _parse_structure_full(pdb_path: str):
+    """Like :func:`_parse_structure`, but also return the backbone N/CA/C coordinates
+    and the native residue names per residue, in the same first-seen residue order.
+
+    The extra backbone atoms let the prepared context patch the single interaction
+    coordinate for a glycine-involving variant (CA when the target is glycine, a
+    constructed CB when the native residue is glycine), matching the geometric
+    ``threading`` mutation backend. Returns ``(coord, res_type, chain_id, seqid,
+    chain_num, letters, ca, n_bb, c_bb, resnames)``.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    ca: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
+    cb: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
+    nbb: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
+    cbb: Dict[Tuple[str, int], Tuple[float, float, float]] = {}
+    resname: Dict[Tuple[str, int], str] = {}
+    order: List[Tuple[str, int]] = []
+    with open(pdb_path) as fh:
+        for line in fh:
+            if not line.startswith(("ATOM", "HETATM")):
+                continue
+            atom = line[12:16].strip()
+            chain = line[21]
+            resseq = int(line[22:26])
+            key = (chain, resseq)
+            xyz = (float(line[30:38]), float(line[38:46]), float(line[46:54]))
+            if key not in resname:
+                resname[key] = line[17:20].strip()
+            if atom == "CA":
+                if key not in ca:
+                    order.append(key)
+                ca[key] = xyz
+            elif atom == "CB":
+                cb[key] = xyz
+            elif atom == "N":
+                nbb[key] = xyz
+            elif atom == "C":
+                cbb[key] = xyz
+
+    coord, res_type, chain_id, seqid, chain_num, letters = [], [], [], [], [], []
+    ca_arr, n_arr, c_arr, resnames = [], [], [], []
+    chain_index: Dict[str, int] = {}
+    for pos, key in enumerate(order, start=1):
+        chain, _ = key
+        if chain not in chain_index:
+            chain_index[chain] = len(chain_index) + 1
+        rn = resname[key]
+        cak = ca[key]
+        xyz = cak if rn == "GLY" else cb.get(key, cak)
+        one = _THREE_TO_ONE.get(rn, "G")
+        coord.append(xyz)
+        res_type.append(_SE_MAP[ord(one) - ord("A")])
+        chain_id.append(chain_index[chain])
+        chain_num.append(chain_index[chain])
+        seqid.append(pos)
+        letters.append(one)
+        ca_arr.append(cak)
+        n_arr.append(nbb.get(key, cak))
+        c_arr.append(cbb.get(key, cak))
+        resnames.append(rn)
+    f64 = lambda a: np.ascontiguousarray(a, dtype=np.float64)  # noqa: E731
+    i32 = lambda a: np.ascontiguousarray(a, dtype=np.int32)  # noqa: E731
+    return (
+        f64(coord), i32(res_type), i32(chain_id), i32(seqid), chain_num, letters,
+        f64(ca_arr), f64(n_arr), f64(c_arr), resnames,
+    )
+
+
+def _read_equivalences(job_dir: str, pdb_base: str) -> List[Tuple[str, int]]:
+    """Read ``{base}.pdb_equivalences.txt`` -> per-residue ``(chain_letter,
+    orig_res_num)`` in global residue order (the order the native arrays use).
+
+    This is the toolchain's own map from the sequential residue index back to the
+    original chain letter and residue number, so the prepared context selects a
+    mutation site by ``(res_num, chain)`` exactly as the saturation scan does.
+    """
+    path = os.path.join(job_dir, f"{pdb_base}.pdb_equivalences.txt")
+    sites: List[Tuple[str, int]] = []
+    with open(path) as fh:
+        for line in fh:
+            parts = line.split()
+            if len(parts) >= 2:
+                sites.append((parts[0], int(parts[1])))
+    return sites
+
+
+def _construct_cb(n_xyz, ca_xyz, c_xyz):
+    """Place a CB 1.521 A from CA at the tetrahedral angle, the same geometry the
+    ``threading`` backend uses for a glycine-to-X mutation (mutations.py)."""
+    import numpy as np  # noqa: PLC0415
+
+    ca_n = np.asarray(n_xyz, float) - np.asarray(ca_xyz, float)
+    ca_c = np.asarray(c_xyz, float) - np.asarray(ca_xyz, float)
+    ca_n = ca_n / np.linalg.norm(ca_n)
+    ca_c = ca_c / np.linalg.norm(ca_c)
+    cb_dir = np.cross(ca_n, ca_c)
+    cb_dir = cb_dir / np.linalg.norm(cb_dir)
+    theta = np.radians(109.5)
+    axis = np.cross(ca_n, cb_dir)
+    axis = axis / np.linalg.norm(axis)
+    c, s, t = np.cos(theta), np.sin(theta), 1 - np.cos(theta)
+    x, y, z = axis
+    rot = np.array([
+        [t * x * x + c, t * x * y - z * s, t * x * z + y * s],
+        [t * x * y + z * s, t * y * y + c, t * y * z - x * s],
+        [t * x * z - y * s, t * y * z + x * s, t * z * z + c],
+    ])
+    direction = np.dot(rot, ca_n)
+    return np.asarray(ca_xyz, float) + 1.521 * direction
+
+
+@dataclass
+class PreparedStructure:
+    """Per-structure prep computed once and reused across saturation-scan variants.
+
+    Holds the parsed structure, the AWSEM coefficient scalars and gamma tables, and
+    the geometry-only cache (per-residue density ``rho`` and the energy contact list)
+    from the native core. The geometry and the gamma tables are invariant under a
+    sequence mutation, so a scan builds this once and calls
+    :func:`compute_variant_frustration` per variant, which only swaps ``res_type``
+    (and patches one coordinate for a glycine-involving variant). The existing
+    one-shot path is unchanged; this is an additive fast path above the backends.
+    """
+
+    job_dir: str
+    pdb_base: str
+    seq_dist: int
+    coord: "object"          # float64 [n, 3] native interaction coordinates
+    res_type: "object"       # int32 [n]
+    chain_id: "object"       # int32 [n]
+    seqid: "object"          # int32 [n]
+    chain_num: List[int]
+    letters: List[str]
+    ca: "object"             # float64 [n, 3]
+    n_bb: "object"           # float64 [n, 3]
+    c_bb: "object"           # float64 [n, 3]
+    resnames: List[str]
+    coeff: dict
+    gammas: Tuple["object", "object", "object", "object"]
+    rho: "object"            # float64 [n]
+    contacts: "object"       # int32 [m, 2]
+    sites: List[Tuple[str, int]]
+    site_to_index: Dict[Tuple[str, int], int] = field(default_factory=dict)
+
+    def site_index(self, res_num: int, chain: str) -> int:
+        """Global residue index for an original ``(res_num, chain)`` mutation target."""
+        try:
+            return self.site_to_index[(chain, int(res_num))]
+        except KeyError as exc:
+            raise KeyError(
+                f"residue {res_num} in chain '{chain}' is not in the structure"
+            ) from exc
+
+
+def prepare_structure(
+    job_dir: str, pdb_base: str, seq_dist: int, pdb_path: Optional[str] = None
+) -> PreparedStructure:
+    """Parse the structure, read the gammas and coefficients, and compute the
+    geometry cache ONCE for a prepared job directory.
+
+    ``job_dir`` is the ``{base}.done`` directory a frustration run left behind (the
+    cleaned PDB, ``fix_backbone_coeff.data``, ``gamma.dat``, ``burial_gamma.dat`` and
+    the equivalences file). The returned context feeds
+    :func:`compute_variant_frustration` for every variant of a scan without re-running
+    the prep subprocess or re-reading the gammas.
+    """
+    native = _load_native()
+    if pdb_path is None:
+        candidate = os.path.join(job_dir, f"{pdb_base}.pdb")
+        pdb_path = candidate if os.path.exists(candidate) else os.path.join(
+            job_dir, "FrustrationData", f"{pdb_base}.pdb"
+        )
+    (coord, res_type, chain_id, seqid, chain_num, letters,
+     ca, n_bb, c_bb, resnames) = _parse_structure_full(pdb_path)
+    coeff = _read_coeff(os.path.join(job_dir, "fix_backbone_coeff.data"))
+    gammas = _read_gammas(job_dir)
+    sites = _read_equivalences(job_dir, pdb_base)
+    geo = native.prepare_geometry(
+        coord=coord, res_type=res_type, chain_id=chain_id, res_seqid=seqid,
+        well_kappa=coeff["well_kappa"], well_r_min0=coeff["well_r_min0"],
+        well_r_max0=coeff["well_r_max0"], contact_cutoff=coeff["contact_cutoff"],
+        contact_min_sep=coeff["contact_min_sep"], seq_dist=int(seq_dist),
+    )
+    prepared = PreparedStructure(
+        job_dir=job_dir, pdb_base=pdb_base, seq_dist=int(seq_dist), coord=coord,
+        res_type=res_type, chain_id=chain_id, seqid=seqid, chain_num=chain_num,
+        letters=letters, ca=ca, n_bb=n_bb, c_bb=c_bb, resnames=resnames,
+        coeff=coeff, gammas=gammas, rho=geo["rho"], contacts=geo["contacts"],
+        sites=sites,
+    )
+    prepared.site_to_index = {site: i for i, site in enumerate(sites)}
+    return prepared
+
+
+def compute_variant_frustration(
+    prepared: PreparedStructure,
+    mode: str,
+    *,
+    res_type: "object" = None,
+    site: "object" = None,
+    new_aa: Optional[str] = None,
+    n_threads: Optional[int] = None,
+    use_cuda: bool = False,
+    use_metal: bool = False,
+) -> dict:
+    """Score one variant against a prepared structure, reusing the cached geometry.
+
+    Either pass a full ``res_type`` vector, or a single-site edit via ``site`` (a
+    global residue index or an ``(res_num, chain)`` tuple) plus ``new_aa`` (a one- or
+    three-letter code). A pure identity swap reuses the cached ``rho`` and contact
+    list, so the result is bit-for-bit a fresh native compute on the same
+    coordinates. A glycine-involving single-site edit changes the interaction
+    coordinate at that site (CB added or removed), so the coordinate is patched to
+    match the ``threading`` backend and the geometry is recomputed for that variant
+    only. Returns the native ``compute_frustration`` result dict.
+    """
+    import numpy as np  # noqa: PLC0415
+
+    native = _load_native()
+    if n_threads is None:
+        n_threads = _resolve_native_threads()
+    gd, gw, gp, bg = prepared.gammas
+    coeff = prepared.coeff
+    coord = prepared.coord
+    reuse_geometry = True
+
+    if res_type is None:
+        if site is None or new_aa is None:
+            raise ValueError("pass either res_type=, or both site= and new_aa=")
+        idx = site if isinstance(site, int) else prepared.site_index(site[0], site[1])
+        rt = np.array(prepared.res_type, dtype=np.int32)
+        rt[idx] = _aa_to_res_type(new_aa)
+        res_type = rt
+        native_is_gly = prepared.resnames[idx] == "GLY"
+        new_one = new_aa if len(new_aa) == 1 else _THREE_TO_ONE.get(new_aa.upper(), "G")
+        new_is_gly = new_one == "G"
+        if native_is_gly != new_is_gly:
+            # The interaction coordinate at the mutated site changes: target glycine
+            # drops CB (use CA), native glycine gains a constructed CB. Patch only
+            # that site and recompute geometry (rho/contacts) for this variant.
+            coord = np.array(prepared.coord, dtype=np.float64)
+            if new_is_gly:
+                coord[idx] = prepared.ca[idx]
+            else:
+                coord[idx] = _construct_cb(
+                    prepared.n_bb[idx], prepared.ca[idx], prepared.c_bb[idx]
+                )
+            reuse_geometry = False
+    else:
+        res_type = np.ascontiguousarray(res_type, dtype=np.int32)
+
+    kwargs = dict(
+        coord=coord, res_type=res_type, chain_id=prepared.chain_id,
+        res_seqid=prepared.seqid, gamma_direct=gd, gamma_water=gw, gamma_protein=gp,
+        burial_gamma=bg, mode=mode, well_kappa=coeff["well_kappa"],
+        kappa_sigma=coeff["kappa_sigma"], treshold=coeff["treshold"],
+        well_r_min0=coeff["well_r_min0"], well_r_max0=coeff["well_r_max0"],
+        well_r_min1=coeff["well_r_min1"], well_r_max1=coeff["well_r_max1"],
+        burial_kappa=coeff["burial_kappa"], k_burial=coeff["k_burial"],
+        contact_cutoff=coeff["contact_cutoff"], contact_min_sep=coeff["contact_min_sep"],
+        seq_dist=int(prepared.seq_dist), n_decoys=coeff["n_decoys"], seed=1,
+        use_cuda=use_cuda, use_metal=use_metal, n_threads=int(n_threads),
+    )
+    if reuse_geometry:
+        kwargs["rho"] = prepared.rho
+        if mode != "singleresidue":
+            kwargs["contacts"] = prepared.contacts
+    return native.compute_frustration(**kwargs)
 
 
 def _write_dat(out_path: str, mode: str, result, coord, chain_num, letters):

@@ -179,6 +179,17 @@ Multi-chain correctness is carried end to end by `chain_id` and `res_seqid`:
   `singleresidue_Res{res}_{method}_{chain}.txt`. The same residue number in two
   different chains is handled as two distinct targets.
 
+The scan is per-chain. `_score_mutant` always calls `calculate_frustration` with
+`chain=<target chain>`, so each mutant is scored over only the target residue's
+chain (the calculator's `_handle_chain_selection` saves the structure restricted to
+that chain before the calc). For a multi-chain complex the per-variant FrstIndex in
+the scan therefore reflects the single-chain subset, not the full complex; the
+full-complex tables (`{base}.pdb_{mode}`) are a separate computation. The amortized
+scan must mirror this: prepare the context once per (structure, chain) from a
+chain-restricted run, then reuse it across that chain's variants. This is verified
+against the golden scan baseline (1zni chain B reproduces the per-chain value, not
+the full-complex value, to the native tolerance).
+
 What the amortized path must preserve (the multi-chain invariants):
 
 - the first-seen chain indexing, so `chain_id`/`chain_num` and therefore the
