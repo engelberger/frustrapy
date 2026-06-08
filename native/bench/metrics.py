@@ -77,13 +77,21 @@ def compare(ref: Sequence[float], test: Sequence[float], mode: str) -> Dict[str,
 
 
 def summarize_times(samples: Sequence[float]) -> Dict[str, float]:
-    """Median + IQR over timed repeats (discard the first/cold rep before calling)."""
+    """Mean + sample std + median + IQR over timed repeats (discard the cold rep first).
+
+    Triplicate (n>=3) gives a usable sample std for error bars and confident extrapolation.
+    """
     s = sorted(samples)
     n = len(s)
     if n == 0:
-        return {"median": float("nan"), "q1": float("nan"), "q3": float("nan"), "n": 0}
+        return {"mean": float("nan"), "std": float("nan"), "median": float("nan"),
+                "q1": float("nan"), "q3": float("nan"), "n": 0}
+    mean = sum(s) / n
+    std = math.sqrt(sum((x - mean) ** 2 for x in s) / (n - 1)) if n > 1 else 0.0
+    cv = (std / mean) if mean else float("nan")
     def q(p):
         idx = p * (n - 1)
         lo = int(math.floor(idx)); hi = int(math.ceil(idx))
         return s[lo] + (s[hi] - s[lo]) * (idx - lo)
-    return {"median": q(0.5), "q1": q(0.25), "q3": q(0.75), "min": s[0], "max": s[-1], "n": n}
+    return {"mean": mean, "std": std, "cv": cv, "median": q(0.5),
+            "q1": q(0.25), "q3": q(0.75), "min": s[0], "max": s[-1], "n": n}

@@ -49,6 +49,9 @@ def main():
     p.add_argument("--out", required=True)
     p.add_argument("--max-serial-res", type=int, default=99999,
                    help="skip CPU x1 above this size (serial too slow to time many reps)")
+    p.add_argument("--e2e", action="store_true",
+                   help="time the full end-to-end pipeline per variant (prep+parse+gamma+compute) "
+                        "instead of the isolated kernel")
     a = p.parse_args()
 
     import platform
@@ -62,29 +65,39 @@ def main():
         except Exception as e:
             print(f"[{tag} N={N}] prep FAILED: {repr(e)[:120]}", flush=True)
             continue
-        reps = a.reps if N <= 700 else max(3, a.reps // 2)
-        # frozen reference = CPU x1 output (same machine)
-        ref = None
-        row = {"pdb": tag, "n_res": N}
-        backends = [("cpu_x1", dict(n_threads=1)), ("cpu_xAll", dict(n_threads=0)),
-                    ("metal", dict(use_metal=True))]
-        for name, kwargs in backends:
+        reps = a.reps if N <= 700 else max(3, a.reps)
+        ref = None  # frozen reference = CPU x1 output (same machine)
+        backends = [("cpu_x1", dict(n_threads=1), {"FRUSTRAPY_NATIVE_THREADS": "1"}),
+                    ("cpu_xAll", dict(n_threads=0), {"FRUSTRAPY_NATIVE_THREADS": "0"}),
+                    ("metal", dict(use_metal=True), {"FRUSTRAPY_NATIVE_USE_METAL": "1"})]
+        for name, kwargs, env in backends:
             if name == "cpu_x1" and N > a.max_serial_res:
                 continue
             try:
-                samples, out = timed(lambda: nat.compute_frustration(mode=a.mode, **kwargs, **kw), reps)
-                frst = list(out["frst_index"])
+                if a.e2e:
+                    for k, v in env.items():
+                        os.environ[k] = v
+                    rdir = f"/tmp/pb_e2e_{tag}_{name}"
+                    samples, path = timed(lambda: xb._run_once(pdb, a.mode, "native", rdir, a.seq_dist), reps)
+                    frst = xb._read_frst(path, a.mode)
+                    for k in env:
+                        os.environ.pop(k, None)
+                else:
+                    samples, out = timed(lambda: nat.compute_frustration(mode=a.mode, **kwargs, **kw), reps)
+                    frst = list(out["frst_index"])
                 if name == "cpu_x1" and ref is None:
                     ref = frst
                 ts = M.summarize_times(samples)
                 met = M.compare(ref, frst, a.mode) if ref is not None else {}
+                per = ts["mean"]
                 rec = {"pdb": tag, "n_res": N, "mode": a.mode, "backend": name,
-                       "kernel_median_s": ts["median"], "kernel_q1_s": ts["q1"], "kernel_q3_s": ts["q3"],
-                       "reps": ts["n"], "metrics": met,
-                       "dms_scan_proj_s": N * N_AA * ts["median"]}
+                       "timebase": "e2e" if a.e2e else "kernel",
+                       "mean_s": ts["mean"], "std_s": ts["std"], "cv": ts["cv"],
+                       "median_s": ts["median"], "reps": ts["n"], "metrics": met,
+                       "dms_scan_proj_s": N * N_AA * per, "dms_scan_proj_std_s": N * N_AA * ts["std"]}
                 recs.append(rec)
-                cell = (f"[{tag} N={N}] {name:9s} kernel={ts['median']*1000:8.2f}ms "
-                        f"DMS_proj={N*N_AA*ts['median']:8.1f}s")
+                cell = (f"[{tag} N={N}] {name:9s} {rec['timebase']}={per*1000:8.2f}+/-{ts['std']*1000:.2f}ms "
+                        f"DMS_proj={N*N_AA*per:9.1f}s")
                 if met:
                     cell += (f"  Sp={met['spearman']:.4f} R2={met['r2']:.4f} "
                              f"maxd={met['max_abs']:.2e} rmse={met['rmse']:.2e} cls={met['class_agreement']:.4f}")
