@@ -445,6 +445,54 @@ def test_prepared_context_scan_matches_baseline(base, tmp_path):
 
 
 @pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+def test_prepared_context_glycine_variant_matches_threading(tmp_path):
+    """The glycine-involving fast path is correct. At a native glycine site (1zni
+    residue 1, chain A) a GLY->X variant adds a CB, which the prepared context
+    constructs with the same geometry as the threading backend; an X->GLY variant
+    drops it. Both directions reproduce a real threading scan at that site within the
+    native CPU tolerance with full sign agreement. The committed baseline has no
+    native-glycine target, so this exercises the CB-construction path explicitly."""
+    import frustrapy
+    from frustrapy.analysis.mutations import AMINO_ACIDS, mutate_res_scan_parallel
+    from frustrapy.backends import native as nbk
+
+    # Reference: a real threading scan at the glycine site (full structure).
+    rd = str(tmp_path / "gly_ref")
+    os.makedirs(rd)
+    local = os.path.join(rd, "1zni.pdb")
+    shutil.copy2(STRUCT_PDB["1zni"], local)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pdb, _, _, _ = frustrapy.calculate_frustration(
+            pdb_file=local, mode="singleresidue", residues={"A": [1]},
+            results_dir=rd, graphics=False, visualization=False, debug="ERROR",
+            seq_dist=SEQ_DIST,
+        )
+        mutate_res_scan_parallel(pdb, targets=[(1, "A")], split=True,
+                                 method="threading", n_cpus=1)
+    ref_file = os.path.join(pdb.job_dir, "MutationsData",
+                            "singleresidue_Res1_threading_A.txt")
+    refmap = {r[2]: float(r[3]) for r in _rows(ref_file)}
+    assert len(refmap) == 20
+
+    # Amortized: chain-A prepared context, score each variant at the glycine site.
+    job, pbase = _wt_job("1zni", "singleresidue", str(tmp_path / "gly_prep"), chain="A")
+    prep = nbk.prepare_structure(job, pbase, SEQ_DIST)
+    idx = prep.site_index(1, "A")
+    assert prep.resnames[idx] == "GLY"
+    for aa in AMINO_ACIDS:
+        out = nbk.compute_variant_frustration(
+            prep, "singleresidue", site=(1, "A"), new_aa=aa, n_threads=1
+        )
+        fi = float(out["frst_index"][idx])
+        ref_fi = refmap[nbk._THREE_TO_ONE[aa]]
+        assert abs(fi - ref_fi) <= _NATIVE_TOL, f"GLY->{aa}: {fi} vs {ref_fi}"
+        if abs(fi) > 1e-2 and abs(ref_fi) > 1e-2:
+            assert (fi > 0) == (ref_fi > 0), f"GLY->{aa}: sign mismatch"
+
+
+@pytest.mark.slow
 @pytest.mark.parametrize("base", ["1crn", "1zni"])
 def test_saturation_scan_reproduces(base, tmp_path):
     """A saturation scan reproduces the per-variant FrstIndex token-for-token, and
