@@ -62,7 +62,12 @@ from typing import List, Optional, Sequence, Tuple
 
 import numpy as np
 
-from .atomic_engine import DEFAULT_SCHEME, EngineResult, load_engine_result_from_logs
+from .atomic_engine import (
+    ContactEnergySummary,
+    DEFAULT_SCHEME,
+    EngineResult,
+    load_engine_result_from_logs,
+)
 
 # ---------------------------------------------------------------------------
 # Reference constants (Frust_Post_public.py).
@@ -274,6 +279,15 @@ _DAT_HEADER = (
     "# timestep: 0\n"
 )
 
+#: Header for the single-residue ``.dat`` layout (the AWSEM/native singleresidue
+#: layout that ``process_results`` parses for ``mode == "singleresidue"``:
+#: ``[0]i [1]i_chain [2..4]xyz_i [5]rho_i [6]a_i [7]native [8]decoy [9]std [10]f_i``).
+_SINGLERESIDUE_DAT_HEADER = (
+    "# i i_chain xi yi zi rho_i a_i native_energy <decoy_energies> "
+    "std(decoy_energies) f_i\n"
+    "# timestep: 0\n"
+)
+
 
 def _chain_numbers(geom: ContactGeometry) -> dict:
     """Map each chain letter to a 1-based integer, in first-appearance order (the
@@ -290,33 +304,56 @@ def _chain_numbers(geom: ContactGeometry) -> dict:
 def write_tertiary_frustration(
     out_path: str,
     geom: ContactGeometry,
-    engine_result: EngineResult,
+    engine_result: Optional[EngineResult] = None,
     seq_sep: int = DEFAULT_SEQ_SEP,
     distance_cutoff: float = CONTACT_DISTANCE_CUTOFF,
     res_offset: int = 1,
+    summaries: Optional[Sequence[ContactEnergySummary]] = None,
 ) -> List[Tuple[int, int]]:
     """Write an AWSEM-format ``tertiary_frustration.dat`` from engine output.
 
     Selects the contacts from ``geom`` (:func:`select_contacts`), gets each
-    contact's ``(native_energy, decoy_mean, decoy_std)`` from ``engine_result``
-    (the protein-wide decoy statistic over the same contact set), computes the
-    sign-flipped ``FrstIndex`` (:func:`atomic_frustration_index`), and writes the
-    19-column layout the shared ``process_results`` parses:
+    contact's ``(native_energy, decoy_mean, decoy_std)``, computes the sign-flipped
+    ``FrstIndex`` (:func:`atomic_frustration_index`), and writes the 19-column
+    layout the shared ``process_results`` parses:
 
     ``[0]Res1 [1]Res2 [2]i_chain [3]j_chain [4..6]xyz_i [7..9]xyz_j [10]r_ij
     [11]DensityRes1 [12]DensityRes2 [13]AA1 [14]AA2 [15]NativeEnergy
     [16]DecoyEnergy [17]SDEnergy [18]FrstIndex``
 
-    Floats are formatted ``%8.3f`` (the AWSEM/native print precision); residue
-    indices are written 1-based (``i + res_offset``, the AWSEM convention);
-    DensityRes1/2 are the documented :data:`BURIAL_DENSITY_SENTINEL`.
+    The per-contact statistic comes from exactly one of two sources, mirroring how
+    the AWSEM backend swaps only the decoy step and reuses one writer:
+
+    * ``engine_result`` (the PARITY-BACKED configurational path): the one
+      protein-wide decoy mean/sd over the contact set
+      (:meth:`EngineResult.summarize_contacts`).
+    * ``summaries`` (the EXPERIMENTAL mutational path): per-contact
+      ``(native, decoy_mean, decoy_std)`` already aggregated by the caller, one per
+      selected contact in :func:`select_contacts` order. Used when the decoy
+      ensemble is per-contact rather than protein-wide.
+
+    Provide exactly one of ``engine_result`` / ``summaries``. Floats are formatted
+    ``%8.3f`` (the AWSEM/native print precision); residue indices are written 1-based
+    (``i + res_offset``, the AWSEM convention); DensityRes1/2 are the documented
+    :data:`BURIAL_DENSITY_SENTINEL`.
 
     Returns the list of contact index pairs written (same as
     :func:`select_contacts`), so callers can align the rows.
     """
+    if (engine_result is None) == (summaries is None):
+        raise ValueError(
+            "provide exactly one of engine_result (configurational, protein-wide "
+            "statistic) or summaries (mutational, per-contact statistic)"
+        )
     contacts = select_contacts(geom, seq_sep=seq_sep, distance_cutoff=distance_cutoff)
-    cid_pairs = [(geom.cid_list[i], geom.cid_list[j]) for (i, j) in contacts]
-    summaries = engine_result.summarize_contacts(cid_pairs)
+    if engine_result is not None:
+        cid_pairs = [(geom.cid_list[i], geom.cid_list[j]) for (i, j) in contacts]
+        summaries = engine_result.summarize_contacts(cid_pairs)
+    elif len(summaries) != len(contacts):
+        raise ValueError(
+            f"summaries ({len(summaries)}) must align 1:1 with the selected contacts "
+            f"({len(contacts)}) in select_contacts order"
+        )
     chain_num = _chain_numbers(geom)
 
     os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
@@ -341,6 +378,75 @@ def write_tertiary_frustration(
                 f"{ne:8.3f} {de:8.3f} {sd:8.3f} {fi:8.3f}\n"
             )
     return contacts
+
+
+@dataclass(frozen=True)
+class SiteEnergySummary:
+    """EXPERIMENTAL. One single-residue site's native energy plus its per-site decoy
+    ensemble mean/sd, the input the singleresidue ``.dat`` writer turns into the
+    site ``FrstIndex``. ``site_index`` is the 0-based residue index into a
+    :class:`ContactGeometry` (``geom.cid_list[site_index]`` is its residue key)."""
+
+    site_index: int
+    native_energy: float
+    decoy_mean: float
+    decoy_std: float
+
+
+def write_singleresidue_dat(
+    out_path: str,
+    geom: ContactGeometry,
+    site_summaries: Sequence[SiteEnergySummary],
+    res_offset: int = 1,
+) -> List[int]:
+    """EXPERIMENTAL (extension beyond the paper). Write a single-residue
+    ``tertiary_frustration.dat`` from per-site decoy statistics.
+
+    This is the singleresidue analogue of :func:`write_tertiary_frustration`: it
+    reuses the SAME sign-flipped ``FrstIndex`` (:func:`atomic_frustration_index`)
+    and the SAME geometry, and emits the AWSEM/native single-residue ``.dat`` layout
+    so the shared ``process_results`` (``mode == "singleresidue"``) parses it into
+    the canonical 8-column single-residue table
+    (``Res ChainRes DensityRes AA NativeEnergy DecoyEnergy SDEnergy FrstIndex``,
+    no ``FrstState`` -- single-residue classification is plot-only at the 0.58
+    cutoff, never the 0.78 contact cutoff).
+
+    The atomic single-residue mode is EXPERIMENTAL: the per-site decoy ensemble
+    (re-identify only site i; CLAUDE.md AWSEM singleresidue) has no atomic reference
+    and no parity oracle. ``site_summaries`` carries the per-site
+    ``(native, decoy_mean, decoy_std)`` the (maintainer-gated) engine produces; this
+    writer is the pure post-processing half.
+
+    The single-residue layout written per row is
+    ``[0]i [1]i_chain [2..4]xyz_i [5]rho_i [6]a_i [7]native [8]decoy [9]std [10]f_i``.
+    ``rho_i`` is the documented :data:`BURIAL_DENSITY_SENTINEL` (the atomic model has
+    no AWSEM burial density; the single-residue table copies it through without
+    classifying on it).
+
+    Returns the list of 0-based site indices written, in input order.
+    """
+    chain_num = _chain_numbers(geom)
+    os.makedirs(os.path.dirname(os.path.abspath(out_path)), exist_ok=True)
+    written: List[int] = []
+    with open(out_path, "w") as fh:
+        fh.write(_SINGLERESIDUE_DAT_HEADER)
+        for summ in site_summaries:
+            i = summ.site_index
+            xi = geom.rep_coords[i]
+            ne = summ.native_energy
+            de = summ.decoy_mean
+            sd = summ.decoy_std
+            fi = atomic_frustration_index(ne, de, sd)
+            ci = chain_num[geom.chain_of(i)]
+            dens = BURIAL_DENSITY_SENTINEL
+            fh.write(
+                f"{i + res_offset:5d} {ci:5d} "
+                f"{xi[0]:8.3f} {xi[1]:8.3f} {xi[2]:8.3f} "
+                f"{dens:8.3f} {geom.aa[i]:s} "
+                f"{ne:8.3f} {de:8.3f} {sd:8.3f} {fi:8.3f}\n"
+            )
+            written.append(i)
+    return written
 
 
 def write_tertiary_frustration_from_logs(
@@ -383,5 +489,7 @@ __all__ = [
     "select_contacts",
     "atomic_frustration_index",
     "write_tertiary_frustration",
+    "SiteEnergySummary",
+    "write_singleresidue_dat",
     "write_tertiary_frustration_from_logs",
 ]
