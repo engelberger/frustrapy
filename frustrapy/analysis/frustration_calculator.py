@@ -181,9 +181,17 @@ class FrustrationCalculator:
                 # Library code must not call sys.exit(): propagate (CLAUDE.md §8).
                 raise
 
-            # Create PDB object with absolute paths
+            # Create PDB object with absolute paths. This also writes the cleaned
+            # {base}.pdb (copied above) and the {base}.pdb_equivalences.txt map, both
+            # of which the shared post-processing needs regardless of backend.
             pdb = self._create_pdb_object(job_dir, pdb_base)
-            self._prepare_calculation_files(pdb)
+            # The AWSEM/LAMMPS input-deck preparation (PdbCoords2Lammps.sh + coeff/gamma
+            # files + the mode keyword swap) is only needed by backends whose energy
+            # model reads that deck. A backend that works directly from the cleaned PDB
+            # (the all-atom Rosetta `atomic` backend) sets requires_lammps_prep=False and
+            # this expensive subprocess prep is skipped.
+            if self.backend.requires_lammps_prep:
+                self._prepare_calculation_files(pdb)
             self.phase_times["prep"] = time.perf_counter() - _t_prep0
 
             # Run calculations through the selected backend. The backend owns the
