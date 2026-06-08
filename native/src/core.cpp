@@ -260,6 +260,10 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
     if (p.prefer_cuda) return compute_frustration_cuda(s, p, mode);
 #endif
 
+#ifdef FRUSTRAPY_NATIVE_METAL
+    if (p.prefer_metal) return compute_frustration_metal(s, p, mode);
+#endif
+
     Engine eng(s, p);
     const std::size_t n = s.n_res;
     GlibcRand rng(static_cast<std::uint32_t>(p.seed));
@@ -369,6 +373,14 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
 
 bool has_cuda() noexcept {
 #ifdef FRUSTRAPY_NATIVE_CUDA
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool has_metal() noexcept {
+#ifdef FRUSTRAPY_NATIVE_METAL
     return true;
 #else
     return false;

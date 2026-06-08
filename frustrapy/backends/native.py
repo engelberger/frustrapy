@@ -256,9 +256,10 @@ class NativeBackend(FrustrationBackend):
         coord, res_type, chain_id, seqid, chain_num, letters = _parse_structure(pdb_path)
         gamma_direct, gamma_water, gamma_protein, burial_gamma = _read_gammas(job_dir)
 
-        # Opt into the GPU path via env when the core was built with CUDA. The CPU
-        # path is the default and the parity reference.
+        # Opt into a GPU path via env when the core was built with it. The CPU path is
+        # the default and the parity reference; CUDA and Metal are mutually exclusive.
         use_cuda = os.environ.get("FRUSTRAPY_NATIVE_USE_CUDA", "") not in ("", "0", "false", "False")
+        use_metal = os.environ.get("FRUSTRAPY_NATIVE_USE_METAL", "") not in ("", "0", "false", "False")
 
         result = native.compute_frustration(
             coord, res_type, chain_id, seqid,
@@ -269,7 +270,7 @@ class NativeBackend(FrustrationBackend):
             well_r_max1=coeff["well_r_max1"], burial_kappa=coeff["burial_kappa"],
             k_burial=coeff["k_burial"], contact_cutoff=coeff["contact_cutoff"],
             contact_min_sep=coeff["contact_min_sep"], seq_dist=int(calculator.seq_dist),
-            n_decoys=coeff["n_decoys"], seed=1, use_cuda=use_cuda,
+            n_decoys=coeff["n_decoys"], seed=1, use_cuda=use_cuda, use_metal=use_metal,
         )
         _write_dat(
             os.path.join(job_dir, "tertiary_frustration.dat"),

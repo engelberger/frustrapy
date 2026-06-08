@@ -20,4 +20,9 @@ wheel.packages = ["src/frustrapy_native"]
 [tool.scikit-build.cmake.define]
 # Default CPU-only build. Turn the CUDA path on at install time on a machine with nvcc:
 #   pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON
+# Turn the Metal (Apple GPU) path on at install time on a Mac with metal-cpp + xcrun:
+#   pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON \
+#       -C cmake.define.FRUSTRAPY_METAL_CPP_DIR=/path/to/metal-cpp
+# (see native/docs/METAL_BUILD.md)
 FRUSTRAPY_NATIVE_CUDA = "OFF"
+FRUSTRAPY_NATIVE_METAL = "OFF"

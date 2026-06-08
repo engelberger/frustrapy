@@ -90,6 +90,43 @@ def test_native_matches_lammps_1crn(mode, crn_pdb, tmp_path):
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("mode", ["configurational", "mutational", "singleresidue"])
+def test_metal_matches_lammps_1crn(mode, crn_pdb, tmp_path, monkeypatch):
+    """Metal (Apple GPU) parity lane. A NO-OP skip on the CPU-only container build
+    (the extension reports has_metal()==False); on a Mac built with
+    -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON it asserts the Metal path matches the
+    LAMMPS reference within tolerance. Apple GPUs are float32-only, so the energy
+    tolerance is looser than the bit-for-bit CPU gate (see native/docs/METAL_BUILD.md),
+    but the FrstIndex ranking and sign must still agree."""
+    if not native.has_metal():
+        pytest.skip("native core built without Metal (has_metal() is False)")
+
+    monkeypatch.setenv("FRUSTRAPY_NATIVE_USE_METAL", "1")
+    lammps_table = _run("lammps", mode, crn_pdb, str(tmp_path / f"l_{mode}"))
+    metal_table = _run("native", mode, crn_pdb, str(tmp_path / f"m_{mode}"))
+
+    L = _rows(lammps_table)
+    M = _rows(metal_table)
+    assert len(L) == len(M) and len(L) > 0, f"{mode}: row count {len(L)} vs {len(M)}"
+
+    # float32 GPU arithmetic: allow a small absolute energy tolerance. The hard gate is
+    # the FrstIndex Spearman (ranking) and sign agreement below.
+    max_d = 0.0
+    for a, b in zip(L, M):
+        for c in _NUM_COLS[mode]:
+            max_d = max(max_d, abs(float(a[c]) - float(b[c])))
+    assert max_d <= 5e-2, f"{mode}: max numeric column diff {max_d} (float32 tolerance)"
+
+    fc = _FRST_COL[mode]
+    sp = _spearman([float(r[fc]) for r in L], [float(r[fc]) for r in M])
+    assert sp >= 0.99, f"{mode}: FrstIndex Spearman {sp}"
+    for a, b in zip(L, M):
+        la, lb = float(a[fc]), float(b[fc])
+        if abs(la) > 1e-2 and abs(lb) > 1e-2:
+            assert (la > 0) == (lb > 0), f"{mode}: sign mismatch {la} vs {lb}"
+
+
+@pytest.mark.slow
 def test_native_lammps_frstindex_sign_agreement(crn_pdb, tmp_path):
     """No inverted classes: the sign of every FrstIndex agrees between backends
     (guards the #1 reimplementation hazard, the Z-score sign convention)."""

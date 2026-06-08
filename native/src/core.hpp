@@ -57,6 +57,7 @@ struct ParamsView {
     int n_decoys = 1000;
     std::uint64_t seed = 1;
     bool prefer_cuda = false;   // route to the CUDA path when compiled with it
+    bool prefer_metal = false;  // route to the Metal path when compiled with it
 };
 
 // Reduction output (structure of arrays). For contact modes one entry per contact
@@ -89,6 +90,9 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
 // True iff the optional CUDA path was compiled in (FRUSTRAPY_NATIVE_CUDA).
 bool has_cuda() noexcept;
 
+// True iff the optional Metal path was compiled in (FRUSTRAPY_NATIVE_METAL).
+bool has_metal() noexcept;
+
 #ifdef FRUSTRAPY_NATIVE_CUDA
 // CUDA implementation of compute_frustration (kernels.cu). Offloads the per-residue
 // density, the native energy, and the dominant decoy reductions to the GPU while
@@ -96,6 +100,20 @@ bool has_cuda() noexcept;
 // so the result matches the CPU core. Selected when ParamsView::prefer_cuda is set.
 FrustrationResult compute_frustration_cuda(const StructureView& s, const ParamsView& p,
                                            const std::string& mode);
+#endif
+
+#ifdef FRUSTRAPY_NATIVE_METAL
+// Metal (Apple GPU) implementation of compute_frustration (metal/dispatch.cpp +
+// metal/kernels.metal). Mirrors the CUDA path term-for-term: the per-residue density,
+// the native energy, and the dominant decoy reductions run as MSL compute kernels via
+// metal-cpp; the decoy random-index stream and the configurational decoy ensemble are
+// generated host-side with the exact glibc sequence, so the result tracks the CPU core.
+// Selected when ParamsView::prefer_metal is set. NOTE: Apple GPUs are float32-only, so
+// the on-device arithmetic is single precision where the CUDA path uses double -- see
+// native/docs/METAL_BUILD.md for the expected tolerance impact and the precision
+// fallbacks the maintainer can enable if parity fails on real hardware.
+FrustrationResult compute_frustration_metal(const StructureView& s, const ParamsView& p,
+                                            const std::string& mode);
 #endif
 
 }  // namespace frustrapy_native
