@@ -914,6 +914,7 @@ class FrustrationCalculator:
                 split=True,
                 method="threading",
                 n_cpus=self.n_cpus,
+                backend=self.backend,
             )
         except Exception as e:
             logger.error(f"Mutation scan failed: {str(e)}")

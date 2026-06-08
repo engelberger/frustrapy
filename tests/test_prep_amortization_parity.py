@@ -492,6 +492,106 @@ def test_prepared_context_glycine_variant_matches_threading(tmp_path):
             assert (fi > 0) == (ref_fi > 0), f"GLY->{aa}: sign mismatch"
 
 
+def _scan_via(base, targets, results_dir, mode, backend=None, amortize=None):
+    """Run a saturation scan THROUGH mutate_res_scan_parallel with an explicit
+    backend/amortize selector; return {(res, chain): token-rows of the variant
+    table}. This exercises the wired-in scan path end to end (the amortized native
+    path when backend='native'), not just the per-variant primitive."""
+    import frustrapy
+    from frustrapy.analysis.mutations import mutate_res_scan_parallel
+
+    src = STRUCT_PDB[base]
+    if os.path.exists(results_dir):
+        shutil.rmtree(results_dir)
+    os.makedirs(results_dir)
+    local = os.path.join(results_dir, os.path.basename(src))
+    shutil.copy2(src, local)
+    residues = {}
+    for res, chain in targets:
+        residues.setdefault(chain, []).append(res)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pdb, _, _, _ = frustrapy.calculate_frustration(
+            pdb_file=local, mode=mode,
+            residues=residues if mode == "singleresidue" else None,
+            results_dir=results_dir, graphics=False, visualization=False,
+            debug="ERROR", seq_dist=SEQ_DIST, backend=backend,
+        )
+        mutate_res_scan_parallel(
+            pdb, targets=list(targets), split=True, method="threading",
+            n_cpus=None, backend=backend, amortize=amortize,
+        )
+    md = os.path.join(pdb.job_dir, "MutationsData")
+    out = {}
+    for res, chain in targets:
+        f = os.path.join(md, f"{mode}_Res{res}_threading_{chain}.txt")
+        out[(res, chain)] = _rows(f)
+    return out
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+@pytest.mark.parametrize("base", ["1crn", "1zni"])
+def test_amortized_native_scan_reproduces_baseline(base, tmp_path):
+    """The wired-in amortized native scan (mutate_res_scan_parallel(backend='native'),
+    prep once per chain then a res_type swap per variant) reproduces the golden
+    singleresidue scan per variant within the native CPU tolerance, in scan order,
+    with full sign agreement, and selects the correct (res_num, chain) per target
+    (single- and multi-chain)."""
+    targets = _scan_targets(base)
+    got = _scan_via(base, targets, str(tmp_path / f"amort_{base}"), "singleresidue",
+                    backend="native")
+    for (res, chain) in targets:
+        ref = _rows(os.path.join(BASELINE, f"scan_{base}_Res{res}_{chain}.txt"))
+        cur = got[(res, chain)]
+        assert len(cur) == len(ref) == 20, f"{base} Res{res}/{chain}: variant count"
+        for a, b in zip(ref, cur):
+            assert a[2] == b[2], f"{base} Res{res}/{chain}: AA order {a[2]} vs {b[2]}"
+            x, y = float(a[3]), float(b[3])
+            assert abs(x - y) <= _NATIVE_TOL, (
+                f"{base} Res{res}/{chain} {a[2]}: FrstIndex {y} vs baseline {x}"
+            )
+            if abs(x) > 1e-2 and abs(y) > 1e-2:
+                assert (x > 0) == (y > 0), f"{base} Res{res}/{chain} {a[2]}: sign"
+        for r in cur:
+            assert int(r[0]) == res and r[1] == chain, (
+                f"{base} Res{res}/{chain}: wrong site in row {r}"
+            )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+@pytest.mark.parametrize("mode", list(MODES))
+def test_amortized_scan_matches_nonamortized_native(mode, tmp_path):
+    """For all three modes the amortized native scan equals the per-variant native
+    scan (same wired path, amortize off): identical variant set and identity/class
+    columns, FrstIndex equal within the native CPU tolerance. This covers the
+    contact modes (no golden scan fixture exists for them) and proves the geometry
+    reuse changes no numbers end to end, including the glycine sites in the scan."""
+    targets = [(10, "A"), (25, "A")]
+    amort = _scan_via("1crn", targets, str(tmp_path / f"a_{mode}"), mode,
+                      backend="native", amortize=True)
+    plain = _scan_via("1crn", targets, str(tmp_path / f"p_{mode}"), mode,
+                      backend="native", amortize=False)
+    for key in targets:
+        ra, rp = amort[key], plain[key]
+        assert len(ra) == len(rp) > 0, f"{mode} {key}: row count {len(ra)} vs {len(rp)}"
+        if mode == "singleresidue":
+            da = {r[2]: float(r[3]) for r in ra}
+            dp = {r[2]: float(r[3]) for r in rp}
+        else:
+            # key a contact by its endpoints + identities; carry (FrstIndex, FrstState).
+            da = {(r[0], r[1], r[4], r[5]): (float(r[6]), r[7]) for r in ra}
+            dp = {(r[0], r[1], r[4], r[5]): (float(r[6]), r[7]) for r in rp}
+        assert set(da) == set(dp), f"{mode} {key}: variant/contact set differs"
+        for k in da:
+            if mode == "singleresidue":
+                assert abs(da[k] - dp[k]) <= _NATIVE_TOL, f"{mode} {key} {k}: FrstIndex"
+            else:
+                assert abs(da[k][0] - dp[k][0]) <= _NATIVE_TOL, f"{mode} {key} {k}: FrstIndex"
+                assert da[k][1] == dp[k][1], f"{mode} {key} {k}: FrstState"
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("base", ["1crn", "1zni"])
 def test_saturation_scan_reproduces(base, tmp_path):
