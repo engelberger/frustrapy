@@ -93,6 +93,20 @@ references:
     year: 2021
     publisher:
       name: Oxford University Press
+  # Atomic packing Frustratometer (Chen et al., Rosetta-based), cited when using
+  # the all-atom engine backend="atomic", which orchestrates this method.
+  # TODO(maintainer): replace with the confirmed reference. The trimmed reference
+  # copy used to build the backend records only the title and Academic Free License
+  # v3.0; the full author list, venue, year, and DOI were not available. Do NOT
+  # fabricate a DOI or author list; fill these in from the method's publication.
+  - type: article
+    title: "Atomic packing Frustratometer using Rosetta"
+    authors:
+      - family-names: Chen
+        given-names: M.
+    notes: >-
+      TODO(maintainer): confirm full author list, venue, year, and DOI from the
+      method's publication. Placeholder pending confirmation; no DOI fabricated.
   # FrustraMPNN — cited when using the frustrapy.mpnn deep-learning predictor.
   # Official repo: https://github.com/RosettaCommons/frustraMPNN
   - type: article

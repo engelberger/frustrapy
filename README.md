@@ -384,6 +384,20 @@ If you use FrustraPy in your research, please cite the following papers:
 }
 ```
 
+If you use the all-atom Rosetta engine (`backend="atomic"`), also cite the **atomic
+packing Frustratometer** (Chen et al., Rosetta-based), which that backend orchestrates:
+
+```bibtex
+@article{chen_atomic_frustratometer,
+  title={Atomic packing Frustratometer using Rosetta},
+  author={Chen, M. and others},
+  note={TODO(maintainer): replace with the confirmed reference (full author list,
+        venue, year, DOI). The trimmed reference copy used to build the backend
+        documents only the title and an Academic Free License v3.0; no citation
+        block or DOI was recorded. Do not fabricate a DOI or author list.}
+}
+```
+
 If you use the deep-learning predictor (`frustrapy.mpnn`), also cite **FrustraMPNN**
 (Beining et al.; [RosettaCommons/frustraMPNN](https://github.com/RosettaCommons/frustraMPNN)).
 The bundled model weights come from the Zenodo record (CC BY 4.0):

@@ -229,3 +229,48 @@ def test_pyrosetta_path_raises_actionable_error():
     assert "pyrosetta-installer" in str(exc.value)
     with pytest.raises(ImportError):
         ae.compute_decoy_pair_energies("does_not_matter.pdb", "ACDEFGHIKL")
+
+
+# ---------------------------------------------------------------------------
+# Reproducible-run seeding (AA-PARITY-BENCH B1). Pure option-string + global
+# round-trip; exercised without PyRosetta (the init flags are what a maintainer's
+# seeded tier-2 parity run depends on).
+# ---------------------------------------------------------------------------
+
+def test_pyrosetta_init_options_default_is_unseeded():
+    from frustrapy.analysis import mutation_backends as mb
+
+    opts = mb._build_pyrosetta_init_options(None)
+    assert "-mute all" in opts
+    assert "-ignore_unrecognized_res true" in opts
+    assert "-ignore_zero_occupancy false" in opts
+    # Default (unseeded) must NOT carry the constant-seed flags: byte-identical to
+    # before the seed option existed.
+    assert "constant_seed" not in opts
+    assert "jran" not in opts
+
+
+def test_pyrosetta_init_options_seeded_appends_flags():
+    from frustrapy.analysis import mutation_backends as mb
+
+    opts = mb._build_pyrosetta_init_options(12345)
+    assert opts.endswith("-run:constant_seed -run:jran 12345")
+    # The unseeded prefix is preserved verbatim.
+    assert opts.startswith(mb._build_pyrosetta_init_options(None))
+
+
+def test_set_pyrosetta_seed_round_trips_global():
+    from frustrapy.analysis import mutation_backends as mb
+
+    saved = mb._PYROSETTA_SEED
+    try:
+        mb.set_pyrosetta_seed(7)
+        assert mb._PYROSETTA_SEED == 7
+        assert mb._build_pyrosetta_init_options(mb._PYROSETTA_SEED).endswith(
+            "-run:jran 7"
+        )
+        mb.set_pyrosetta_seed(None)
+        assert mb._PYROSETTA_SEED is None
+        assert "constant_seed" not in mb._build_pyrosetta_init_options(mb._PYROSETTA_SEED)
+    finally:
+        mb.set_pyrosetta_seed(saved)
