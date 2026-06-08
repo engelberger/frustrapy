@@ -66,6 +66,29 @@ ALL_METHODS = ("threading", "modeller", "pyrosetta")
 # initialises on its first mutation and reuses the singleton thereafter.
 _PYROSETTA_INITED = False
 
+# Optional fixed seed for the Rosetta RNG. ``None`` (the default) reproduces the
+# reference's unseeded, stochastic repack -- this is what the mutation backend uses
+# and keeps behaviour byte-identical to before this option existed. The atomic
+# parity/benchmark runbook (docs/atomic/parity/) sets a seed via
+# :func:`set_pyrosetta_seed` so a maintainer's end-to-end run is reproducible across
+# triplicates. Must be set BEFORE the first calculation in a process (PyRosetta is
+# initialised once per process and the flags are read only at init time).
+_PYROSETTA_SEED = None
+
+
+def set_pyrosetta_seed(seed):
+    """Pin the Rosetta RNG for reproducible runs (maintainer parity/benchmark step).
+
+    When ``seed`` is not ``None``, the next PyRosetta init in this process appends
+    ``-run:constant_seed -run:jran <seed>`` to the init flags, so the otherwise
+    stochastic FastRelax/repack is reproducible. Call this before any
+    ``method='pyrosetta'`` mutation or any ``backend='atomic'`` calculation in the
+    process. ``seed=None`` restores the default unseeded behaviour. No effect once
+    PyRosetta is already initialised in the process.
+    """
+    global _PYROSETTA_SEED
+    _PYROSETTA_SEED = seed
+
 
 def pyrosetta_available() -> bool:
     """True iff the optional ``pyrosetta`` package can be imported."""
@@ -75,6 +98,22 @@ def pyrosetta_available() -> bool:
         return True
     except Exception:  # ImportError, or a partial/broken install
         return False
+
+
+def _build_pyrosetta_init_options(seed=None) -> str:
+    """The ``extra_options`` string passed to ``pyrosetta.init``.
+
+    ``-mute all`` silences the per-pose banner spam; the structure-tolerance flags let
+    Rosetta load the cleaned/backbone-completed inputs FrustraPy feeds it without
+    aborting on minor PDB quirks. When ``seed`` is not ``None``, the reproducible-run
+    flags ``-run:constant_seed -run:jran <seed>`` are appended; with ``seed=None``
+    (the default) the string is byte-identical to before the seed option existed.
+    Pure (no PyRosetta import), so it is unit-testable without the optional dep.
+    """
+    options = "-mute all -ignore_unrecognized_res true -ignore_zero_occupancy false"
+    if seed is not None:
+        options += f" -run:constant_seed -run:jran {int(seed)}"
+    return options
 
 
 def _ensure_pyrosetta():
@@ -97,13 +136,8 @@ def _ensure_pyrosetta():
         ) from exc
 
     if not _PYROSETTA_INITED:
-        # -mute all silences the per-pose banner spam; the structure-tolerance
-        # flags let Rosetta load the cleaned/backbone-completed inputs FrustraPy
-        # feeds it without aborting on minor PDB quirks.
         pyrosetta.init(
-            extra_options="-mute all -ignore_unrecognized_res true "
-            "-ignore_zero_occupancy false",
-            silent=True,
+            extra_options=_build_pyrosetta_init_options(_PYROSETTA_SEED), silent=True
         )
         _PYROSETTA_INITED = True
     return pyrosetta

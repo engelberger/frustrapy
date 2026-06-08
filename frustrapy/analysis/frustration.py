@@ -423,6 +423,7 @@ def dynamic_frustration(
     results_dir: Optional[str] = None,
     n_cpus: Optional[int] = None,
     n_procs: Optional[int] = None,
+    backend: Optional[Union[str, Any]] = None,
 ) -> "Dynamic":
     """
     Calculates local energetic frustration for a trajectory.
@@ -436,6 +437,9 @@ def dynamic_frustration(
         mode (str): Local frustration index to be calculated (configurational, mutational, singleresidue). Default: configurational.
         gifs (bool): If it is True, the contact map gifs and 5 adens proportion of all the frames of the dynamic will be stored, otherwise they will not be stored. Default: False.
         results_dir (Optional[str]): Path to the folder where results will be stored. If not specified, it will be stored in the directory returned by tempdir(). Default: None.
+        backend (Optional[Union[str, FrustrationBackend]]): energy backend selector,
+            forwarded to every per-frame calculation (default ``lammps``). The on-disk
+            output contract is identical across backends.
 
     Returns:
         Dynamic: Dynamic frustration object.
@@ -499,6 +503,7 @@ def dynamic_frustration(
         results_dir=results_dir,
         n_cpus=n_cpus,
         n_procs=n_procs,
+        backend=backend,
     )
     # Expose per-frame results on the Dynamic object (one plots entry per frame).
     dynamic.frames_plots = frames_plots

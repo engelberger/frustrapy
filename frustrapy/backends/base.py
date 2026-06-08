@@ -60,6 +60,20 @@ class FrustrationBackend(ABC):
     #: Stable identifier used for backend selection and the registry.
     name: ClassVar[str] = "base"
 
+    #: Whether the calculator must run the AWSEM/LAMMPS input-deck preparation
+    #: (``PdbCoords2Lammps.sh`` -> ``.coord`` / ``data.*`` / ``.in`` /
+    #: ``fix_backbone_coeff.data`` / ``gamma.dat`` ..., plus the mode keyword swap and
+    #: the ``run 10000`` -> ``run 0`` patch) before :meth:`compute_energies`. The
+    #: AWSEM-based backends (``lammps``, ``native``) consume those prepared files, so
+    #: they need it (the default, ``True``). A backend whose energy model does not read
+    #: the LAMMPS deck (the all-atom Rosetta ``atomic`` backend, which works directly
+    #: from the cleaned ``{base}.pdb`` and the equivalences file the calculator already
+    #: writes) sets this ``False`` so the calculator skips that subprocess prep
+    #: entirely. The cleaned PDB and the ``{base}.pdb_equivalences.txt`` map are written
+    #: regardless (they are calculator-level, not LAMMPS-specific), so the shared
+    #: :meth:`process_results` / :meth:`compute_density` post-processing is unaffected.
+    requires_lammps_prep: ClassVar[bool] = True
+
     @abstractmethod
     def compute_energies(self, calculator: "FrustrationCalculator", pdb: "Pdb") -> None:
         """Run the energy model: compute the native energy and the decoy-ensemble
