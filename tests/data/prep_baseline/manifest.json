@@ -1,0 +1,135 @@
+{
+  "backend": "lammps",
+  "description": "Golden prep-amortization regression baseline.",
+  "native_parity": {
+    "1crn.pdb_configurational": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 232,
+      "rows_native": 232,
+      "spearman": 1.0
+    },
+    "1crn.pdb_mutational": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 232,
+      "rows_native": 232,
+      "spearman": 1.0
+    },
+    "1crn.pdb_singleresidue": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 46,
+      "rows_native": 46,
+      "spearman": 0.9999999999999999
+    },
+    "1zni.pdb_configurational": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 585,
+      "rows_native": 585,
+      "spearman": 1.0000000000000002
+    },
+    "1zni.pdb_mutational": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 585,
+      "rows_native": 585,
+      "spearman": 1.0000000000000002
+    },
+    "1zni.pdb_singleresidue": {
+      "max_abs_dFrstIndex": 0.0,
+      "rows_lammps": 102,
+      "rows_native": 102,
+      "spearman": 1.0000000000000002
+    }
+  },
+  "scans": {
+    "scan_1crn_Res10_A.txt": {
+      "chain": "A",
+      "n_variants": 20,
+      "res_num": 10,
+      "sha256": "e5be03592d4a1646e422580d64e901706235c24b529a4830fa332c3d070b65db",
+      "structure": "1crn"
+    },
+    "scan_1crn_Res25_A.txt": {
+      "chain": "A",
+      "n_variants": 20,
+      "res_num": 25,
+      "sha256": "85f9869a6356ce48513435b31ef482efe7456eaa8646f18462230842d94b8a37",
+      "structure": "1crn"
+    },
+    "scan_1zni_Res25_B.txt": {
+      "chain": "B",
+      "n_variants": 20,
+      "res_num": 25,
+      "sha256": "936fa7204c04edee6a35e085f61e2b9ce9d8b762aad4523895e9623ccae315db",
+      "structure": "1zni"
+    },
+    "scan_1zni_Res5_A.txt": {
+      "chain": "A",
+      "n_variants": 20,
+      "res_num": 5,
+      "sha256": "3084b9b411496f55116eaca5c56ded364a941fd67640f2116eb74eca32f007c7",
+      "structure": "1zni"
+    }
+  },
+  "seq_dist": 12,
+  "tables": {
+    "1crn.pdb_configurational": {
+      "mode": "configurational",
+      "n_rows": 232,
+      "sha256": "7bb03f76174b75926e0cc96a1f5611eb3c43074970dcd82ad2f839f64b13b65f",
+      "structure": "1crn"
+    },
+    "1crn.pdb_configurational_5adens": {
+      "mode": "configurational_5adens",
+      "n_rows": 46,
+      "sha256": "bded6b187a195433b06f68f2657a81313ebb32a0aa082d13fa3a6b50441b4463",
+      "structure": "1crn"
+    },
+    "1crn.pdb_mutational": {
+      "mode": "mutational",
+      "n_rows": 232,
+      "sha256": "2042185b8b7dced1f546f136403f529a666d9505ab711b60a8255b9b06c34cfd",
+      "structure": "1crn"
+    },
+    "1crn.pdb_mutational_5adens": {
+      "mode": "mutational_5adens",
+      "n_rows": 46,
+      "sha256": "08c837992d916c2d372510c396aab806c2aadd0808dab77fbc23a5872561cb40",
+      "structure": "1crn"
+    },
+    "1crn.pdb_singleresidue": {
+      "mode": "singleresidue",
+      "n_rows": 46,
+      "sha256": "d78d17ddf10b695e57c98f9137a2ce4a21d2f27fd59b92ca52c7064673a049d2",
+      "structure": "1crn"
+    },
+    "1zni.pdb_configurational": {
+      "mode": "configurational",
+      "n_rows": 585,
+      "sha256": "4d151fdb4e123630f64e1be03b60e71bdc81a01c64ce35a2ff165f52ba8c2953",
+      "structure": "1zni"
+    },
+    "1zni.pdb_configurational_5adens": {
+      "mode": "configurational_5adens",
+      "n_rows": 102,
+      "sha256": "8e4695cb406e08420a4161120a90058cc8f5deca150492011222ac95bc639dbe",
+      "structure": "1zni"
+    },
+    "1zni.pdb_mutational": {
+      "mode": "mutational",
+      "n_rows": 585,
+      "sha256": "a458f30af51c8d433f676cdc50cdcde485b1cbdc6ad95f4a6a8e07f4709a8b6f",
+      "structure": "1zni"
+    },
+    "1zni.pdb_mutational_5adens": {
+      "mode": "mutational_5adens",
+      "n_rows": 102,
+      "sha256": "305cbf1f4e386a76b16c44cc1454db3b9af4cda6530aa1a40d65de6880e6ffdf",
+      "structure": "1zni"
+    },
+    "1zni.pdb_singleresidue": {
+      "mode": "singleresidue",
+      "n_rows": 102,
+      "sha256": "dd88825dbdf90815a30aacb060fea9d040afb55e64d1242a5748510d26125674",
+      "structure": "1zni"
+    }
+  }
+}

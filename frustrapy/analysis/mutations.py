@@ -7,6 +7,7 @@ from typing import Dict, Any, Tuple, Optional
 import time
 from tqdm import tqdm
 from ..core import Pdb, SingleResidueData
+from ..core.constants import FRST_HIGHLY_MAX, FRST_MINIMALLY_MIN_CONTACT
 from ..utils import log_execution_time
 from ..utils.concurrency import (
     cpu_budget,
@@ -25,7 +26,7 @@ logger = logging.getLogger(__name__)
 #logger.setLevel(logging.DEBUG)
 
 def _process_amino_acid(
-    args: Tuple[str, "Pdb", int, str, bool, bool, bool, str]
+    args: Tuple[str, "Pdb", int, str, bool, bool, bool, str, Any]
 ) -> Dict[str, Any]:
     """
     Helper function to process a single amino acid mutation.
@@ -43,11 +44,16 @@ def _process_amino_acid(
                 'pyrosetta'). 'threading'/'modeller' build the mutant by keeping
                 the native backbone+CB and relabelling the residue; 'pyrosetta'
                 loads the full-atom pose, mutates and repacks side chains.
+            backend: energy backend for the per-variant frustration calc (a name
+                or None for the default lammps). Threaded through so a scan run
+                with backend='native' scores its mutants with the native core,
+                consistent with the WT calc, instead of silently falling back to
+                lammps.
 
     Returns:
         Dict[str, Any]: Results of processing the amino acid mutation
     """
-    aa, pdb, res_num, chain, split, debug, is_glycine, method = args
+    aa, pdb, res_num, chain, split, debug, is_glycine, method, backend = args
     logger = logging.getLogger(__name__)
     # Debug: log incoming arguments for mutation
     logger.debug(f"[_process_amino_acid] args: aa={aa}, res_num={res_num}, chain={chain}, split={split}, debug={debug}, is_glycine={is_glycine}, method={method}")
@@ -79,7 +85,7 @@ def _process_amino_acid(
         logger.debug(f"[_process_amino_acid] PyRosetta mutant {aa} -> {output_pdb_path}")
         build_pyrosetta_mutant(pdb, res_num, chain, aa, output_pdb_path)
         return _score_mutant(
-            pdb, res_num, chain, aa, method, output_pdb_path, debug
+            pdb, res_num, chain, aa, method, output_pdb_path, debug, backend
         )
 
     # Get indices of atoms for the residue to mutate
@@ -284,7 +290,9 @@ def _process_amino_acid(
         logger.error(f"[_process_amino_acid] Mutated PDB file not found after write: {output_pdb_path}")
     logger.debug(f"Saved mutated PDB to {output_pdb_path}")
 
-    return _score_mutant(pdb, res_num, chain, aa, method, output_pdb_path, debug)
+    return _score_mutant(
+        pdb, res_num, chain, aa, method, output_pdb_path, debug, backend
+    )
 
 
 def _score_mutant(
@@ -295,6 +303,7 @@ def _score_mutant(
     method: str,
     output_pdb_path: str,
     debug: bool,
+    backend: Any = None,
 ) -> Dict[str, Any]:
     """Run the frustration calc on a built mutant PDB and harvest its row(s).
 
@@ -314,7 +323,10 @@ def _score_mutant(
     logger.debug("Calculating frustration...")
     from .frustration import calculate_frustration
 
-    # Pass is_mutation_calculation=True to suppress protocol logging
+    # Pass is_mutation_calculation=True to suppress protocol logging. The backend
+    # is threaded through so a native-backend scan scores its mutants with the
+    # native core (consistent with the WT calc); backend=None keeps the historical
+    # default (lammps), so the default scan path is byte-identical.
     calculate_frustration(
         pdb_file=output_pdb_path,
         mode=pdb.mode,
@@ -324,6 +336,7 @@ def _score_mutant(
         chain=chain,
         debug=debug,
         is_mutation_calculation=True,  # Add this flag
+        backend=backend,
     )
 
     # Store the frustration data
@@ -516,6 +529,225 @@ def _concat_parts(
                 os.remove(part)
 
 
+# Sequence-separation the saturation scan scores its mutants at. The per-variant
+# path (`_score_mutant`) calls `calculate_frustration` without `seq_dist`, so the
+# scan always uses the public default (12) regardless of the WT calc's seq_dist.
+# The amortized path mirrors that exactly so its numbers match the per-variant path.
+SCAN_SEQ_DIST = 12
+
+
+def _resolve_backend_name(backend: Any) -> str:
+    """Resolve a backend selector (name, instance, or None) to its registered name.
+
+    ``None`` resolves to the default backend (lammps), so an unspecified scan keeps
+    the historical per-variant lammps path.
+    """
+    from ..backends import get_backend  # noqa: PLC0415 - avoid import cycle
+
+    return get_backend(backend).name
+
+
+# Per-worker handle to the read-only prepared-structure contexts, keyed by chain.
+# Set once per worker by the pool initializer (the contexts are built ONCE in the
+# parent and shipped to each worker), so no worker ever re-runs the per-structure
+# prep. Module-global because a Pool initializer cannot return state.
+_WORKER_PREPS: Optional[Dict[str, Any]] = None
+
+
+def _amortized_pool_init(preps: Dict[str, Any]) -> None:
+    """Pool-worker initializer for the amortized native scan.
+
+    Pins native-math threads to 1 in the worker (composing with the outer pool, so
+    ``outer x 1 <= cores``) and stashes the shared, read-only prepared contexts.
+    """
+    pool_worker_initializer()
+    global _WORKER_PREPS
+    _WORKER_PREPS = preps
+
+
+def _classify_contact_state(frst_index: float) -> str:
+    """Frustration class for a contact, on the 3-decimal-rounded index (matching the
+    classifier in :func:`frustrapy.utils.helpers.renum_files`, which reads the
+    ``%8.3f`` value from ``tertiary_frustration.dat``)."""
+    if frst_index <= FRST_HIGHLY_MAX:
+        return "highly"
+    if frst_index >= FRST_MINIMALLY_MIN_CONTACT:
+        return "minimally"
+    return "neutral"
+
+
+def _amortized_variant_rows(prep, out, mode, res_num, chain, aa):
+    """Build the per-variant output rows for the target site from a native result.
+
+    Reproduces the row set and column layout the per-variant path harvests from the
+    parsed FrustrationData table: for ``singleresidue`` the single target-site row
+    (``Res ChainRes AA FrstIndex``); for the contact modes every contact touching the
+    target (``Res1 Res2 ChainRes1 ChainRes2 AA1 AA2 FrstIndex FrstState``). The prep
+    is chain-restricted, so every residue is in ``chain`` and the filter reduces to the
+    residue number, exactly as ``_score_mutant`` does. FrstIndex is rounded to 3
+    decimals (the ``%8.3f`` table precision) and the class is taken on that value.
+    """
+    from ..backends import native as nbk  # noqa: PLC0415
+
+    aa_one = nbk._THREE_TO_ONE.get(aa, aa)
+    ui = out["unit_i"]
+    fi = out["frst_index"]
+    idx = prep.site_index(res_num, chain)
+
+    if mode == "singleresidue":
+        pos = {int(ui[k]): k for k in range(len(ui))}
+        val = round(float(fi[pos[idx]]), 3)
+        return pd.DataFrame(
+            {"Res": [int(res_num)], "ChainRes": [chain], "AA": [aa_one],
+             "FrstIndex": [val]}
+        )
+
+    uj = out["unit_j"]
+    rows = []
+    for k in range(len(ui)):
+        i = int(ui[k])
+        j = int(uj[k])
+        if i != idx and j != idx:
+            continue
+        c_i, r_i = prep.sites[i]
+        c_j, r_j = prep.sites[j]
+        aa1 = aa_one if i == idx else prep.letters[i]
+        aa2 = aa_one if j == idx else prep.letters[j]
+        val = round(float(fi[k]), 3)
+        rows.append((int(r_i), int(r_j), c_i, c_j, aa1, aa2, val,
+                     _classify_contact_state(val)))
+    return pd.DataFrame(
+        rows,
+        columns=["Res1", "Res2", "ChainRes1", "ChainRes2", "AA1", "AA2",
+                 "FrstIndex", "FrstState"],
+    )
+
+
+def _score_variant_amortized(args) -> Dict[str, Any]:
+    """Worker: score one variant against the shared prepared context and write its
+    ``.part`` file. Reuses the cached geometry (a glycine-involving edit patches the
+    one interaction coordinate and recomputes geometry for that variant only), runs
+    the native kernel single-threaded, and never touches the shared output file."""
+    res_num, chain, aa, mode, method, mutations_dir = args
+    from ..backends import native as nbk  # noqa: PLC0415
+
+    prep = _WORKER_PREPS[chain]
+    out = nbk.compute_variant_frustration(
+        prep, mode, site=(res_num, chain), new_aa=aa, n_threads=1
+    )
+    df = _amortized_variant_rows(prep, out, mode, res_num, chain, aa)
+    part = os.path.join(
+        mutations_dir, f"{mode}_Res{int(res_num)}_{method}_{chain}.{aa}.part"
+    )
+    df.to_csv(part, sep="\t", header=False, index=False, mode="w")
+    return {"aa": aa, "res_num": res_num, "chain": chain, "ok": True}
+
+
+def _build_chain_preps(pdb: "Pdb", chains, mode: str) -> Dict[str, Any]:
+    """Build the prepared-structure context ONCE per target chain.
+
+    For each chain, run one chain-restricted WT native calculation (the same
+    chain restriction the per-variant ``_score_mutant`` applies) to materialize the
+    coefficient/gamma/equivalences files, then :func:`prepare_structure` to parse and
+    cache the geometry. The contexts hold their inputs in memory, so the scratch
+    directories are removed immediately. This is the prep amortized to once per
+    (structure, chain) instead of once per variant.
+    """
+    from .frustration import calculate_frustration  # noqa: PLC0415 - import cycle
+    from ..backends import native as nbk  # noqa: PLC0415
+
+    src_pdb = os.path.join(pdb.job_dir, f"{pdb.pdb_base}.pdb")
+    if not os.path.exists(src_pdb):
+        src_pdb = os.path.join(pdb.frustration_dir, f"{pdb.pdb_base}.pdb")
+    if not os.path.exists(src_pdb):
+        raise FileNotFoundError(
+            f"cleaned WT structure not found for amortized scan prep: {src_pdb}"
+        )
+
+    prep_root = os.path.join(pdb.job_dir, "_amortized_prep")
+    preps: Dict[str, Any] = {}
+    try:
+        for chain in chains:
+            cdir = os.path.join(prep_root, f"chain_{chain}")
+            if os.path.exists(cdir):
+                shutil.rmtree(cdir)
+            os.makedirs(cdir)
+            local = os.path.join(cdir, os.path.basename(src_pdb))
+            shutil.copy2(src_pdb, local)
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore")
+                # debug="ERROR" is truthy, so the calculator skips its end-of-run
+                # cleanup and leaves fix_backbone_coeff.data / gamma.dat / the
+                # equivalences file in the job dir for prepare_structure to read.
+                wt, _, _, _ = calculate_frustration(
+                    pdb_file=local, mode=mode, chain=chain, results_dir=cdir,
+                    graphics=False, visualization=False, debug="ERROR",
+                    backend="native", seq_dist=SCAN_SEQ_DIST,
+                    is_mutation_calculation=True,
+                )
+            preps[chain] = nbk.prepare_structure(
+                wt.job_dir, wt.pdb_base, SCAN_SEQ_DIST
+            )
+    finally:
+        if os.path.exists(prep_root):
+            shutil.rmtree(prep_root, ignore_errors=True)
+    return preps
+
+
+def _run_amortized_native_scan(
+    pdb: "Pdb",
+    targets: list,
+    method: str,
+    mutations_dir: str,
+    target_files: Dict,
+    n_cpus: Optional[int],
+    pbar: Optional[tqdm],
+    own_pbar: bool,
+) -> None:
+    """The amortized native saturation scan.
+
+    Builds the prepared context once per chain, then dispatches every
+    ``(residue, amino-acid)`` variant through a single pool that reuses the cached
+    geometry (only ``res_type`` at the scanned site changes). The contexts are built
+    in the parent and shared read-only to the workers, so prep is paid once per
+    chain rather than once per variant. Output ``.part`` files are written per worker
+    and concatenated by the parent in :func:`mutate_res_scan_parallel`.
+    """
+    chains = []
+    for _res, chain in targets:
+        if chain not in chains:
+            chains.append(chain)
+    preps = _build_chain_preps(pdb, chains, pdb.mode)
+
+    args_list = [
+        (res_num, chain, aa, pdb.mode, method, mutations_dir)
+        for res_num, chain in targets
+        for aa in AMINO_ACIDS
+    ]
+
+    n_processes = _resolve_pool_size(n_cpus, len(args_list), cpu_budget())
+    logger.debug(
+        f"[amortized native scan] {len(targets)} residue(s), {len(args_list)} "
+        f"tasks, {n_processes} workers"
+    )
+
+    ctx = get_pool_context()
+    pool = ctx.Pool(
+        processes=n_processes,
+        initializer=_amortized_pool_init,
+        initargs=(preps,),
+    )
+    try:
+        for _result in pool.imap_unordered(_score_variant_amortized, args_list):
+            if pbar is not None:
+                pbar.update(1)
+    finally:
+        pool.close()
+        pool.join()
+        if own_pbar and pbar is not None and pbar.disable is False:
+            pbar.close()
+
+
 def mutate_res_scan_parallel(
     pdb: "Pdb",
     targets: list,
@@ -523,6 +755,8 @@ def mutate_res_scan_parallel(
     method: str = "threading",
     n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
+    backend: Any = None,
+    amortize: Optional[bool] = None,
 ) -> "Pdb":
     """Flatten the whole ``(residue × amino-acid)`` mutation grid into ONE
     persistent process pool — Phase 6 Lever 1, the only lever that changes the
@@ -537,8 +771,22 @@ def mutate_res_scan_parallel(
     keeps > 20 LAMMPS single-point evaluations in flight at once (the ceiling is
     structurally gone) and the per-residue re-fork cost is paid once, not N times.
 
+    Prep amortization (native backend). When ``backend`` resolves to ``native`` and
+    ``method='threading'``, the scan takes the amortized path: the per-structure prep
+    (PdbCoords2Lammps + parse + gamma read + geometry cache) is computed ONCE per
+    target chain and reused across all that chain's variants, which then differ only
+    by the ``res_type`` at the scanned site. This removes the dominant per-variant
+    cost (prep was about 6x the kernel and was redone for every mutant). The default
+    ``lammps`` path is unchanged: each variant runs a full per-variant
+    ``calculate_frustration``, byte-identical to before. ``amortize`` forces
+    (``True``) or disables (``False``) the amortized path; ``None`` auto-selects it
+    for the native backend.
+
     Args:
         targets: list of ``(res_num, chain)`` tuples to mutate.
+        backend: energy backend (name, instance, or ``None`` for the default lammps).
+        amortize: ``None`` = auto (amortize on the native backend), ``True`` = force,
+            ``False`` = always use the per-variant path.
 
     Returns the ``pdb`` with ``pdb.Mutations[method]`` populated for every target
     and a per-scan ``pdb.MutationAnalysis`` metrics dict.
@@ -588,8 +836,17 @@ def mutate_res_scan_parallel(
         is_glycine = _residue_is_glycine(pdb, res_num, chain)
         for aa in AMINO_ACIDS:
             args_list.append(
-                (aa, pdb, res_num, chain, split, False, is_glycine, method)
+                (aa, pdb, res_num, chain, split, False, is_glycine, method, backend)
             )
+
+    # Route to the amortized native path when applicable. It honors the same
+    # targets/headers (built above) and writes the same per-variant .part files,
+    # so the parent-side merge/bookkeeping below is shared.
+    amortized = (
+        amortize is not False
+        and method == "threading"
+        and _resolve_backend_name(backend) == "native"
+    )
 
     # Lever 5: never oversubscribe — cap the pool at the number of TASKS as well as
     # the core budget. The old code hardcoded ``Pool(cpu_count())`` even for a
@@ -615,21 +872,26 @@ def mutate_res_scan_parallel(
         f"{len(args_list)} tasks, {n_processes} workers"
     )
 
-    # Shared-budget pool: fork-safe start method (forkserver/spawn) so a possibly
-    # multi-threaded parent cannot deadlock a forked child, and a worker
-    # initializer that re-pins native-math threads to 1. close()/join() always run
-    # in the finally below, so no LAMMPS child is orphaned on error/timeout.
-    ctx = get_pool_context()
-    pool = ctx.Pool(processes=n_processes, initializer=pool_worker_initializer)
-    try:
-        for _result in pool.imap_unordered(_process_amino_acid, args_list):
-            if pbar is not None:
-                pbar.update(1)
-    finally:
-        pool.close()
-        pool.join()
-        if own_pbar and pbar is not None and pbar.disable is False:
-            pbar.close()
+    if amortized:
+        _run_amortized_native_scan(
+            pdb, targets, method, mutations_dir, target_files, n_cpus, pbar, own_pbar
+        )
+    else:
+        # Shared-budget pool: fork-safe start method (forkserver/spawn) so a possibly
+        # multi-threaded parent cannot deadlock a forked child, and a worker
+        # initializer that re-pins native-math threads to 1. close()/join() always run
+        # in the finally below, so no LAMMPS child is orphaned on error/timeout.
+        ctx = get_pool_context()
+        pool = ctx.Pool(processes=n_processes, initializer=pool_worker_initializer)
+        try:
+            for _result in pool.imap_unordered(_process_amino_acid, args_list):
+                if pbar is not None:
+                    pbar.update(1)
+        finally:
+            pool.close()
+            pool.join()
+            if own_pbar and pbar is not None and pbar.disable is False:
+                pbar.close()
 
     # Parent-side deterministic merge + Mutations bookkeeping, per target. The
     # parent reconstructs pdb.Mutations entirely from (res_num, chain) — the
@@ -680,16 +942,20 @@ def mutate_res_parallel(
     method: str = "threading",
     n_cpus: Optional[int] = None,
     pbar: Optional[tqdm] = None,
+    backend: Any = None,
+    amortize: Optional[bool] = None,
 ) -> "Pdb":
     """Parallel single-residue mutation scan.
 
     Thin wrapper over :func:`mutate_res_scan_parallel` with a single target. Kept
     for backwards compatibility and as the W-d benchmark SUT; a multi-residue scan
     should call :func:`mutate_res_scan_parallel` directly so all variants share one
-    persistent pool (Lever 1).
+    persistent pool (Lever 1). ``backend``/``amortize`` are forwarded (see
+    :func:`mutate_res_scan_parallel`).
     """
     return mutate_res_scan_parallel(
-        pdb, [(res_num, chain)], split=split, method=method, n_cpus=n_cpus, pbar=pbar
+        pdb, [(res_num, chain)], split=split, method=method, n_cpus=n_cpus,
+        pbar=pbar, backend=backend, amortize=amortize,
     )
 
 def mutate_res(
@@ -800,7 +1066,7 @@ def mutate_res(
                 logger.debug(f"Processing mutation to {aa}")
             aa_start = time.time()
             _process_amino_acid(
-                (aa, pdb, res_num, chain, split, debug, is_glycine, method)
+                (aa, pdb, res_num, chain, split, debug, is_glycine, method, None)
             )
             # The worker writes its own `.part` file and returns only a status
             # dict (Lever 7) — pdb.Mutations is reconstructed by the parent below.

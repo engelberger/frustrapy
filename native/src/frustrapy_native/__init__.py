@@ -25,6 +25,7 @@ from ._core import (  # type: ignore[import-not-found]
     has_metal,
     has_openmp,
     local_density,
+    prepare_geometry,
 )
 
 __all__ = [
@@ -36,4 +37,5 @@ __all__ = [
     "has_metal",
     "has_openmp",
     "local_density",
+    "prepare_geometry",
 ]
