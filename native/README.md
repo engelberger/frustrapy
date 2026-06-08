@@ -40,6 +40,17 @@ CUDA path (a machine with nvcc; the kernels are placeholders until N3):
 pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON
 ```
 
+Metal path (Apple GPU; requires metal-cpp + `xcrun metal`, host-Mac build/test):
+
+```
+pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON \
+  -C cmake.define.FRUSTRAPY_METAL_CPP_DIR=/path/to/metal-cpp
+```
+
+See `docs/METAL_BUILD.md` for the host runbook, the float32 precision notes, and the
+`has_metal()` / `use_metal=True` API. CUDA and Metal are independent options; the CPU
+core is always present.
+
 ASan/UBSan build for the N2 parity gate:
 
 ```

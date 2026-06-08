@@ -37,6 +37,35 @@ if(FRUSTRAPY_NATIVE_CUDA)
   endif()
 endif()
 
+# Optional Metal backend (G1.4, Apple GPUs). OFF by default so the no-GPU container
+# (no `xcrun metal`, no metal-cpp) still builds the CPU core. When ON it requires a Mac
+# (APPLE), the metal-cpp single-header binding (point FRUSTRAPY_METAL_CPP_DIR at its
+# include root), and the `xcrun metal`/`metallib` compiler. The MSL kernels are
+# precompiled to kernels.metallib (custom command) and installed next to the extension;
+# dispatch.cpp loads that metallib at runtime. See native/docs/METAL_BUILD.md.
+set(FRUSTRAPY_NATIVE_METAL_ENABLED OFF)
+option(FRUSTRAPY_NATIVE_METAL "Compile the optional Metal kernels (Apple, requires metal-cpp + xcrun metal)" OFF)
+if(FRUSTRAPY_NATIVE_METAL)
+  if(NOT APPLE)
+    message(WARNING "FRUSTRAPY_NATIVE_METAL=ON but not building on Apple; building without Metal")
+  else()
+    set(FRUSTRAPY_METAL_CPP_DIR "" CACHE PATH "Path to the metal-cpp headers (the dir containing Metal/Metal.hpp)")
+    if(NOT FRUSTRAPY_METAL_CPP_DIR OR NOT EXISTS "${FRUSTRAPY_METAL_CPP_DIR}/Metal/Metal.hpp")
+      message(FATAL_ERROR
+        "FRUSTRAPY_NATIVE_METAL=ON requires metal-cpp. Set FRUSTRAPY_METAL_CPP_DIR to the "
+        "metal-cpp include root (the directory containing Metal/Metal.hpp), e.g. "
+        "-C cmake.define.FRUSTRAPY_METAL_CPP_DIR=/path/to/metal-cpp. See native/docs/METAL_BUILD.md.")
+    endif()
+    find_program(XCRUN_EXECUTABLE xcrun)
+    if(NOT XCRUN_EXECUTABLE)
+      message(FATAL_ERROR "FRUSTRAPY_NATIVE_METAL=ON but `xcrun` was not found (install the Xcode command line tools).")
+    endif()
+    list(APPEND FRUSTRAPY_NATIVE_SOURCES src/metal/dispatch.cpp)
+    set(FRUSTRAPY_NATIVE_METAL_ENABLED ON)
+    message(STATUS "frustrapy_native: Metal enabled (metal-cpp at ${FRUSTRAPY_METAL_CPP_DIR})")
+  endif()
+endif()
+
 nanobind_add_module(_core STABLE_ABI NB_STATIC ${FRUSTRAPY_NATIVE_SOURCES})
 target_include_directories(_core PRIVATE src)
 target_compile_definitions(_core PRIVATE $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>)
@@ -50,6 +79,28 @@ if(OpenMP_CXX_FOUND)
   message(STATUS "frustrapy_native: OpenMP enabled (${OpenMP_CXX_VERSION})")
 else()
   message(STATUS "frustrapy_native: OpenMP not found; CPU core will be serial")
+endif()
+
+if(FRUSTRAPY_NATIVE_METAL_ENABLED)
+  target_include_directories(_core PRIVATE "${FRUSTRAPY_METAL_CPP_DIR}")
+  target_compile_definitions(_core PRIVATE FRUSTRAPY_NATIVE_METAL)
+  target_link_libraries(_core PRIVATE "-framework Metal" "-framework Foundation" "-framework QuartzCore")
+
+  # Precompile the MSL kernels to a .metallib and install it alongside the extension so
+  # dispatch.cpp can load it at runtime (it also accepts a FRUSTRAPY_METALLIB override).
+  set(FRUSTRAPY_METAL_AIR "${CMAKE_CURRENT_BINARY_DIR}/kernels.air")
+  set(FRUSTRAPY_METALLIB "${CMAKE_CURRENT_BINARY_DIR}/kernels.metallib")
+  add_custom_command(
+    OUTPUT "${FRUSTRAPY_METALLIB}"
+    COMMAND "${XCRUN_EXECUTABLE}" -sdk macosx metal -c
+            "${CMAKE_CURRENT_SOURCE_DIR}/src/metal/kernels.metal" -o "${FRUSTRAPY_METAL_AIR}"
+    COMMAND "${XCRUN_EXECUTABLE}" -sdk macosx metallib "${FRUSTRAPY_METAL_AIR}" -o "${FRUSTRAPY_METALLIB}"
+    DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/src/metal/kernels.metal"
+    COMMENT "frustrapy_native: compiling MSL kernels -> kernels.metallib"
+    VERBATIM)
+  add_custom_target(frustrapy_metallib ALL DEPENDS "${FRUSTRAPY_METALLIB}")
+  add_dependencies(_core frustrapy_metallib)
+  install(FILES "${FRUSTRAPY_METALLIB}" DESTINATION frustrapy_native)
 endif()
 
 # Optional ASan/UBSan build for the N2 parity gate.

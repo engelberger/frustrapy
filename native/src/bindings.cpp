@@ -100,7 +100,7 @@ nb::object py_compute_frustration(
     double well_r_min0, double well_r_max0, double well_r_min1, double well_r_max1,
     double burial_kappa, double k_burial, double contact_cutoff,
     int contact_min_sep, int seq_dist, int n_decoys, std::uint64_t seed,
-    bool use_cuda, int n_threads) {
+    bool use_cuda, bool use_metal, int n_threads) {
     check_param_shapes(gamma_direct, gamma_water, gamma_protein, burial_gamma);
     StructureView s = make_structure(coord, res_type, chain_id, res_seqid);
 
@@ -124,11 +124,22 @@ nb::object py_compute_frustration(
     p.n_decoys = n_decoys;
     p.seed = seed;
     p.prefer_cuda = use_cuda;
+    p.prefer_metal = use_metal;
     p.n_threads = n_threads;
+    if (use_cuda && use_metal) {
+        throw std::invalid_argument(
+            "use_cuda and use_metal are mutually exclusive; pick one GPU backend.");
+    }
     if (use_cuda && !has_cuda()) {
         throw std::runtime_error(
             "use_cuda=True but the native core was built without CUDA. Rebuild with "
             "`pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON`.");
+    }
+    if (use_metal && !has_metal()) {
+        throw std::runtime_error(
+            "use_metal=True but the native core was built without Metal. Rebuild with "
+            "`pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON` on a Mac. "
+            "See native/docs/METAL_BUILD.md.");
     }
 
     // The reduction is pure C++ (no Python objects touched); release the GIL so the
@@ -159,6 +170,9 @@ NB_MODULE(_core, m) {
     m.def("has_cuda", &has_cuda,
           "True iff the optional CUDA path was compiled (FRUSTRAPY_NATIVE_CUDA).");
 
+    m.def("has_metal", &has_metal,
+          "True iff the optional Metal path was compiled (FRUSTRAPY_NATIVE_METAL).");
+
     m.def("contact_map", &py_contact_map, nb::arg("ca"), nb::arg("cb"),
           nb::arg("res_type"), nb::arg("chain_id"), nb::arg("res_seqid"),
           nb::arg("cutoff"), nb::arg("seq_dist"),
@@ -179,12 +193,14 @@ NB_MODULE(_core, m) {
           nb::arg("burial_kappa") = 4.0, nb::arg("k_burial") = 1.0,
           nb::arg("contact_cutoff") = 9.5, nb::arg("contact_min_sep") = 2,
           nb::arg("seq_dist") = 12, nb::arg("n_decoys") = 1000, nb::arg("seed") = 1,
-          nb::arg("use_cuda") = false, nb::arg("n_threads") = 0,
+          nb::arg("use_cuda") = false, nb::arg("use_metal") = false,
+          nb::arg("n_threads") = 0,
           "AWSEM tertiary-frustration reduction (native energy, decoy mean/sd, "
           "index) for the given mode; returns a dict of NumPy arrays. n_threads "
           "controls CPU parallelism (0 = all cores, 1 = serial); the result is "
-          "bit-identical for any thread count. Set use_cuda=True to use the GPU "
-          "path (requires a CUDA build).");
+          "bit-identical for any thread count. Set use_cuda=True for the CUDA GPU "
+          "path (requires a CUDA build) or use_metal=True for the Metal GPU path "
+          "(requires an Apple Metal build).");
 
     m.def("has_openmp", &has_openmp,
           "True iff the CPU core was compiled with OpenMP (multicore available).");

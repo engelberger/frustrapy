@@ -27,6 +27,10 @@ def test_has_cuda_is_bool():
     assert native.has_cuda() in (True, False)
 
 
+def test_has_metal_is_bool():
+    assert native.has_metal() in (True, False)
+
+
 def test_core_version_present():
     assert isinstance(native.__core_version__, str)
 

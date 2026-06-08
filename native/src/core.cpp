@@ -319,6 +319,10 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
     if (p.prefer_cuda) return compute_frustration_cuda(s, p, mode);
 #endif
 
+#ifdef FRUSTRAPY_NATIVE_METAL
+    if (p.prefer_metal) return compute_frustration_metal(s, p, mode);
+#endif
+
     const int threads = effective_threads(p.n_threads);
     Engine eng(s, p, threads);
     const std::size_t n = s.n_res;
@@ -519,6 +523,14 @@ bool has_cuda() noexcept {
 
 bool has_openmp() noexcept {
 #ifdef _OPENMP
+    return true;
+#else
+    return false;
+#endif
+}
+
+bool has_metal() noexcept {
+#ifdef FRUSTRAPY_NATIVE_METAL
     return true;
 #else
     return false;
