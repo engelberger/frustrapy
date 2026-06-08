@@ -57,7 +57,16 @@ struct ParamsView {
     int n_decoys = 1000;
     std::uint64_t seed = 1;
     bool prefer_cuda = false;   // route to the CUDA path when compiled with it
+    int n_threads = 0;          // CPU worker threads; 0 = all hardware cores, 1 = serial
 };
+
+// Number of CPU threads the reductions will actually use for a given request:
+// n_threads > 0 is honored verbatim; 0 maps to the hardware core count (all cores).
+// Returns 1 when the build has no OpenMP. Exposed so callers/tests can report it.
+int effective_threads(int n_threads) noexcept;
+
+// True iff the core was compiled with OpenMP (the CPU multicore path is available).
+bool has_openmp() noexcept;
 
 // Reduction output (structure of arrays). For contact modes one entry per contact
 // passing the filter; for singleresidue one entry per residue (unit_j = -1). The

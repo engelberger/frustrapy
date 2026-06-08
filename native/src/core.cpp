@@ -11,15 +11,58 @@
 #include "core.hpp"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <cstdio>
+#include <cstdlib>
 #include <stdexcept>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 namespace frustrapy_native {
 
 namespace {
 
 constexpr double kLn10x8 = 8.0 * 2.302585;  // theta clamp half-width factor * kappa
+
+// Work-aware parallelism thresholds. The first OpenMP region in a process pays a
+// one-time thread-team startup (~tens of ms, measured); the per-unit reductions in
+// the light paths (configurational native energy is O(1) per contact; density is
+// O(n^2) but only a few ms below ~500 residues) are cheaper than that overhead. So
+// a region only goes parallel when its estimated work clearly exceeds the overhead.
+// Calibrated empirically (native/docs/PROFILE.md): below these the serial path wins.
+constexpr long long kDensityMinPairs = 250000;   // ~n >= 500 residues
+constexpr long long kEnergyMinOps = 5000000;      // ~a few ms of reduction work
+
+// Optional per-phase wall-clock timing to stderr, gated on FRUSTRAPY_NATIVE_PROFILE.
+// Used by native/docs/PROFILE.md to attribute time to density / RNG / energy.
+bool profile_enabled() {
+    static const bool on = [] {
+        const char* v = std::getenv("FRUSTRAPY_NATIVE_PROFILE");
+        return v != nullptr && v[0] != '\0' && v[0] != '0';
+    }();
+    return on;
+}
+
+class PhaseTimer {
+public:
+    explicit PhaseTimer(const char* name) : name_(name) {
+        if (profile_enabled()) t0_ = std::chrono::steady_clock::now();
+    }
+    ~PhaseTimer() {
+        if (!profile_enabled()) return;
+        const auto dt = std::chrono::steady_clock::now() - t0_;
+        const double ms = std::chrono::duration<double, std::milli>(dt).count();
+        std::fprintf(stderr, "[native-profile] %-22s %10.3f ms\n", name_, ms);
+    }
+
+private:
+    const char* name_;
+    std::chrono::steady_clock::time_point t0_{};
+};
 
 double dist(std::span<const double> coord, std::size_t a, std::size_t b) {
     const double dx = coord[3 * a + 0] - coord[3 * b + 0];
@@ -100,7 +143,8 @@ double theta_clamped(double r, double r_min, double r_max, double kappa) {
 // AWSEM energy terms and per-mode decoy ensembles.
 class Engine {
 public:
-    Engine(const StructureView& s, const ParamsView& p) : s_(s), p_(p) {
+    Engine(const StructureView& s, const ParamsView& p, int threads)
+        : s_(s), p_(p), threads_(threads) {
         compute_density();
     }
 
@@ -179,9 +223,18 @@ public:
 
 private:
     // rho_i = sum_{j: |res_no diff| > seq_dist or cross-chain} theta_clamped(r_ij, well0).
+    // Parallel over i: each rho_[i] is an independent fixed-order sum, so the result is
+    // identical for any thread count (no shared accumulator, no reduction across i).
     void compute_density() {
+        PhaseTimer t("density");
         rho_.assign(s_.n_res, 0.0);
-        for (std::size_t i = 0; i < s_.n_res; ++i) {
+        const long long n = static_cast<long long>(s_.n_res);
+        const bool par = threads_ > 1 && n * n >= kDensityMinPairs;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads_) schedule(static) if (par)
+#endif
+        for (long long ii = 0; ii < n; ++ii) {
+            const std::size_t i = static_cast<std::size_t>(ii);
             double acc = 0.0;
             for (std::size_t j = 0; j < s_.n_res; ++j) {
                 if (j == i) continue;
@@ -196,6 +249,7 @@ private:
 
     const StructureView& s_;
     const ParamsView& p_;
+    int threads_ = 1;
     std::vector<double> rho_;
 };
 
@@ -234,7 +288,12 @@ std::vector<std::int32_t> contact_map(const StructureView& s, double cutoff,
 std::vector<double> local_density(const StructureView& s, double rmin, double rmax) {
     check_lengths(s);
     std::vector<double> rho(s.n_res, 0.0);
-    for (std::size_t i = 0; i < s.n_res; ++i) {
+    const long long n = static_cast<long long>(s.n_res);
+#ifdef _OPENMP
+#pragma omp parallel for schedule(static)
+#endif
+    for (long long ii = 0; ii < n; ++ii) {
+        const std::size_t i = static_cast<std::size_t>(ii);
         double acc = 0.0;
         for (std::size_t k = 0; k < s.n_res; ++k) {
             if (k == i) continue;
@@ -260,109 +319,192 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
     if (p.prefer_cuda) return compute_frustration_cuda(s, p, mode);
 #endif
 
-    Engine eng(s, p);
+    const int threads = effective_threads(p.n_threads);
+    Engine eng(s, p, threads);
     const std::size_t n = s.n_res;
-    GlibcRand rng(static_cast<std::uint32_t>(p.seed));
     const int nd = p.n_decoys;
 
     FrustrationResult out;
     out.rho = eng.rho();
 
+    // The decoy ensembles consume a single shared glibc RNG stream whose state
+    // advances in the reference main-loop order. To parallelize without perturbing
+    // that stream, the random draws are materialized serially (cheap, O(units*nd))
+    // in exactly the reference order, then the expensive per-unit energy reductions
+    // run in parallel writing to disjoint output slots. The per-unit decoy array is
+    // summed in fixed order (mean_of/std_pop), so the result is bit-identical to the
+    // serial path for any thread count.
     if (is_single) {
-        std::vector<double> decoys(static_cast<std::size_t>(nd));
-        for (std::size_t i = 0; i < n; ++i) {
+        // Serial RNG draw: random substituted identity per (residue, decoy).
+        std::vector<std::int32_t> dec_it(n * static_cast<std::size_t>(nd));
+        {
+            PhaseTimer t("rng-precompute");
+            GlibcRand rng(static_cast<std::uint32_t>(p.seed));
+            for (std::size_t i = 0; i < n; ++i)
+                for (int d = 0; d < nd; ++d)
+                    dec_it[i * static_cast<std::size_t>(nd) + static_cast<std::size_t>(d)] =
+                        eng.rtype(rng.residue_index(n));
+        }
+
+        out.unit_i.resize(n);
+        out.unit_j.assign(n, -1);
+        out.native_energy.resize(n);
+        out.decoy_energy.resize(n);
+        out.sd_energy.resize(n);
+        out.frst_index.resize(n);
+
+        PhaseTimer t("energy");
+        const long long N = static_cast<long long>(n);
+        // native_single is O(n); total ~ n * nd * n.
+        const bool par = threads > 1 && N * nd * N >= kEnergyMinOps;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads) schedule(static) if (par)
+#endif
+        for (long long ii = 0; ii < N; ++ii) {
+            const std::size_t i = static_cast<std::size_t>(ii);
+            std::vector<double> decoys(static_cast<std::size_t>(nd));
             const double native = eng.native_single(i, eng.rtype(i));
-            for (int d = 0; d < nd; ++d) {
-                const int it = eng.rtype(rng.residue_index(n));  // random identity at i
-                decoys[static_cast<std::size_t>(d)] = eng.native_single(i, it);
-            }
+            for (int d = 0; d < nd; ++d)
+                decoys[static_cast<std::size_t>(d)] = eng.native_single(
+                    i, dec_it[i * static_cast<std::size_t>(nd) + static_cast<std::size_t>(d)]);
             const double m = mean_of(decoys);
             const double sd = std_pop(decoys);
-            out.unit_i.push_back(static_cast<std::int32_t>(i));
-            out.unit_j.push_back(-1);
-            out.native_energy.push_back(native);
-            out.decoy_energy.push_back(m);
-            out.sd_energy.push_back(sd);
-            out.frst_index.push_back((m - native) / sd);
+            out.unit_i[i] = static_cast<std::int32_t>(i);
+            out.native_energy[i] = native;
+            out.decoy_energy[i] = m;
+            out.sd_energy[i] = sd;
+            out.frst_index[i] = (m - native) / sd;
         }
         return out;
     }
 
-    // Contact modes: iterate residue pairs in the reference main-loop order so the
-    // shared RNG state advances identically.
-    std::vector<double> decoys(static_cast<std::size_t>(nd));
-    bool config_decoys_ready = false;
-    double config_mean = 0.0, config_sd = 0.0;
-    for (std::size_t i = 0; i < n; ++i) {
-        for (std::size_t j = i + 1; j < n; ++j) {
-            const double rij = eng.r(i, j);
-            const bool contact = rij < p.contact_cutoff &&
-                                 (eng.separated_contact(i, j));
-            if (!contact) continue;
-
-            const double native = is_config ? eng.native_config(i, j) : eng.native_mut(i, j);
-
-            double m, sd;
-            if (is_config) {
-                if (!config_decoys_ready) {
-                    for (int d = 0; d < nd; ++d) {
-                        // pick a random in-contact pair for the distance
-                        std::size_t ri = rng.residue_index(n);
-                        std::size_t rj = rng.residue_index(n);
-                        double rd = eng.r(ri, rj);
-                        while (rd > p.contact_cutoff || ri == rj) {
-                            ri = rng.residue_index(n);
-                            rj = rng.residue_index(n);
-                            rd = eng.r(ri, rj);
-                        }
-                        // a new random pair for the densities
-                        const std::size_t bi = rng.residue_index(n);
-                        const std::size_t bj = rng.residue_index(n);
-                        const double rho_i = eng.rho()[bi];
-                        const double rho_j = eng.rho()[bj];
-                        // a new random pair for the identities
-                        const int it = eng.rtype(rng.residue_index(n));
-                        const int jt = eng.rtype(rng.residue_index(n));
-                        decoys[static_cast<std::size_t>(d)] =
-                            eng.water_energy(rd, it, jt, rho_i, rho_j) +
-                            eng.burial_energy(it, rho_i) + eng.burial_energy(jt, rho_j);
-                    }
-                    config_mean = mean_of(decoys);
-                    config_sd = std_pop(decoys);
-                    config_decoys_ready = true;
+    // Contact modes: build the contact list in reference (i, j) main-loop order so
+    // the work-unit order and any RNG consumption match the serial reference.
+    std::vector<std::int32_t> ci, cj;
+    {
+        PhaseTimer t("contact-list");
+        for (std::size_t i = 0; i < n; ++i)
+            for (std::size_t j = i + 1; j < n; ++j) {
+                if (eng.r(i, j) < p.contact_cutoff && eng.separated_contact(i, j)) {
+                    ci.push_back(static_cast<std::int32_t>(i));
+                    cj.push_back(static_cast<std::int32_t>(j));
                 }
-                m = config_mean;
-                sd = config_sd;
-            } else {
-                // mutational: randomize i,j identities at native geometry/density,
-                // including the (i,k),(j,k) terms with native k identities.
-                for (int d = 0; d < nd; ++d) {
-                    const int it = eng.rtype(rng.residue_index(n));
-                    const int jt = eng.rtype(rng.residue_index(n));
-                    double we = eng.water_energy(rij, it, jt, eng.rho()[i], eng.rho()[j]);
-                    for (std::size_t k = 0; k < n; ++k) {
-                        if (k == i || k == j) continue;
-                        const double rik = eng.r(i, k);
-                        if (rik < p.contact_cutoff)
-                            we += eng.water_energy(rik, it, eng.rtype(k), eng.rho()[i], eng.rho()[k]);
-                        const double rjk = eng.r(j, k);
-                        if (rjk < p.contact_cutoff)
-                            we += eng.water_energy(rjk, jt, eng.rtype(k), eng.rho()[j], eng.rho()[k]);
-                    }
-                    decoys[static_cast<std::size_t>(d)] =
-                        we + eng.burial_energy(it, eng.rho()[i]) +
-                        eng.burial_energy(jt, eng.rho()[j]);
-                }
-                m = mean_of(decoys);
-                sd = std_pop(decoys);
             }
-            out.unit_i.push_back(static_cast<std::int32_t>(i));
-            out.unit_j.push_back(static_cast<std::int32_t>(j));
-            out.native_energy.push_back(native);
-            out.decoy_energy.push_back(m);
-            out.sd_energy.push_back(sd);
-            out.frst_index.push_back((m - native) / sd);
+    }
+    const std::size_t nc = ci.size();
+
+    out.unit_i = ci;
+    out.unit_j = cj;
+    out.native_energy.resize(nc);
+    out.decoy_energy.resize(nc);
+    out.sd_energy.resize(nc);
+    out.frst_index.resize(nc);
+
+    if (is_config) {
+        // One shared decoy ensemble for all contacts (the reference computes it once,
+        // using the RNG; no RNG is consumed before this). Build it serially.
+        double config_mean = 0.0, config_sd = 0.0;
+        if (nc > 0) {
+            PhaseTimer t("rng-precompute");
+            GlibcRand rng(static_cast<std::uint32_t>(p.seed));
+            std::vector<double> decoys(static_cast<std::size_t>(nd));
+            for (int d = 0; d < nd; ++d) {
+                std::size_t ri = rng.residue_index(n);
+                std::size_t rj = rng.residue_index(n);
+                double rd = eng.r(ri, rj);
+                while (rd > p.contact_cutoff || ri == rj) {
+                    ri = rng.residue_index(n);
+                    rj = rng.residue_index(n);
+                    rd = eng.r(ri, rj);
+                }
+                const std::size_t bi = rng.residue_index(n);
+                const std::size_t bj = rng.residue_index(n);
+                const double rho_i = eng.rho()[bi];
+                const double rho_j = eng.rho()[bj];
+                const int it = eng.rtype(rng.residue_index(n));
+                const int jt = eng.rtype(rng.residue_index(n));
+                decoys[static_cast<std::size_t>(d)] =
+                    eng.water_energy(rd, it, jt, rho_i, rho_j) +
+                    eng.burial_energy(it, rho_i) + eng.burial_energy(jt, rho_j);
+            }
+            config_mean = mean_of(decoys);
+            config_sd = std_pop(decoys);
         }
+
+        PhaseTimer t("energy");
+        const long long C = static_cast<long long>(nc);
+        // native_config is O(1) per contact; the whole loop is sub-millisecond even
+        // for thousands of contacts, so it stays serial (thread overhead > work).
+        const bool par = threads > 1 && C >= kEnergyMinOps;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads) schedule(static) if (par)
+#endif
+        for (long long cc = 0; cc < C; ++cc) {
+            const std::size_t c = static_cast<std::size_t>(cc);
+            const double native = eng.native_config(static_cast<std::size_t>(ci[c]),
+                                                     static_cast<std::size_t>(cj[c]));
+            out.native_energy[c] = native;
+            out.decoy_energy[c] = config_mean;
+            out.sd_energy[c] = config_sd;
+            out.frst_index[c] = (config_mean - native) / config_sd;
+        }
+        return out;
+    }
+
+    // mutational: per contact, randomize i,j identities at native geometry/density,
+    // including the (i,k),(j,k) terms with native k identities. Two RNG draws per
+    // decoy (it, jt), consumed in contact order -> materialize serially, then the
+    // O(nc * nd * n) energy reduction runs in parallel.
+    std::vector<std::int32_t> dec_it(nc * static_cast<std::size_t>(nd));
+    std::vector<std::int32_t> dec_jt(nc * static_cast<std::size_t>(nd));
+    {
+        PhaseTimer t("rng-precompute");
+        GlibcRand rng(static_cast<std::uint32_t>(p.seed));
+        for (std::size_t c = 0; c < nc; ++c)
+            for (int d = 0; d < nd; ++d) {
+                const std::size_t idx = c * static_cast<std::size_t>(nd) + static_cast<std::size_t>(d);
+                dec_it[idx] = eng.rtype(rng.residue_index(n));
+                dec_jt[idx] = eng.rtype(rng.residue_index(n));
+            }
+    }
+
+    PhaseTimer t("energy");
+    const long long C = static_cast<long long>(nc);
+    // native_mut + each decoy is O(n); total ~ nc * nd * n -- the dominant cost.
+    const bool par = threads > 1 && C * nd * static_cast<long long>(n) >= kEnergyMinOps;
+#ifdef _OPENMP
+#pragma omp parallel for num_threads(threads) schedule(static) if (par)
+#endif
+    for (long long cc = 0; cc < C; ++cc) {
+        const std::size_t c = static_cast<std::size_t>(cc);
+        const std::size_t i = static_cast<std::size_t>(ci[c]);
+        const std::size_t j = static_cast<std::size_t>(cj[c]);
+        const double rij = eng.r(i, j);
+        const double native = eng.native_mut(i, j);
+        std::vector<double> decoys(static_cast<std::size_t>(nd));
+        for (int d = 0; d < nd; ++d) {
+            const std::size_t idx = c * static_cast<std::size_t>(nd) + static_cast<std::size_t>(d);
+            const int it = dec_it[idx];
+            const int jt = dec_jt[idx];
+            double we = eng.water_energy(rij, it, jt, eng.rho()[i], eng.rho()[j]);
+            for (std::size_t k = 0; k < n; ++k) {
+                if (k == i || k == j) continue;
+                const double rik = eng.r(i, k);
+                if (rik < p.contact_cutoff)
+                    we += eng.water_energy(rik, it, eng.rtype(k), eng.rho()[i], eng.rho()[k]);
+                const double rjk = eng.r(j, k);
+                if (rjk < p.contact_cutoff)
+                    we += eng.water_energy(rjk, jt, eng.rtype(k), eng.rho()[j], eng.rho()[k]);
+            }
+            decoys[static_cast<std::size_t>(d)] =
+                we + eng.burial_energy(it, eng.rho()[i]) + eng.burial_energy(jt, eng.rho()[j]);
+        }
+        const double m = mean_of(decoys);
+        const double sd = std_pop(decoys);
+        out.native_energy[c] = native;
+        out.decoy_energy[c] = m;
+        out.sd_energy[c] = sd;
+        out.frst_index[c] = (m - native) / sd;
     }
     return out;
 }
@@ -372,6 +514,25 @@ bool has_cuda() noexcept {
     return true;
 #else
     return false;
+#endif
+}
+
+bool has_openmp() noexcept {
+#ifdef _OPENMP
+    return true;
+#else
+    return false;
+#endif
+}
+
+int effective_threads(int n_threads) noexcept {
+#ifdef _OPENMP
+    if (n_threads > 0) return n_threads;
+    const int procs = omp_get_num_procs();
+    return procs > 0 ? procs : 1;
+#else
+    (void)n_threads;
+    return 1;
 #endif
 }
 

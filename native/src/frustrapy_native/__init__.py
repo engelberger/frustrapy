@@ -17,7 +17,9 @@ from ._core import (  # type: ignore[import-not-found]
     __core_version__,
     compute_frustration,
     contact_map,
+    effective_threads,
     has_cuda,
+    has_openmp,
     local_density,
 )
 
@@ -25,6 +27,8 @@ __all__ = [
     "__core_version__",
     "compute_frustration",
     "contact_map",
+    "effective_threads",
     "has_cuda",
+    "has_openmp",
     "local_density",
 ]
