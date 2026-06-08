@@ -112,7 +112,7 @@ def fig_metal(metal_recs, out):
     ax.set_yscale("log"); ax.set_xticks(list(x)); ax.set_xticklabels(modes)
     ax.set_ylabel("AWSEM kernel wall time (ms, log scale)")
     ax.set_title("Backend kernel time on host Apple-Silicon arm64 (SAME machine) - CPU vs Metal GPU\n"
-                 "3pgk_A 415 res · Metal–CPU FrstIndex parity Spearman = 1.00000 (max|Δ| ~1e-6, f32) · "
+                 "3pgk_A 415 res · Metal-CPU FrstIndex parity Spearman = 1.00000 (max|Δ| ~1e-6, f32) · "
                  "configurational is GPU-overhead-bound (light work)", fontsize=10)
     ax.grid(True, axis="y", alpha=0.3, which="both"); ax.legend()
     fig.tight_layout(); fig.savefig(out, dpi=130, bbox_inches="tight")
