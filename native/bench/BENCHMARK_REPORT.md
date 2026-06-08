@@ -111,10 +111,27 @@ Flag sweep on the mutational kernel, comparing every variant against a frozen -O
   node, which is the reason production HPC builds either target a portable baseline (x86-64-v3) or
   use runtime dispatch.
 
-## 8. Limitations and next steps
+## 8. Prep amortization (implemented): prep once per structure
 
-- Per variant e2e timing and the prep amortization optimization are the next code change; the
-  bottleneck data above quantifies the expected win.
+The bottleneck in section 6 (prep about 6x the kernel, redone per mutant) is now addressed.
+prepare_structure parses the cleaned PDB, reads the gammas and coefficients, and computes the
+geometry cache (per residue density rho and the energy contact list) once per structure;
+compute_variant_frustration then scores each variant with a res_type swap that reuses the cached
+geometry. The native core takes the precomputed geometry as optional inputs and is bit for bit
+identical to the one shot path when they are absent (test_native_geometry_reuse_bit_identical),
+so the optimization changes no numbers.
+
+Measured by native/bench/prep_amortization.py (1zni chain B, 30 residues, seq_dist 12, serial,
+in container x86_64 emulated so absolute times are indicative, the ratio is the result): a full WT
+calculation (prep plus kernel) is about 598 ms, prepare_structure is about 0.6 ms, and an amortized
+variant kernel is about 19 ms. For a 10 position scan (200 variants) the current K x (prep plus
+kernel) is about 120 s versus prep_once plus K x kernel about 4.3 s, a 27.5x prep amortization
+factor (asymptotic ceiling about 32x as the scan grows). The amortized per variant FrstIndex is
+bit for bit a fresh native recompute, so the speedup is real work removed, not a different answer.
+Run: python native/bench/prep_amortization.py --pdb tests/data/1zni.pdb --chain B --res 25.
+
+## 9. Limitations and next steps
+
 - Real x86 speed (flags and multicore scaling on homogeneous cores) is the paul node job.
 - CUDA timing is the maintainer's Colab or cluster step; the harness already includes a CUDA path
   that activates when has_cuda is true.
