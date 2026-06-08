@@ -14,6 +14,22 @@ from ..core.constants import (
 logger = logging.getLogger(__name__)
 
 
+def _safe_write_image(fig, path, **kwargs):
+    """Write a PNG if a static-image backend (kaleido) is available.
+
+    PNG export is optional: HTML is the primary interactive output and always
+    written by the callers. Without kaleido, warn and continue rather than
+    aborting the whole run.
+    """
+    try:
+        fig.write_image(path, **kwargs)
+    except Exception as e:
+        warnings.warn(
+            f"Could not save PNG image due to missing dependencies: {str(e)}\n"
+            "Only HTML file was saved. To save static images, install kaleido."
+        )
+
+
 def plot_contact_map(pdb, chain=None, save=False, show=False):
     """
     Generates an interactive contact map plot to visualize the frustration values assigned to each contact.
@@ -248,15 +264,21 @@ def plot_contact_map(pdb, chain=None, save=False, show=False):
         logger.debug("Saving contact map")
         fig.update_layout(width=1000, height=1000)
 
-        # Save PNG version
-        png_path = os.path.join(output_dir, f"{pdb.pdb_base}_{pdb.mode}_map.png")
-        fig.write_image(png_path)
-        logger.debug(f"Saved PNG to: {png_path}")
-
-        # Save HTML version
+        # Save HTML version (always)
         html_path = os.path.join(output_dir, f"{pdb.pdb_base}_{pdb.mode}_map.html")
         fig.write_html(html_path)
         logger.debug(f"Saved HTML to: {html_path}")
+
+        # Save PNG version (best effort; needs kaleido)
+        png_path = os.path.join(output_dir, f"{pdb.pdb_base}_{pdb.mode}_map.png")
+        try:
+            fig.write_image(png_path)
+            logger.debug(f"Saved PNG to: {png_path}")
+        except Exception as e:
+            warnings.warn(
+                f"Could not save PNG image due to missing dependencies: {str(e)}\n"
+                "Only HTML file was saved. To save static images, install kaleido."
+            )
 
         logger.debug(f"Contact map is stored in {html_path}")
 
@@ -367,10 +389,11 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
             logger.debug(
                 f"5Adens plot is stored in {os.path.join(pdb.job_dir, 'Images', f'{pdb.pdb_base}_{pdb.mode}.html_5Adens.html')}"
             )
-            fig.write_image(
+            _safe_write_image(
+                fig,
                 os.path.join(
                     pdb.job_dir, "Images", f"{pdb.pdb_base}_{pdb.mode}.png_5Adens.png"
-                )
+                ),
             )
 
     else:
@@ -429,12 +452,13 @@ def plot_5andens(pdb, chain=None, save=False, show=False):
         if save:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(
+            _safe_write_image(
+                fig,
                 os.path.join(
                     pdb.job_dir,
                     "Images",
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens__chain{chain}.png",
-                )
+                ),
             )
             fig.write_html(
                 os.path.join(
@@ -550,12 +574,13 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
         if chain is None:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(
+            _safe_write_image(
+                fig,
                 os.path.join(
                     pdb.job_dir,
                     "Images",
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens_around.png",
-                )
+                ),
             )
             fig.write_html(
                 os.path.join(
@@ -570,12 +595,13 @@ def plot_5adens_proportions(pdb, chain=None, save=False, show=False):
         else:
             # Change the widthe of the plot to 1800 and save a png
             fig.update_layout(width=1800)
-            fig.write_image(
+            _safe_write_image(
+                fig,
                 os.path.join(
                     pdb.job_dir,
                     "Images",
                     f"{pdb.pdb_base}_{pdb.mode}_5Adens_around_chain{chain}.png",
-                )
+                ),
             )
             fig.write_html(
                 os.path.join(
@@ -1032,3 +1058,122 @@ def plot_mutate_res(pdb, res_num, chain, method="threading", save=False, show=Fa
         fig.show()
 
     return fig
+
+
+# class -> color, shared with the PyMOL/ChimeraX molecular surfaces.
+_PLOT_CLASS_COLOR = {"highly": "red", "neutral": "gray", "minimally": "green"}
+
+
+def _save_figure(fig, output_dir, base_name):
+    """Save a figure as HTML (always) and PNG (best effort, needs kaleido)."""
+    os.makedirs(output_dir, exist_ok=True)
+    html_path = os.path.join(output_dir, f"{base_name}.html")
+    fig.write_html(html_path)
+    try:
+        fig.write_image(os.path.join(output_dir, f"{base_name}.png"), scale=2)
+    except Exception as e:  # kaleido not installed / export backend missing
+        warnings.warn(
+            f"Could not save PNG image due to missing dependencies: {str(e)}\n"
+            "Only HTML file was saved. To save static images, install kaleido."
+        )
+    return html_path
+
+
+def plot_frustration_classes(pdb, save=False, show=False):
+    """Class-colored Plotly figure for any of the three modes.
+
+    Built from the parsed FrustrationData table, with one trace per frustration
+    class so the per-class counts are recoverable from ``fig.data``. The class
+    cutoffs and colors match the PyMOL/ChimeraX molecular views and
+    ``frustratometeR``:
+
+    * configurational / mutational: contacts colored at the -1 / 0.78 cutoffs
+      (highly red, minimally green, neutral gray), plotted at (Res1, Res2).
+    * single-residue: per-residue FrstIndex profile colored at the -1 / 0.58
+      cutoffs, with dashed cutoff lines.
+
+    Returns the Plotly figure. The smoke test uses this as the Plotly surface in
+    the cross-surface consistency check.
+    """
+    from .frustration_data import (
+        classify_contact,
+        classify_singleresidue,
+        read_table,
+    )
+
+    table = os.path.join(
+        pdb.job_dir, "FrustrationData", f"{pdb.pdb_base}.pdb_{pdb.mode}"
+    )
+    df = read_table(table)
+    fig = go.Figure()
+
+    if pdb.mode == "singleresidue":
+        df = df.copy()
+        df["State"] = df["FrstIndex"].astype(float).map(classify_singleresidue)
+        for state in ["highly", "neutral", "minimally"]:
+            sub = df[df["State"] == state]
+            fig.add_trace(
+                go.Scatter(
+                    x=sub["Res"],
+                    y=sub["FrstIndex"].astype(float),
+                    mode="markers",
+                    name=state,
+                    marker=dict(color=_PLOT_CLASS_COLOR[state], size=7),
+                    text=sub["AA"],
+                )
+            )
+        fig.add_hline(
+            y=FRST_MINIMALLY_MIN_SINGLERES,
+            line_dash="dash",
+            line_color="rgba(128,128,128,0.6)",
+        )
+        fig.add_hline(
+            y=FRST_HIGHLY_MAX, line_dash="dash", line_color="rgba(128,128,128,0.6)"
+        )
+        fig.update_layout(
+            title=f"Single-residue frustration {pdb.pdb_base}",
+            xaxis_title="Residue",
+            yaxis_title="Frustration Index",
+        )
+    else:
+        df = df.copy()
+        df["State"] = df["FrstIndex"].astype(float).map(classify_contact)
+        for state in ["highly", "neutral", "minimally"]:
+            sub = df[df["State"] == state]
+            fig.add_trace(
+                go.Scatter(
+                    x=sub["Res1"],
+                    y=sub["Res2"],
+                    mode="markers",
+                    name=state,
+                    marker=dict(color=_PLOT_CLASS_COLOR[state], size=6),
+                    text=sub["FrstIndex"],
+                )
+            )
+        fig.update_layout(
+            title=f"Contact frustration {pdb.pdb_base} ({pdb.mode})",
+            xaxis_title="Residue i",
+            yaxis_title="Residue j",
+        )
+
+    fig.update_layout(
+        font=dict(family="Arial", size=12, color="black"),
+        plot_bgcolor="white",
+        paper_bgcolor="white",
+    )
+
+    if save:
+        _save_figure(
+            fig,
+            os.path.join(pdb.job_dir, "Images"),
+            f"{pdb.pdb_base}_{pdb.mode}_classes",
+        )
+    if show:
+        fig.show()
+
+    return fig
+
+
+def figure_class_counts(fig):
+    """Recover per-class point counts from a ``plot_frustration_classes`` figure."""
+    return {trace.name: len(trace.x) for trace in fig.data if trace.name}

@@ -40,13 +40,18 @@ This is what makes numerical agreement tractable: parity reduces to *glue-code p
   in-house `threading` (no extra dependency) and an optional `pyrosetta` backend
   that repacks side chains around the mutation.
 - **Interactive Plotly figures**: contact map, 5 Å frustration-density plots, density
-  proportions, and delta-frustration plots (with `graphics=True`).
+  proportions, a class-colored frustration figure, and delta-frustration plots (with
+  `graphics=True`).
+- **Molecular-visualization scripts**: PyMOL `.pml` and ChimeraX `.cxc` (+ `.pb`) per
+  run (with `visualization=True`), for all three modes. See `docs/VISUALIZATION.md`.
 - **Evolutionary frustration (FrustraEvo)** via `frustrapy.analyze_family`.
 
 ## Requirements
 
 - **Python 3.10–3.12.**
-- **Perl** on `PATH` (`/usr/bin/perl`) — used by the visualization/charge-file steps.
+- **Perl** on `PATH` (`/usr/bin/perl`) — used by the charge-file step. The PyMOL
+  visualization script is now generated in pure Python; the Perl generator is kept only
+  as the parity oracle.
 - **A LAMMPS `lmp_serial` binary**, shipped precompiled in `frustrapy/core/scripts/`
   as `lmp_serial_{3,12}_{Linux,MacOS}`. Only `seq_dist=3` and `seq_dist=12` are
   provided (12 is the default). The macOS binaries are x86_64 only; on Apple Silicon
