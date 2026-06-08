@@ -1,0 +1,483 @@
+{
+  "meta": {
+    "machine": "host-arm64",
+    "uname": "arm64",
+    "mode": "mutational",
+    "reps": 5,
+    "n_aa": 20,
+    "cores": 14,
+    "has_metal": true,
+    "has_openmp": true,
+    "note": "DMS-scan = N*20*per-variant kernel time; per-variant = one frustration calc (mutate_res model)"
+  },
+  "records": [
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.10241662501357496,
+      "kernel_q1_s": 0.1023877919651568,
+      "kernel_q3_s": 0.10259804199449718,
+      "reps": 5,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 225.3165750298649
+    },
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.019179375027306378,
+      "kernel_q1_s": 0.016999333980493248,
+      "kernel_q3_s": 0.019222666043788195,
+      "reps": 5,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 42.19462506007403
+    },
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.0056570000015199184,
+      "kernel_q1_s": 0.005267624976113439,
+      "kernel_q3_s": 0.006894499994814396,
+      "reps": 5,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 0.9999999999999304,
+        "r2": 0.9999999999998608,
+        "max_abs": 1.7097591760162345e-06,
+        "rmse": 3.8897759497161867e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 12.44540000334382
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.6358960419893265,
+      "kernel_q1_s": 0.6332620829343796,
+      "kernel_q3_s": 0.6469332500128075,
+      "reps": 5,
+      "metrics": {
+        "n": 823,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 1805.9447592496872
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.08091958402656019,
+      "kernel_q1_s": 0.07239991601090878,
+      "kernel_q3_s": 0.08290545805357397,
+      "reps": 5,
+      "metrics": {
+        "n": 823,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 229.81161863543093
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.010600708075799048,
+      "kernel_q1_s": 0.009531375020742416,
+      "kernel_q3_s": 0.010941415908746421,
+      "reps": 5,
+      "metrics": {
+        "n": 823,
+        "spearman": 1.0,
+        "pearson": 0.999999999999956,
+        "r2": 0.9999999999999121,
+        "max_abs": 2.5331941158057703e-06,
+        "rmse": 3.239204517222591e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 30.106010935269296
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.8497666670009494,
+      "kernel_q1_s": 0.847714208997786,
+      "kernel_q3_s": 0.8845417499542236,
+      "reps": 5,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 1.0000000000000002,
+        "r2": 1.0000000000000004,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 2498.314000982791
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.11410495801828802,
+      "kernel_q1_s": 0.11394645902328193,
+      "kernel_q3_s": 0.11677454097662121,
+      "reps": 5,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 1.0000000000000002,
+        "r2": 1.0000000000000004,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 335.46857657376677
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.011743957991711795,
+      "kernel_q1_s": 0.01033383293543011,
+      "kernel_q3_s": 0.012256290996447206,
+      "reps": 5,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 0.9999999999998881,
+        "r2": 0.9999999999997762,
+        "max_abs": 2.715756725502061e-06,
+        "rmse": 4.670211400009401e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 34.52723649563268
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.5748140419600531,
+      "kernel_q1_s": 0.5712830000557005,
+      "kernel_q3_s": 0.5860929159680381,
+      "reps": 5,
+      "metrics": {
+        "n": 756,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 1712.9458450409584
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.09675499994773418,
+      "kernel_q1_s": 0.09005129197612405,
+      "kernel_q3_s": 0.09728470805566758,
+      "reps": 5,
+      "metrics": {
+        "n": 756,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 288.32989984424785
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.012515417067334056,
+      "kernel_q1_s": 0.012336333049461246,
+      "kernel_q3_s": 0.013734083971939981,
+      "reps": 5,
+      "metrics": {
+        "n": 756,
+        "spearman": 1.0,
+        "pearson": 0.9999999999999641,
+        "r2": 0.9999999999999283,
+        "max_abs": 1.6014762120875048e-06,
+        "rmse": 3.0615956748664653e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 37.29594286065549
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 2.077548041008413,
+      "kernel_q1_s": 2.030696167028509,
+      "kernel_q3_s": 2.081945167039521,
+      "reps": 5,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 12382.18632441014
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.25020404101815075,
+      "kernel_q1_s": 0.24116170895285904,
+      "kernel_q3_s": 0.26073354203253984,
+      "reps": 5,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 1491.2160844681785
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.017933459021151066,
+      "kernel_q1_s": 0.017014667042531073,
+      "kernel_q3_s": 0.01881262508686632,
+      "reps": 5,
+      "metrics": {
+        "n": 1813,
+        "spearman": 0.9999999979863315,
+        "pearson": 0.9999999999998295,
+        "r2": 0.9999999999996589,
+        "max_abs": 8.392992468714278e-06,
+        "rmse": 5.939908270662918e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 106.88341576606035
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 1.847181833931245,
+      "kernel_q1_s": 1.829287500004284,
+      "kernel_q3_s": 1.8958905830513686,
+      "reps": 5,
+      "metrics": {
+        "n": 1576,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 14518.849214699585
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.2345340830506757,
+      "kernel_q1_s": 0.22822762501891702,
+      "kernel_q3_s": 0.24953858403023332,
+      "reps": 5,
+      "metrics": {
+        "n": 1576,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 1843.437892778311
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.017187041928991675,
+      "kernel_q1_s": 0.01668345893267542,
+      "kernel_q3_s": 0.018071542028337717,
+      "reps": 5,
+      "metrics": {
+        "n": 1576,
+        "spearman": 1.0,
+        "pearson": 0.9999999999999034,
+        "r2": 0.9999999999998068,
+        "max_abs": 3.1829185858089915e-06,
+        "rmse": 4.830968351717648e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 135.09014956187457
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "mutational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 6.153207833063789,
+      "kernel_q1_s": 6.134312957990915,
+      "kernel_q3_s": 6.155356458970346,
+      "reps": 5,
+      "metrics": {
+        "n": 3774,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 74946.07140671695
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.854570124996826,
+      "kernel_q1_s": 0.7934780839132145,
+      "kernel_q3_s": 0.8783856249647215,
+      "reps": 5,
+      "metrics": {
+        "n": 3774,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 10408.664122461341
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.04181491700001061,
+      "kernel_q1_s": 0.04179966705851257,
+      "kernel_q3_s": 0.043648416991345584,
+      "reps": 5,
+      "metrics": {
+        "n": 3774,
+        "spearman": 0.9999999997767581,
+        "pearson": 0.9999999999999353,
+        "r2": 0.9999999999998705,
+        "max_abs": 3.063089263788399e-06,
+        "rmse": 3.751231861104401e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 509.3056890601292
+    },
+    {
+      "pdb": "AF-P00533.pdb",
+      "n_res": 1210,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 1.8726057499879971,
+      "kernel_q1_s": 1.8400641460320912,
+      "kernel_q3_s": 1.9145866250037216,
+      "reps": 3,
+      "metrics": {},
+      "dms_scan_proj_s": 45317.05914970953
+    },
+    {
+      "pdb": "AF-P00533.pdb",
+      "n_res": 1210,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.10186062508728355,
+      "kernel_q1_s": 0.10179102106485516,
+      "kernel_q3_s": 0.1023866250179708,
+      "reps": 3,
+      "metrics": {},
+      "dms_scan_proj_s": 2465.027127112262
+    },
+    {
+      "pdb": "AF-P38398.pdb",
+      "n_res": 1863,
+      "mode": "mutational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 1.5151037080213428,
+      "kernel_q1_s": 1.4938910205382854,
+      "kernel_q3_s": 1.5249887499958277,
+      "reps": 3,
+      "metrics": {},
+      "dms_scan_proj_s": 56452.76416087523
+    },
+    {
+      "pdb": "AF-P38398.pdb",
+      "n_res": 1863,
+      "mode": "mutational",
+      "backend": "metal",
+      "kernel_median_s": 0.09966945904307067,
+      "kernel_q1_s": 0.09962035453645512,
+      "kernel_q3_s": 0.10623920854413882,
+      "reps": 3,
+      "metrics": {},
+      "dms_scan_proj_s": 3713.6840439448133
+    }
+  ]
+}

@@ -1,0 +1,555 @@
+{
+  "meta": {
+    "machine": "host-arm64",
+    "uname": "arm64",
+    "mode": "configurational",
+    "reps": 7,
+    "n_aa": 20,
+    "cores": 14,
+    "has_metal": true,
+    "has_openmp": true,
+    "note": "DMS-scan = N*20*per-variant kernel time; per-variant = one frustration calc (mutate_res model)"
+  },
+  "records": [
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.00021520897280424833,
+      "kernel_q1_s": 0.00020656251581385732,
+      "kernel_q3_s": 0.00023520801914855838,
+      "reps": 7,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.47345974016934633
+    },
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.0002032499760389328,
+      "kernel_q1_s": 0.00019295845413580537,
+      "kernel_q3_s": 0.00020952103659510612,
+      "reps": 7,
+      "metrics": {
+        "n": 239,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.44714994728565216
+    },
+    {
+      "pdb": "AF-P01308.pdb",
+      "n_res": 110,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.005778792081400752,
+      "kernel_q1_s": 0.004824979463592172,
+      "kernel_q3_s": 0.011727832956239581,
+      "reps": 7,
+      "metrics": {
+        "n": 239,
+        "spearman": 0.999999560493557,
+        "pearson": 0.9999999999999535,
+        "r2": 0.999999999999907,
+        "max_abs": 1.8878927157683911e-06,
+        "rmse": 2.9612132419918045e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 12.713342579081655
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.00023566698655486107,
+      "kernel_q1_s": 0.0002239999594166875,
+      "kernel_q3_s": 0.0002694579306989908,
+      "reps": 7,
+      "metrics": {
+        "n": 823,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.6692942418158054
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.00021883402951061726,
+      "kernel_q1_s": 0.00021637504687532783,
+      "kernel_q3_s": 0.00022258353419601917,
+      "reps": 7,
+      "metrics": {
+        "n": 823,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.621488643810153
+    },
+    {
+      "pdb": "AF-P69905.pdb",
+      "n_res": 142,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.006902042077854276,
+      "kernel_q1_s": 0.005897521041333675,
+      "kernel_q3_s": 0.007864145969506353,
+      "reps": 7,
+      "metrics": {
+        "n": 823,
+        "spearman": 0.999999978473056,
+        "pearson": 0.9999999999998781,
+        "r2": 0.9999999999997562,
+        "max_abs": 3.607920586179425e-06,
+        "rmse": 5.176060565863077e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 19.601799501106143
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.0002560840221121907,
+      "kernel_q1_s": 0.0002375835319980979,
+      "kernel_q3_s": 0.00029745849315077066,
+      "reps": 7,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.7528870250098407
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.00022954191081225872,
+      "kernel_q1_s": 0.00022656196961179376,
+      "kernel_q3_s": 0.00023235398111864924,
+      "reps": 7,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.6748532177880406
+    },
+    {
+      "pdb": "AF-P00698.pdb",
+      "n_res": 147,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.006377915968187153,
+      "kernel_q1_s": 0.005879708507563919,
+      "kernel_q3_s": 0.008432312053628266,
+      "reps": 7,
+      "metrics": {
+        "n": 938,
+        "spearman": 1.0,
+        "pearson": 0.9999999999996916,
+        "r2": 0.9999999999993832,
+        "max_abs": 1.0426428058596393e-05,
+        "rmse": 7.824023944098885e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 18.75107294647023
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.00022649997845292091,
+      "kernel_q1_s": 0.00022527144756168127,
+      "kernel_q3_s": 0.0002385629923082888,
+      "reps": 7,
+      "metrics": {
+        "n": 756,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.6749699357897043
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.00022237503435462713,
+      "kernel_q1_s": 0.00021370803005993366,
+      "kernel_q3_s": 0.00022856250870972872,
+      "reps": 7,
+      "metrics": {
+        "n": 756,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 0.6626776023767889
+    },
+    {
+      "pdb": "AF-P0DP23.pdb",
+      "n_res": 149,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.007134458050131798,
+      "kernel_q1_s": 0.005395625019446015,
+      "kernel_q3_s": 0.009249125025235116,
+      "reps": 7,
+      "metrics": {
+        "n": 756,
+        "spearman": 0.9999999930568487,
+        "pearson": 0.9999999999996863,
+        "r2": 0.9999999999993725,
+        "max_abs": 7.20276022780908e-06,
+        "rmse": 8.212121311998702e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 21.260684989392757
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.0005133750382810831,
+      "kernel_q1_s": 0.0004932289593853056,
+      "kernel_q3_s": 0.0005319584743119776,
+      "reps": 7,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 3.0597152281552553
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.0005109170451760292,
+      "kernel_q1_s": 0.0004975410411134362,
+      "kernel_q3_s": 0.0005645205383189023,
+      "reps": 7,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 3.045065589249134
+    },
+    {
+      "pdb": "AF-P24941.pdb",
+      "n_res": 298,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.005033666966482997,
+      "kernel_q1_s": 0.00402622896945104,
+      "kernel_q3_s": 0.008891895995475352,
+      "reps": 7,
+      "metrics": {
+        "n": 1813,
+        "spearman": 1.0,
+        "pearson": 0.9999999999997708,
+        "r2": 0.9999999999995417,
+        "max_abs": 6.2951044194070604e-06,
+        "rmse": 6.495216753995807e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 30.00065512023866
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.0007122079841792583,
+      "kernel_q1_s": 0.0006953125121071935,
+      "kernel_q3_s": 0.0007247914909385145,
+      "reps": 7,
+      "metrics": {
+        "n": 1576,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 5.597954755648971
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.0007035409798845649,
+      "kernel_q1_s": 0.0006606669630855322,
+      "kernel_q3_s": 0.0007113749743439257,
+      "reps": 7,
+      "metrics": {
+        "n": 1576,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 5.52983210189268
+    },
+    {
+      "pdb": "AF-P04637.pdb",
+      "n_res": 393,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.008431249996647239,
+      "kernel_q1_s": 0.00618020846741274,
+      "kernel_q3_s": 0.008877770975232124,
+      "reps": 7,
+      "metrics": {
+        "n": 1576,
+        "spearman": 0.9999999954016286,
+        "pearson": 0.9999999999997626,
+        "r2": 0.9999999999995253,
+        "max_abs": 8.028179471875063e-06,
+        "rmse": 7.370545909059445e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 66.2696249736473
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.0013959170319139957,
+      "kernel_q1_s": 0.001370729471091181,
+      "kernel_q3_s": 0.001412979036103934,
+      "reps": 7,
+      "metrics": {
+        "n": 3774,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 17.002269448712468
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.0010230829939246178,
+      "kernel_q1_s": 0.0009547090157866478,
+      "kernel_q3_s": 0.0010270209168083966,
+      "reps": 7,
+      "metrics": {
+        "n": 3774,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 12.461150866001844
+    },
+    {
+      "pdb": "AF-P02768.pdb",
+      "n_res": 609,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.006623541004955769,
+      "kernel_q1_s": 0.005035562964621931,
+      "kernel_q3_s": 0.00718845846131444,
+      "reps": 7,
+      "metrics": {
+        "n": 3774,
+        "spearman": 0.9999999990512222,
+        "pearson": 0.9999999999997852,
+        "r2": 0.9999999999995703,
+        "max_abs": 8.287719345911881e-06,
+        "rmse": 6.739050442466053e-07,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 80.67472944036126
+    },
+    {
+      "pdb": "AF-P00533.pdb",
+      "n_res": 1210,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.003971625003032386,
+      "kernel_q1_s": 0.003950896032620221,
+      "kernel_q3_s": 0.004081687482539564,
+      "reps": 3,
+      "metrics": {
+        "n": 6597,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 96.11332507338375
+    },
+    {
+      "pdb": "AF-P00533.pdb",
+      "n_res": 1210,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.0021176659502089024,
+      "kernel_q1_s": 0.002082749444525689,
+      "kernel_q3_s": 0.0021409789915196598,
+      "reps": 3,
+      "metrics": {
+        "n": 6597,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 51.24751599505544
+    },
+    {
+      "pdb": "AF-P00533.pdb",
+      "n_res": 1210,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.007162082940340042,
+      "kernel_q1_s": 0.00645935395732522,
+      "kernel_q3_s": 0.009039853990543634,
+      "reps": 3,
+      "metrics": {
+        "n": 6597,
+        "spearman": 0.9999999997596691,
+        "pearson": 0.999999999998963,
+        "r2": 0.9999999999979261,
+        "max_abs": 3.229602981846824e-05,
+        "rmse": 1.5013917236094202e-06,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 173.32240715622902
+    },
+    {
+      "pdb": "AF-P38398.pdb",
+      "n_res": 1863,
+      "mode": "configurational",
+      "backend": "cpu_x1",
+      "kernel_median_s": 0.008267208002507687,
+      "kernel_q1_s": 0.007878396019805223,
+      "kernel_q3_s": 0.008327979012392461,
+      "reps": 3,
+      "metrics": {
+        "n": 4120,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 308.0361701734364
+    },
+    {
+      "pdb": "AF-P38398.pdb",
+      "n_res": 1863,
+      "mode": "configurational",
+      "backend": "cpu_xAll",
+      "kernel_median_s": 0.004188957973383367,
+      "kernel_q1_s": 0.004119436955079436,
+      "kernel_q3_s": 0.004477687529288232,
+      "reps": 3,
+      "metrics": {
+        "n": 4120,
+        "spearman": 1.0,
+        "pearson": 1.0,
+        "r2": 1.0,
+        "max_abs": 0.0,
+        "rmse": 0.0,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 156.08057408826426
+    },
+    {
+      "pdb": "AF-P38398.pdb",
+      "n_res": 1863,
+      "mode": "configurational",
+      "backend": "metal",
+      "kernel_median_s": 0.007997083012014627,
+      "kernel_q1_s": 0.007803854008670896,
+      "kernel_q3_s": 0.008139708021190017,
+      "reps": 3,
+      "metrics": {
+        "n": 4120,
+        "spearman": 0.9999999958818623,
+        "pearson": 0.99999999999952,
+        "r2": 0.9999999999990401,
+        "max_abs": 1.5797479252843694e-05,
+        "rmse": 1.2173515607992743e-06,
+        "class_agreement": 1.0
+      },
+      "dms_scan_proj_s": 297.971313027665
+    }
+  ]
+}
