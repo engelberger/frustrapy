@@ -290,6 +290,20 @@ agreement 100%. Geometry kernels `contact_map` / `local_density` exercise the So
 zero-copy ndarray path. ASan/UBSan-clean
 (`-C cmake.define.FRUSTRAPY_NATIVE_SANITIZE=ON`).
 
+CPU parallelism: the energy reductions and the density kernel are parallelized with
+OpenMP over the independent work units (per residue for singleresidue, per contact for
+the contact modes, per residue for density). To keep the output bit-identical for any
+thread count, the decoy random draws are materialized serially in the exact reference
+loop order first (preserving the shared glibc RNG stream), then the per-unit reductions
+run in parallel writing to disjoint, pre-sized output slots; each per-unit decoy mean/sd
+is a fixed-order sum. Work-aware guards (`kEnergyMinOps`, `kDensityMinPairs`) keep small
+or trivial regions (configurational energy is O(1) per contact; the one-time OpenMP
+team startup is ~60 ms) on the serial path so parallelism never makes a run slower.
+Thread count is `compute_frustration(..., n_threads=N)` (0 = all cores); the `native`
+backend resolves it (`_resolve_native_threads`) to compose with the outer process pools
+without `cores^2` oversubscription. Profile and strong-scaling numbers (up to ~7.8x on
+14 cores, mutational, 415 residues) are in `native/docs/PROFILE.md`.
+
 N3 (CUDA kernels, `src/cuda/kernels.cu`): density, native energy, and the decoy
 reductions as CUDA kernels (one block per probed unit, shared-memory reduction for the
 decoy mean/sd). The decoy index stream is generated host-side with the same `GlibcRand`,

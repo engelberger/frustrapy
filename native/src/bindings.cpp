@@ -100,7 +100,7 @@ nb::object py_compute_frustration(
     double well_r_min0, double well_r_max0, double well_r_min1, double well_r_max1,
     double burial_kappa, double k_burial, double contact_cutoff,
     int contact_min_sep, int seq_dist, int n_decoys, std::uint64_t seed,
-    bool use_cuda) {
+    bool use_cuda, int n_threads) {
     check_param_shapes(gamma_direct, gamma_water, gamma_protein, burial_gamma);
     StructureView s = make_structure(coord, res_type, chain_id, res_seqid);
 
@@ -124,13 +124,20 @@ nb::object py_compute_frustration(
     p.n_decoys = n_decoys;
     p.seed = seed;
     p.prefer_cuda = use_cuda;
+    p.n_threads = n_threads;
     if (use_cuda && !has_cuda()) {
         throw std::runtime_error(
             "use_cuda=True but the native core was built without CUDA. Rebuild with "
             "`pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON`.");
     }
 
-    FrustrationResult r = compute_frustration(s, p, mode);
+    // The reduction is pure C++ (no Python objects touched); release the GIL so the
+    // OpenMP worker threads run unhindered and other Python threads can proceed.
+    FrustrationResult r;
+    {
+        nb::gil_scoped_release release;
+        r = compute_frustration(s, p, mode);
+    }
     nb::dict out;
     out["rho"] = own1d(std::move(r.rho));
     out["unit_i"] = own1d(std::move(r.unit_i));
@@ -172,8 +179,16 @@ NB_MODULE(_core, m) {
           nb::arg("burial_kappa") = 4.0, nb::arg("k_burial") = 1.0,
           nb::arg("contact_cutoff") = 9.5, nb::arg("contact_min_sep") = 2,
           nb::arg("seq_dist") = 12, nb::arg("n_decoys") = 1000, nb::arg("seed") = 1,
-          nb::arg("use_cuda") = false,
+          nb::arg("use_cuda") = false, nb::arg("n_threads") = 0,
           "AWSEM tertiary-frustration reduction (native energy, decoy mean/sd, "
-          "index) for the given mode; returns a dict of NumPy arrays. Set "
-          "use_cuda=True to use the GPU path (requires a CUDA build).");
+          "index) for the given mode; returns a dict of NumPy arrays. n_threads "
+          "controls CPU parallelism (0 = all cores, 1 = serial); the result is "
+          "bit-identical for any thread count. Set use_cuda=True to use the GPU "
+          "path (requires a CUDA build).");
+
+    m.def("has_openmp", &has_openmp,
+          "True iff the CPU core was compiled with OpenMP (multicore available).");
+
+    m.def("effective_threads", &effective_threads, nb::arg("n_threads"),
+          "CPU threads a reduction will use for the given request (0 -> all cores).");
 }

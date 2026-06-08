@@ -41,6 +41,17 @@ nanobind_add_module(_core STABLE_ABI NB_STATIC ${FRUSTRAPY_NATIVE_SOURCES})
 target_include_directories(_core PRIVATE src)
 target_compile_definitions(_core PRIVATE $<$<CONFIG:Debug>:_GLIBCXX_ASSERTIONS>)
 
+# CPU multicore (OpenMP). Optional: when absent the core compiles serial (the
+# `#ifdef _OPENMP` guards fall back to the single-threaded loops). When present it
+# parallelizes the per-residue / per-contact energy reductions and the density.
+find_package(OpenMP)
+if(OpenMP_CXX_FOUND)
+  target_link_libraries(_core PRIVATE OpenMP::OpenMP_CXX)
+  message(STATUS "frustrapy_native: OpenMP enabled (${OpenMP_CXX_VERSION})")
+else()
+  message(STATUS "frustrapy_native: OpenMP not found; CPU core will be serial")
+endif()
+
 # Optional ASan/UBSan build for the N2 parity gate.
 option(FRUSTRAPY_NATIVE_SANITIZE "Build with ASan/UBSan (for the N2 parity gate)" OFF)
 if(FRUSTRAPY_NATIVE_SANITIZE)

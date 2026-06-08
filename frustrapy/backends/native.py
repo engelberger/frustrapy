@@ -41,6 +41,38 @@ _THREE_TO_ONE = {
 }
 
 
+def _resolve_native_threads() -> int:
+    """CPU thread count for the native core, composing safely with outer parallelism.
+
+    The native reduction is bit-identical for any thread count, so the choice is
+    purely about not oversubscribing cores when this backend runs inside an outer
+    process pool (``dir_frustration(n_procs=K)`` or the mutation scan):
+
+    * ``FRUSTRAPY_NATIVE_THREADS`` (if a positive int) overrides everything.
+    * Inside a pool worker (``multiprocessing.parent_process()`` is not ``None``) the
+      outer pool already saturates the cores, so each worker uses a single thread.
+      With the outer pool capped at ``<= cores`` (the shared concurrency budget),
+      ``outer x 1 <= cores`` -- no ``cores**2`` fork/thread bomb.
+    * In the main process (single structure, no outer pool) it uses the full
+      physical-core budget.
+    """
+    import multiprocessing  # noqa: PLC0415
+
+    env = os.environ.get("FRUSTRAPY_NATIVE_THREADS")
+    if env:
+        try:
+            v = int(env)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    if multiprocessing.parent_process() is not None:
+        return 1
+    from ..utils.concurrency import cpu_budget  # noqa: PLC0415
+
+    return cpu_budget()
+
+
 def _load_native():
     """Import the compiled native core, or raise an actionable error if unbuilt."""
     try:
@@ -259,6 +291,7 @@ class NativeBackend(FrustrationBackend):
         # Opt into the GPU path via env when the core was built with CUDA. The CPU
         # path is the default and the parity reference.
         use_cuda = os.environ.get("FRUSTRAPY_NATIVE_USE_CUDA", "") not in ("", "0", "false", "False")
+        n_threads = _resolve_native_threads()
 
         result = native.compute_frustration(
             coord, res_type, chain_id, seqid,
@@ -269,7 +302,7 @@ class NativeBackend(FrustrationBackend):
             well_r_max1=coeff["well_r_max1"], burial_kappa=coeff["burial_kappa"],
             k_burial=coeff["k_burial"], contact_cutoff=coeff["contact_cutoff"],
             contact_min_sep=coeff["contact_min_sep"], seq_dist=int(calculator.seq_dist),
-            n_decoys=coeff["n_decoys"], seed=1, use_cuda=use_cuda,
+            n_decoys=coeff["n_decoys"], seed=1, use_cuda=use_cuda, n_threads=n_threads,
         )
         _write_dat(
             os.path.join(job_dir, "tertiary_frustration.dat"),
