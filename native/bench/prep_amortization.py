@@ -187,6 +187,99 @@ def format_report(r) -> str:
     return "\n".join(lines)
 
 
+def _pick_targets(pdb, chain, positions):
+    """First `positions` residues (by CA) in `chain` as (res_num, chain) targets."""
+    atom = pdb.atom
+    sel = atom[(atom["chain"] == chain) & (atom["atom_name"] == "CA")]
+    resnums = list(dict.fromkeys(int(r) for r in sel["res_num"]))
+    return [(r, chain) for r in resnums[:positions]]
+
+
+def _read_scan_values(job_dir, targets, mode="singleresidue"):
+    """Read a singleresidue scan's per-variant FrstIndex: {(res, chain, AA): value}."""
+    md = os.path.join(job_dir, "MutationsData")
+    vals = {}
+    for res, chain in targets:
+        with open(os.path.join(md, f"{mode}_Res{res}_threading_{chain}.txt")) as fh:
+            for ln in fh.read().splitlines()[1:]:
+                t = ln.split()
+                vals[(res, chain, t[2])] = float(t[3])
+    return vals
+
+
+def run_measured_scan(pdb_file, chain, positions, seq_dist, n_cpus, root):
+    """Measure the END-TO-END saturation scan both ways through the wired path:
+    the per-variant native scan (amortize off, prep redone per mutant) and the
+    amortized native scan (prep once per chain). No projection: both totals are
+    measured wall times for the same set of variants, and the per-variant FrstIndex
+    is diffed between the two so the speedup is reported only when the numbers agree.
+    """
+    import frustrapy  # noqa: PLC0415
+    from frustrapy.analysis.mutations import mutate_res_scan_parallel  # noqa: PLC0415
+
+    rd = os.path.join(root, "measured_scan")
+    if os.path.exists(rd):
+        shutil.rmtree(rd)
+    os.makedirs(rd)
+    local = os.path.join(rd, os.path.basename(pdb_file))
+    shutil.copy2(pdb_file, local)
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        pdb, _, _, _ = frustrapy.calculate_frustration(
+            pdb_file=local, mode="singleresidue", chain=chain, results_dir=rd,
+            graphics=False, visualization=False, debug="ERROR", backend="native",
+            seq_dist=seq_dist,
+        )
+    target_chain = chain if chain is not None else str(pdb.atom.iloc[0]["chain"])
+    targets = _pick_targets(pdb, target_chain, positions)
+    k = len(targets) * len(AMINO_ACIDS)
+
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore")
+        t0 = time.perf_counter()
+        mutate_res_scan_parallel(pdb, targets=list(targets), split=True,
+                                 method="threading", n_cpus=n_cpus,
+                                 backend="native", amortize=False)
+        t_before = time.perf_counter() - t0
+        before_vals = _read_scan_values(pdb.job_dir, targets)
+
+        t0 = time.perf_counter()
+        mutate_res_scan_parallel(pdb, targets=list(targets), split=True,
+                                 method="threading", n_cpus=n_cpus,
+                                 backend="native", amortize=True)
+        t_after = time.perf_counter() - t0
+        after_vals = _read_scan_values(pdb.job_dir, targets)
+
+    keys = sorted(set(before_vals) & set(after_vals))
+    max_diff = max((abs(before_vals[k2] - after_vals[k2]) for k2 in keys), default=0.0)
+    return {
+        "pdb": os.path.basename(pdb_file), "chain": target_chain,
+        "positions": len(targets), "variants_K": k, "seq_dist": seq_dist,
+        "n_cpus": (1 if n_cpus == 1 else "auto"),
+        "measured_before_per_variant_scan_s": t_before,
+        "measured_amortized_scan_s": t_after,
+        "measured_prep_amortization_factor": (t_before / t_after if t_after else float("nan")),
+        "before_per_variant_s": t_before / k if k else float("nan"),
+        "after_per_variant_s": t_after / k if k else float("nan"),
+        "max_frstindex_diff_before_vs_after": max_diff,
+    }
+
+
+def format_measured(r) -> str:
+    return "\n".join([
+        f"measured end-to-end scan: {r['pdb']} chain {r['chain']}, "
+        f"{r['positions']} position(s) x 20 AA = {r['variants_K']} variants, "
+        f"seq_dist {r['seq_dist']}, n_cpus={r['n_cpus']}",
+        "-" * 72,
+        f"  per-variant native scan (prep per mutant) {r['measured_before_per_variant_scan_s']:8.2f} s "
+        f"({r['before_per_variant_s']*1000:.1f} ms/variant)",
+        f"  amortized native scan (prep once/chain)   {r['measured_amortized_scan_s']:8.2f} s "
+        f"({r['after_per_variant_s']*1000:.1f} ms/variant)",
+        f"  measured prep-amortization factor         {r['measured_prep_amortization_factor']:8.1f}x",
+        f"  max |FrstIndex| diff before vs after       {r['max_frstindex_diff_before_vs_after']:.3e}",
+    ])
+
+
 def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(
         description="Prep-amortization micro-benchmark (prep once vs prep per variant).",
@@ -202,15 +295,30 @@ def _parse_args(argv: Optional[Sequence[str]] = None) -> argparse.Namespace:
     p.add_argument("--seq-dist", type=int, default=12, choices=[3, 12])
     p.add_argument("--threads", type=int, default=1,
                    help="native kernel threads (1 = serial, 0 = all cores)")
+    p.add_argument("--measured-scan", action="store_true",
+                   help="measure the end-to-end scan both ways (no projection) "
+                        "instead of the component micro-benchmark")
+    p.add_argument("--n-cpus", type=int, default=1,
+                   help="outer pool width for the measured scan (1 = serial)")
     p.add_argument("--out", default=None, help="write the result JSON here")
     return p.parse_args(argv)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     args = _parse_args(argv)
-    r = run(args.pdb, args.chain, args.res, args.positions, args.reps,
-            args.seq_dist, args.threads)
-    print(format_report(r))
+    if args.measured_scan:
+        root = tempfile.mkdtemp(prefix="fp_prep_measured_")
+        n_cpus = None if args.n_cpus <= 0 else args.n_cpus  # 0 = auto (all cores)
+        try:
+            r = run_measured_scan(args.pdb, args.chain, args.positions,
+                                  args.seq_dist, n_cpus, root)
+        finally:
+            shutil.rmtree(root, ignore_errors=True)
+        print(format_measured(r))
+    else:
+        r = run(args.pdb, args.chain, args.res, args.positions, args.reps,
+                args.seq_dist, args.threads)
+        print(format_report(r))
     if args.out:
         with open(args.out, "w") as fh:
             json.dump(r, fh, indent=2)

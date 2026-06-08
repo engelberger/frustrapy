@@ -91,6 +91,15 @@ the coordinates and gamma tables are identical) is the single highest value opti
 helps every backend equally. The subprocess based prep is also where IO handling can be improved
 (avoid re writing intermediate files per mutant).
 
+Measured end to end on the wired scan path (native backend, serial, in container x86_64 emulated
+so absolute times are indicative): a per-variant native scan pays about 779 ms per variant on 1crn
+(46 residues) and about 721 ms per variant on 1zni chain B (30 residues). That the per-variant cost
+barely moves with protein size is the signature of a fixed per-variant prep cost rather than a
+kernel cost. The amortized scan, which pays the prep once per chain, drops the per-variant cost to
+about 86 ms (1crn) and 69 ms (1zni chain B), so the kernel, not prep, now sets the per-variant cost.
+Section 8 has the full before/after totals; reproduce with
+native/bench/prep_amortization.py --measured-scan.
+
 ## 7. Compiler flags: parity safe, speed flat on arm64, real x86 pending (Fig 6)
 
 Flag sweep on the mutational kernel, comparing every variant against a frozen -O2 reference.
@@ -111,24 +120,46 @@ Flag sweep on the mutational kernel, comparing every variant against a frozen -O
   node, which is the reason production HPC builds either target a portable baseline (x86-64-v3) or
   use runtime dispatch.
 
-## 8. Prep amortization (implemented): prep once per structure
+## 8. Prep amortization (implemented and wired into the scan): prep once per structure
 
-The bottleneck in section 6 (prep about 6x the kernel, redone per mutant) is now addressed.
-prepare_structure parses the cleaned PDB, reads the gammas and coefficients, and computes the
-geometry cache (per residue density rho and the energy contact list) once per structure;
-compute_variant_frustration then scores each variant with a res_type swap that reuses the cached
-geometry. The native core takes the precomputed geometry as optional inputs and is bit for bit
-identical to the one shot path when they are absent (test_native_geometry_reuse_bit_identical),
-so the optimization changes no numbers.
+The bottleneck in section 6 (prep about 6x the kernel, redone per mutant) is removed by wiring the
+amortized prep into the saturation scan. mutate_res_scan_parallel(backend='native') builds the
+prepared structure context once per target chain (one chain-restricted WT native calculation
+materializes the coefficient and gamma files, prepare_structure parses and caches the geometry),
+then scores every variant with a res_type swap that reuses the cached density and contact list. A
+glycine-involving variant patches the one interaction coordinate and recomputes geometry for that
+variant only, matching the threading backend. The default lammps path is unchanged and
+byte-identical: each variant still runs a full per-variant calculate_frustration.
 
-Measured by native/bench/prep_amortization.py (1zni chain B, 30 residues, seq_dist 12, serial,
-in container x86_64 emulated so absolute times are indicative, the ratio is the result): a full WT
-calculation (prep plus kernel) is about 598 ms, prepare_structure is about 0.6 ms, and an amortized
-variant kernel is about 19 ms. For a 10 position scan (200 variants) the current K x (prep plus
-kernel) is about 120 s versus prep_once plus K x kernel about 4.3 s, a 27.5x prep amortization
-factor (asymptotic ceiling about 32x as the scan grows). The amortized per variant FrstIndex is
-bit for bit a fresh native recompute, so the speedup is real work removed, not a different answer.
-Run: python native/bench/prep_amortization.py --pdb tests/data/1zni.pdb --chain B --res 25.
+Measured end to end through the wired scan (native backend, in container x86_64 emulated so
+absolute times are indicative and the ratio is the result; the per-variant FrstIndex is diffed
+between the two paths):
+
+- 1crn, 3 positions x 20 = 60 variants, serial: per-variant native scan (prep per mutant) 46.71 s;
+  amortized native scan (prep once per chain) 5.16 s; measured factor 9.1x; max |FrstIndex| diff
+  before vs after 0.
+- 1zni chain B (multi-chain), 2 positions x 20 = 40 variants, serial: per-variant 28.82 s;
+  amortized 2.75 s; measured factor 10.5x; max diff 0.
+- 1crn, 3 positions, all cores (14, emulated): per-variant 7.39 s; amortized 3.21 s; measured
+  factor 2.3x; max diff 0.
+
+The serial measurement is the clean attribution: it isolates the per-variant prep that the
+amortized path removes, so the factor (about 9 to 10x here) reflects prep no longer being redone
+per mutant, and the kernel now dominates the per-variant cost. The parallel factor is smaller
+because both paths spread across cores while the amortized per-variant work (a small native kernel)
+is dominated by pool and IO overhead for these small proteins, and the one-time chain prep runs
+serially first. The measured factors sit below the component micro-benchmark projection (about 27
+to 32x), because the end-to-end scan also pays the per-variant mutant-build, table-parse, file-move
+and cleanup overhead that the bare component timing excludes. The before vs after FrstIndex diff is
+0 on every case, so the speedup is removed work, not a different answer.
+
+The component micro-benchmark (prep vs kernel breakdown) is the default mode of the same script and
+reports, on 1zni chain B (30 residues, seq_dist 12, serial): a full WT calculation (prep plus
+kernel) about 598 ms, prepare_structure about 0.6 ms, and an amortized variant kernel about 19 ms.
+
+Reproduce: python native/bench/prep_amortization.py --pdb tests/data/1crn.pdb --measured-scan
+--positions 3 --n-cpus 1 (measured end-to-end scan), or without --measured-scan for the component
+breakdown.
 
 ## 9. Limitations and next steps
 
