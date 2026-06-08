@@ -6,12 +6,14 @@
 // never return a view of freed storage). See docs/NATIVE_BACKEND_DESIGN.md.
 
 #include <cstdint>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/ndarray.h>
+#include <nanobind/stl/optional.h>
 #include <nanobind/stl/string.h>
 
 #include "core.hpp"
@@ -25,6 +27,10 @@ using Coords = nb::ndarray<const double, nb::shape<-1, 3>, nb::c_contig, nb::dev
 using ResVec = nb::ndarray<const std::int32_t, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
 using ParamMat =
     nb::ndarray<const double, nb::ndim<2>, nb::c_contig, nb::device::cpu>;
+// Optional precomputed geometry: per-residue density rho and the energy contact list.
+using RhoArr = nb::ndarray<const double, nb::ndim<1>, nb::c_contig, nb::device::cpu>;
+using ContactArr =
+    nb::ndarray<const std::int32_t, nb::shape<-1, 2>, nb::c_contig, nb::device::cpu>;
 
 // Build a StructureView whose coordinate view is the AWSEM interaction coordinate
 // (CB, or CA for glycine). The legacy two-coordinate kernels pass that array as
@@ -76,6 +82,29 @@ nb::object py_local_density(Coords ca, Coords cb, ResVec res_type, ResVec chain_
     return nb::cast(own1d(std::move(rho)));
 }
 
+// Geometry-only precompute (rho + energy contact list), invariant under a mutation.
+// Returns {"rho": float64[n], "contacts": int32[m, 2]} to feed back into
+// compute_frustration via its rho=/contacts= arguments for a geometry-amortized scan.
+nb::object py_prepare_geometry(
+    Coords coord, ResVec res_type, ResVec chain_id, ResVec res_seqid,
+    double well_kappa, double well_r_min0, double well_r_max0,
+    double contact_cutoff, int contact_min_sep, int seq_dist) {
+    StructureView s = make_structure(coord, res_type, chain_id, res_seqid);
+    ParamsView p;
+    p.well_kappa = well_kappa;
+    p.well_r_min[0] = well_r_min0;
+    p.well_r_max[0] = well_r_max0;
+    p.contact_cutoff = contact_cutoff;
+    p.contact_min_sep = contact_min_sep;
+    p.seq_dist = seq_dist;
+    GeometryCache cache = prepare_geometry(s, p);
+    const std::size_t n_pairs = cache.contacts.size() / 2;
+    nb::dict out;
+    out["rho"] = own1d(std::move(cache.rho));
+    out["contacts"] = own(std::move(cache.contacts), {n_pairs, std::size_t{2}});
+    return out;
+}
+
 void check_param_shapes(const ParamMat& gd, const ParamMat& gw, const ParamMat& gp,
                         const ParamMat& bg) {
     auto check = [](const ParamMat& m, std::size_t r, std::size_t c, const char* what) {
@@ -100,7 +129,8 @@ nb::object py_compute_frustration(
     double well_r_min0, double well_r_max0, double well_r_min1, double well_r_max1,
     double burial_kappa, double k_burial, double contact_cutoff,
     int contact_min_sep, int seq_dist, int n_decoys, std::uint64_t seed,
-    bool use_cuda, bool use_metal, int n_threads) {
+    bool use_cuda, bool use_metal, int n_threads,
+    std::optional<RhoArr> rho, std::optional<ContactArr> contacts) {
     check_param_shapes(gamma_direct, gamma_water, gamma_protein, burial_gamma);
     StructureView s = make_structure(coord, res_type, chain_id, res_seqid);
 
@@ -142,12 +172,30 @@ nb::object py_compute_frustration(
             "See native/docs/METAL_BUILD.md.");
     }
 
+    // Optional precomputed geometry (from prepare_geometry): reused verbatim so the
+    // O(n^2) density / contact-list build is not redone per variant. Absent -> the
+    // reduction recomputes them and the result is bit-for-bit the original behavior.
+    PreparedGeometry pg;
+    if (rho.has_value()) {
+        if (rho->shape(0) != s.n_res) {
+            throw std::invalid_argument("precomputed rho length must be n_res");
+        }
+        pg.rho = std::span<const double>(rho->data(), s.n_res);
+        pg.has_rho = true;
+    }
+    if (contacts.has_value()) {
+        const std::size_t m = contacts->shape(0);
+        pg.contacts = std::span<const std::int32_t>(contacts->data(), 2 * m);
+        pg.has_contacts = true;
+    }
+    const bool have_precomp = pg.has_rho || pg.has_contacts;
+
     // The reduction is pure C++ (no Python objects touched); release the GIL so the
     // OpenMP worker threads run unhindered and other Python threads can proceed.
     FrustrationResult r;
     {
         nb::gil_scoped_release release;
-        r = compute_frustration(s, p, mode);
+        r = compute_frustration(s, p, mode, have_precomp ? &pg : nullptr);
     }
     nb::dict out;
     out["rho"] = own1d(std::move(r.rho));
@@ -194,13 +242,27 @@ NB_MODULE(_core, m) {
           nb::arg("contact_cutoff") = 9.5, nb::arg("contact_min_sep") = 2,
           nb::arg("seq_dist") = 12, nb::arg("n_decoys") = 1000, nb::arg("seed") = 1,
           nb::arg("use_cuda") = false, nb::arg("use_metal") = false,
-          nb::arg("n_threads") = 0,
+          nb::arg("n_threads") = 0, nb::arg("rho").none() = nb::none(),
+          nb::arg("contacts").none() = nb::none(),
           "AWSEM tertiary-frustration reduction (native energy, decoy mean/sd, "
           "index) for the given mode; returns a dict of NumPy arrays. n_threads "
           "controls CPU parallelism (0 = all cores, 1 = serial); the result is "
           "bit-identical for any thread count. Set use_cuda=True for the CUDA GPU "
           "path (requires a CUDA build) or use_metal=True for the Metal GPU path "
-          "(requires an Apple Metal build).");
+          "(requires an Apple Metal build). Optional rho (float64[n]) and contacts "
+          "(int32[m, 2]) from prepare_geometry reuse the geometry across a scan; "
+          "omitting them is bit-for-bit identical to the one-shot path.");
+
+    m.def("prepare_geometry", &py_prepare_geometry, nb::arg("coord"),
+          nb::arg("res_type"), nb::arg("chain_id"), nb::arg("res_seqid"),
+          nb::arg("well_kappa") = 5.0, nb::arg("well_r_min0") = 4.5,
+          nb::arg("well_r_max0") = 6.5, nb::arg("contact_cutoff") = 9.5,
+          nb::arg("contact_min_sep") = 2, nb::arg("seq_dist") = 12,
+          "Geometry-only precompute (per-residue density rho + the energy contact "
+          "list) for a structure; returns {'rho': float64[n], 'contacts': "
+          "int32[m, 2]}. Feed back into compute_frustration(rho=, contacts=) to "
+          "amortize the geometry across a mutational scan (the values are exactly "
+          "what compute_frustration computes internally).");
 
     m.def("has_openmp", &has_openmp,
           "True iff the CPU core was compiled with OpenMP (multicore available).");

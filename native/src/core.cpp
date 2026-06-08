@@ -143,9 +143,23 @@ double theta_clamped(double r, double r_min, double r_max, double kappa) {
 // AWSEM energy terms and per-mode decoy ensembles.
 class Engine {
 public:
-    Engine(const StructureView& s, const ParamsView& p, int threads)
+    // precomputed_rho (when non-empty) is reused verbatim instead of recomputing the
+    // density: it is geometry-only and invariant under a mutation, so a scan computes
+    // it once and reuses it across variants. compute_density() is parallel over i with
+    // no cross-i reduction, so its result is identical for any thread count -- a rho
+    // produced by prepare_geometry (any thread count) is bit-for-bit what this would
+    // compute, hence reuse changes no numbers.
+    Engine(const StructureView& s, const ParamsView& p, int threads,
+           std::span<const double> precomputed_rho = {})
         : s_(s), p_(p), threads_(threads) {
-        compute_density();
+        if (!precomputed_rho.empty()) {
+            if (precomputed_rho.size() != s_.n_res) {
+                throw std::invalid_argument("precomputed rho length must be n_res");
+            }
+            rho_.assign(precomputed_rho.begin(), precomputed_rho.end());
+        } else {
+            compute_density();
+        }
     }
 
     const std::vector<double>& rho() const { return rho_; }
@@ -304,8 +318,26 @@ std::vector<double> local_density(const StructureView& s, double rmin, double rm
     return rho;
 }
 
+GeometryCache prepare_geometry(const StructureView& s, const ParamsView& p) {
+    check_lengths(s);
+    const int threads = effective_threads(p.n_threads);
+    Engine eng(s, p, threads);  // computes the density once
+    GeometryCache cache;
+    cache.rho = eng.rho();
+    // Build the energy contact list with the exact predicate and (i<j) order the
+    // contact-mode reduction uses, so it can be fed straight back via PreparedGeometry.
+    for (std::size_t i = 0; i < s.n_res; ++i)
+        for (std::size_t j = i + 1; j < s.n_res; ++j)
+            if (eng.r(i, j) < p.contact_cutoff && eng.separated_contact(i, j)) {
+                cache.contacts.push_back(static_cast<std::int32_t>(i));
+                cache.contacts.push_back(static_cast<std::int32_t>(j));
+            }
+    return cache;
+}
+
 FrustrationResult compute_frustration(const StructureView& s, const ParamsView& p,
-                                      const std::string& mode) {
+                                      const std::string& mode,
+                                      const PreparedGeometry* precomp) {
     check_lengths(s);
     const bool is_config = mode == "configurational";
     const bool is_mut = mode == "mutational";
@@ -315,6 +347,8 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
                                     "singleresidue");
     }
 
+    // The GPU paths recompute the density and contacts on device from the same
+    // coordinates, so precomp is a clean no-op there (numbers unchanged, no reuse).
 #ifdef FRUSTRAPY_NATIVE_CUDA
     if (p.prefer_cuda) return compute_frustration_cuda(s, p, mode);
 #endif
@@ -324,7 +358,10 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
 #endif
 
     const int threads = effective_threads(p.n_threads);
-    Engine eng(s, p, threads);
+    const std::span<const double> pre_rho =
+        (precomp != nullptr && precomp->has_rho) ? precomp->rho : std::span<const double>{};
+    Engine eng(s, p, threads, pre_rho);
+    const bool reuse_contacts = precomp != nullptr && precomp->has_contacts;
     const std::size_t n = s.n_res;
     const int nd = p.n_decoys;
 
@@ -383,9 +420,22 @@ FrustrationResult compute_frustration(const StructureView& s, const ParamsView& 
     }
 
     // Contact modes: build the contact list in reference (i, j) main-loop order so
-    // the work-unit order and any RNG consumption match the serial reference.
+    // the work-unit order and any RNG consumption match the serial reference. When a
+    // precomputed list is supplied (built by prepare_geometry with the same predicate
+    // and order) it is unpacked instead, skipping the O(n^2) rebuild.
     std::vector<std::int32_t> ci, cj;
-    {
+    if (reuse_contacts) {
+        const auto& c = precomp->contacts;
+        if (c.size() % 2 != 0) {
+            throw std::invalid_argument("precomputed contacts must be flat (i, j) pairs");
+        }
+        ci.reserve(c.size() / 2);
+        cj.reserve(c.size() / 2);
+        for (std::size_t k = 0; k + 1 < c.size(); k += 2) {
+            ci.push_back(c[k]);
+            cj.push_back(c[k + 1]);
+        }
+    } else {
         PhaseTimer t("contact-list");
         for (std::size_t i = 0; i < n; ++i)
             for (std::size_t j = i + 1; j < n; ++j) {

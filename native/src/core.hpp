@@ -90,11 +90,47 @@ std::vector<std::int32_t> contact_map(const StructureView& s, double cutoff, int
 // the reduction-path test.
 std::vector<double> local_density(const StructureView& s, double rmin, double rmax);
 
+// Geometry-only precompute that is invariant under a sequence mutation: the
+// per-residue density rho and the energy contact list (the (i, j) pairs within
+// contact_cutoff that pass the separation test). A saturation scan computes this
+// once per structure (prepare_geometry) and feeds it back to compute_frustration
+// for every variant, so the O(n^2) density and contact-list build are not redone
+// per mutant. The values are exactly what compute_frustration computes internally,
+// so a reused-geometry call is bit-for-bit equal to a fresh call on the same
+// coordinates.
+struct GeometryCache {
+    std::vector<double> rho;             // per residue, length n_res
+    std::vector<std::int32_t> contacts;  // flat energy-contact pairs [i0, j0, i1, j1, ...]
+};
+
+// Non-owning views into a GeometryCache (or any caller arrays in the same layout)
+// to pass precomputed geometry into compute_frustration. The has_* flags make the
+// intent explicit and let a caller supply only rho (singleresidue mode uses no
+// contact list). When a field is absent the reduction recomputes it, so an all-empty
+// PreparedGeometry is equivalent to passing none.
+struct PreparedGeometry {
+    std::span<const double> rho;
+    std::span<const std::int32_t> contacts;  // flat pairs, same (i<j) order as the energy loop
+    bool has_rho = false;
+    bool has_contacts = false;
+};
+
+// Compute the geometry-only cache (rho + energy contact list) once for a structure.
+// rho uses the same density well and separation as the energy reductions; the contact
+// list uses the same cutoff/separation predicate and the same (i<j) order, so feeding
+// the result back through PreparedGeometry reproduces compute_frustration bit-for-bit.
+GeometryCache prepare_geometry(const StructureView& s, const ParamsView& p);
+
 // The energy/decoy reduction: reproduces tertiary_frustration.dat (native energy,
 // decoy mean/sd, index) for the given mode (configurational | mutational |
-// singleresidue), bit-for-bit against the AWSEM/LAMMPS reference.
+// singleresidue), bit-for-bit against the AWSEM/LAMMPS reference. When `precomp` is
+// non-null its rho/contacts are reused instead of being recomputed; passing nullptr
+// (the default) is bit-for-bit identical to the original one-shot behavior. The CUDA
+// and Metal paths recompute geometry on device (a clean no-op for precomp), so the
+// numbers are unchanged on every backend.
 FrustrationResult compute_frustration(const StructureView& s, const ParamsView& p,
-                                      const std::string& mode);
+                                      const std::string& mode,
+                                      const PreparedGeometry* precomp = nullptr);
 
 // True iff the optional CUDA path was compiled in (FRUSTRAPY_NATIVE_CUDA).
 bool has_cuda() noexcept;

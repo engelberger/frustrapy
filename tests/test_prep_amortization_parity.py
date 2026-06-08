@@ -254,6 +254,68 @@ def test_native_reproduces_table(base, mode, tmp_path):
             assert (x > 0) == (y > 0), f"{base} {mode}: sign mismatch {x} vs {y}"
 
 
+def _core_inputs(base, results_dir):
+    """Materialize the native core inputs once: run a native calc to produce the
+    coefficient/gamma files, then parse the structure and parameter tables into the
+    kwargs ``frustrapy_native.compute_frustration`` consumes (minus mode/n_threads).
+    Mirrors the prep boundary the amortized path reuses across variants."""
+    from frustrapy.backends import native as nbk
+
+    _run("native", "configurational", base, results_dir)
+    job = os.path.join(results_dir, f"{base}.done")
+    pdb_path = os.path.join(job, "FrustrationData", f"{base}.pdb")
+    coord, res_type, chain_id, seqid, _chain_num, _letters = nbk._parse_structure(pdb_path)
+    coeff = nbk._read_coeff(os.path.join(job, "fix_backbone_coeff.data"))
+    gd, gw, gp, bg = nbk._read_gammas(job)
+    return dict(
+        coord=coord, res_type=res_type, chain_id=chain_id, res_seqid=seqid,
+        gamma_direct=gd, gamma_water=gw, gamma_protein=gp, burial_gamma=bg,
+        well_kappa=coeff["well_kappa"], kappa_sigma=coeff["kappa_sigma"],
+        treshold=coeff["treshold"], well_r_min0=coeff["well_r_min0"],
+        well_r_max0=coeff["well_r_max0"], well_r_min1=coeff["well_r_min1"],
+        well_r_max1=coeff["well_r_max1"], burial_kappa=coeff["burial_kappa"],
+        k_burial=coeff["k_burial"], contact_cutoff=coeff["contact_cutoff"],
+        contact_min_sep=coeff["contact_min_sep"], seq_dist=SEQ_DIST,
+        n_decoys=coeff["n_decoys"], seed=1,
+    )
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not HAS_NATIVE, reason="native core not built (pip install ./native)")
+@pytest.mark.parametrize("base", ["1crn", "1zni"])
+@pytest.mark.parametrize("mode", list(MODES))
+def test_native_geometry_reuse_bit_identical(base, mode, tmp_path):
+    """The optional precomputed-geometry path (I2) is a numeric no-op: feeding the
+    rho/contacts from ``prepare_geometry`` into ``compute_frustration`` reproduces the
+    one-shot result bit-for-bit (max abs diff 0 on every column), single- and
+    multi-chain, for all three modes. This is the no-regression proof that geometry
+    reuse changes no numbers; the timing win is measured by the micro-benchmark."""
+    import numpy as np
+    import frustrapy_native as fn
+
+    kw = _core_inputs(base, str(tmp_path / f"geo_{base}"))
+    geo = fn.prepare_geometry(
+        coord=kw["coord"], res_type=kw["res_type"], chain_id=kw["chain_id"],
+        res_seqid=kw["res_seqid"], well_kappa=kw["well_kappa"],
+        well_r_min0=kw["well_r_min0"], well_r_max0=kw["well_r_max0"],
+        contact_cutoff=kw["contact_cutoff"], contact_min_sep=kw["contact_min_sep"],
+        seq_dist=kw["seq_dist"],
+    )
+    one_shot = fn.compute_frustration(mode=mode, n_threads=1, **kw)
+    reused = fn.compute_frustration(
+        mode=mode, n_threads=1, rho=geo["rho"], contacts=geo["contacts"], **kw
+    )
+    keys = ["unit_i", "unit_j", "native_energy", "decoy_energy", "sd_energy",
+            "frst_index", "rho"]
+    for k in keys:
+        assert np.array_equal(one_shot[k], reused[k]), (
+            f"{base} {mode}: geometry reuse changed column {k}"
+        )
+    # rho-only reuse (singleresidue needs no contact list) is also a no-op.
+    rho_only = fn.compute_frustration(mode=mode, n_threads=1, rho=geo["rho"], **kw)
+    assert np.array_equal(one_shot["frst_index"], rho_only["frst_index"])
+
+
 @pytest.mark.slow
 @pytest.mark.parametrize("base", ["1crn", "1zni"])
 def test_saturation_scan_reproduces(base, tmp_path):
