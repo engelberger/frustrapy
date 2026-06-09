@@ -100,6 +100,37 @@ cli = ["typer>=0.12"]
 # ONNX Runtime CPU provider; onnxruntime is imported lazily inside frustrapy/mpnn/analyze.py, so
 # `import frustrapy` and `import frustrapy.mpnn` work without it and only analyze() requires it.
 mpnn = ["onnxruntime>=1.17"]
+# --- Optional accelerator / oracle tiers -------------------------------------------
+# The DEFAULT install is intentionally lightweight and PyTorch-free: the energy path
+# (lammps, the frustrapy-native AWSEM CPU core, and the frustramol-tmol all-atom CPU
+# kernels) runs with NONE of the tiers below. They layer on heavier or platform-
+# specific acceleration only when asked for.
+#
+# torch: the only consumer of PyTorch is the all-atom tmol VALIDATION ORACLE
+#   (frustrapy.backends.atomic_tmol_engine / backends.tmol_eval), used to cross-check
+#   the torch-free frustramol-tmol CPU kernels against the original tmol energy. torch
+#   is imported lazily there, so `import frustrapy` and the default LAMMPS/native/
+#   atomic-tmol-CPU paths never import it. Installing this extra provides the torch
+#   runtime the oracle needs (CPU build recommended). NOTE: the `tmol` package itself
+#   is NOT on PyPI and is not pulled here; it needs the documented manual setup (see
+#   atomic_tmol_engine._TMOL_SETUP_HELP), exactly like PyRosetta below. The
+#   atomic-tmol backend is reachable from the public API, but it is a validation /
+#   cross-check tier (it requires this extra plus the separate tmol setup), not part
+#   of the default torch-free runtime.
+torch = ["torch>=2.5,<3"]
+# cuda / metal: GPU acceleration of the compiled energy cores is a BUILD-TIME option
+#   of the separately-built native sub-packages, not a PyPI runtime dependency, so
+#   these are documented MARKER extras (they pull nothing). The AWSEM native core
+#   already ships CUDA/Metal kernels today:
+#     pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON     # NVIDIA
+#     pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON \
+#         -C cmake.define.FRUSTRAPY_METAL_CPP_DIR=/path/to/metal-cpp    # Apple
+#   The all-atom frustramol-tmol GPU kernels reuse the same CPU kernel math and land
+#   in later follow-ups; see the install tier table in the README.
+cuda = []
+metal = []
+# `all` deliberately EXCLUDES torch/cuda/metal/pyrosetta: torch is a heavy oracle-only
+# runtime, cuda/metal are build-time markers, and pyrosetta is license-gated.
 all = ["frustrapy[viz,perf,clustering,hdf5,cli,mpnn]"]
 
 [project.scripts]

@@ -135,6 +135,16 @@ def _ensure_pyrosetta():
             'pyrosetta_installer.install_pyrosetta()"'
         ) from exc
 
+    # PyRosetta has genuinely loaded, so a PyRosetta-backed path is about to run.
+    # This is the single boundary that every such path reaches (the mutation
+    # backend's build_pyrosetta_mutant and the atomic engine's _init_pyrosetta both
+    # call here), so the one-time non-commercial license notice belongs here and
+    # nowhere else. It does not fire for the license-clean lammps/native/tmol or
+    # threading/modeller paths, nor for the bare pyrosetta_available() probe.
+    from .._licensing import warn_pyrosetta_noncommercial
+
+    warn_pyrosetta_noncommercial()
+
     if not _PYROSETTA_INITED:
         pyrosetta.init(
             extra_options=_build_pyrosetta_init_options(_PYROSETTA_SEED), silent=True

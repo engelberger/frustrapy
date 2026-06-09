@@ -1,0 +1,38 @@
+NOTICE for native_tmol (torch-free CPU energy kernels)
+======================================================
+
+This component reimplements the ref2015 pairwise energy math (fa_atr / fa_rep / fa_lk /
+fa_elec / lk_ball / hbond) as standalone, torch-free C++ CPU kernels. The scalar math is
+ported verbatim from two Apache-2.0 sources; this NOTICE satisfies Apache License 2.0
+section 4(d) (the upstream tmol repository ships no NOTICE of its own).
+
+Attribution
+-----------
+
+This product includes software developed by the Institute for Protein Design, University of
+Washington (contact@ipd.uw.edu), as the tmol project, and its torch-free WebGPU/TypeScript
+port:
+
+- tmol (https://github.com/uw-ipd/tmol; maintainer fork https://github.com/engelberger/tmol),
+  Apache License, Version 2.0. Reused: the ref2015 pairwise energy-term math under
+  tmol/score/{ljlk,elec,lk_ball,hbond}/potentials/*.hh and tmol/score/common/*.hh.
+- tmol-webgpu (the Apache-2.0 WebGPU/TypeScript port of those terms), from which the kernel
+  headers here (include/frustramol_tmol/*.hpp) are transcribed line-for-line
+  (src/kernels/{interpolate,geom,ljlk,elec,lk_ball,hbond}.ts, src/{cpu,cpu_terms}.ts).
+
+A full copy of the Apache License 2.0 governs the reused code; obtain it at
+http://www.apache.org/licenses/LICENSE-2.0.
+
+Scope: code only. No energy parameter tables are vendored.
+-----------------------------------------------------------
+
+These kernels reimplement only the energy CODE. They vendor no numeric parameter tables. The
+ljlk/elec/lk_ball/hbond parameter values, and the per-pair hbond polynomials, descend from the
+Rosetta database and are distributed under the Rosetta Software Non-Commercial License
+Agreement (not an OSI open-source license). They are supplied to the kernels at runtime by the
+caller (resolved from a user-supplied parameter database, or folded into an offline parity
+fixture exported under the user's own Rosetta license). The offline parity fixtures used for
+in-container validation are NOT part of this package and are not redistributed here.
+
+Rosetta is developed by the Rosetta Commons; commercial licensing is handled by University of
+Washington CoMotion (license@uw.edu).

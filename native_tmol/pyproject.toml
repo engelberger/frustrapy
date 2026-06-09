@@ -1,0 +1,65 @@
+[build-system]
+requires = ["scikit-build-core>=0.10", "nanobind>=2.0"]
+build-backend = "scikit_build_core.build"
+
+[project]
+name = "frustramol-tmol"
+version = "0.0.1"
+description = "Torch-free CPU energy kernels (ljlk, fa_elec, lk_ball, hbond) for the FrustraPy all-atom backend"
+readme = "README.md"
+# nanobind STABLE_ABI targets the CPython limited API from 3.12 onward, so the
+# prebuilt abi3 wheels below require 3.12+. The C++ sources themselves are plain
+# C++17 and build from sdist on 3.9-3.11 too (no abi3 wheel there).
+requires-python = ">=3.9"
+license = "Apache-2.0"
+authors = [{ name = "Felipe Engelberger" }]
+# numpy is the only runtime dependency: the kernels exchange plain float64/int32
+# ndarrays. No torch, no CUDA, no Metal in this CPU wheel.
+dependencies = ["numpy"]
+
+[tool.scikit-build]
+minimum-version = "0.10"
+build-dir = "build/{wheel_tag}"
+wheel.packages = ["src/frustramol_tmol"]
+# Emit ONE stable-ABI (abi3) wheel per platform instead of one per Python minor.
+# The _kernels module is nanobind STABLE_ABI (see CMakeLists), so a cp312-abi3 wheel
+# loads on CPython 3.12, 3.13, 3.14, ... This is what shrinks the maintainer build
+# matrix to a single Python row per OS/arch.
+wheel.py-api = "cp312"
+
+[tool.scikit-build.cmake.define]
+# CPU-only by default, exactly like native/ (the AWSEM core). GPU acceleration of the
+# all-atom kernels reuses this same CPU kernel math and is wired by the M6 (CUDA) /
+# M7 (Metal) follow-ups; until then these knobs are inert placeholders kept here so
+# the install-command shape matches native/ once the kernels land:
+#   pip install ./native_tmol -C cmake.define.FRUSTRAMOL_TMOL_CUDA=ON   # (M6, future)
+#   pip install ./native_tmol -C cmake.define.FRUSTRAMOL_TMOL_METAL=ON  # (M7, future)
+FRUSTRAMOL_TMOL_CUDA = "OFF"
+FRUSTRAMOL_TMOL_METAL = "OFF"
+
+# ---------------------------------------------------------------------------------
+# Multi-platform wheel build (MAINTAINER step - no cross-compile toolchain in the dev
+# container). cibuildwheel drives manylinux + macOS builds and the auditwheel/
+# delocate repair. Run by .github/workflows/wheels.yml or locally with:
+#   pipx run cibuildwheel --platform linux   native_tmol
+# A single cp312 row per platform is enough because of the abi3 wheel above.
+# ---------------------------------------------------------------------------------
+[tool.cibuildwheel]
+build = "cp312-*"
+# musllinux/PyPy are out of scope for the scientific CPython target.
+skip = ["*-musllinux*", "pp*"]
+build-frontend = "build"
+# Smoke-test every built wheel: import the compiled module and exercise the thread
+# contract. Skipped automatically by cibuildwheel for cross-compiled wheels it cannot
+# run (e.g. macOS x86_64 built on an arm64 runner).
+test-command = "python -c \"import frustramol_tmol as f; print('openmp', f.has_openmp()); assert f.effective_threads(0) >= 1\""
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+# manylinux2014 ships a new-enough GCC + libgomp for the OpenMP CPU kernels.
+manylinux-x86-64-image = "manylinux2014"
+
+[tool.cibuildwheel.macos]
+# Apple Silicon and Intel. OpenMP on macOS needs libomp (brew install libomp); when
+# absent the kernels fall back to the serial loop (see CMakeLists _OPENMP guards).
+archs = ["arm64", "x86_64"]

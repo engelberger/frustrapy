@@ -50,6 +50,13 @@ CLUSTERING_EXTRA = {
     "leidenalg",
 }
 
+# The default install must stay PyTorch-free: torch is only the all-atom tmol
+# VALIDATION ORACLE's runtime (frustrapy.backends.atomic_tmol_engine), imported lazily,
+# so it must live in the `torch` extra and NEVER in the core set. A bare install runs
+# lammps + the frustrapy-native AWSEM CPU core + the torch-free frustramol-tmol all-atom
+# CPU kernels with no torch present.
+TORCH_ONLY_EXTRA = {"torch"}
+
 
 def _strip_to_name(spec):
     name = spec.split(";")[0]
@@ -97,6 +104,36 @@ def test_tqdm_is_declared_not_phantom():
 def test_import_frustrapy_clean():
     """A clean import must succeed with no manual dependency installation."""
     import frustrapy  # noqa: F401
+
+
+def test_torch_is_not_a_core_dependency():
+    """The default install is PyTorch-free: torch must not be in the core set."""
+    leaked = TORCH_ONLY_EXTRA & _declared_runtime_deps()
+    assert not leaked, f"torch must not be a core dep (default install stays torch-free): {sorted(leaked)}"
+
+
+def test_torch_oracle_lives_in_torch_extra():
+    """The tmol-oracle torch runtime is installable via the `torch` extra only."""
+    extra = _declared_extra("torch")
+    missing = TORCH_ONLY_EXTRA - extra
+    assert not missing, f"`torch` extra is missing: {sorted(missing)}"
+
+
+def test_accelerator_marker_extras_declared():
+    """The optional accelerator tiers are declared so `pip install frustrapy[<tier>]` resolves."""
+    with open(PYPROJECT, "rb") as fh:
+        extras = tomllib.load(fh)["project"].get("optional-dependencies", {})
+    for tier in ("torch", "cuda", "metal", "pyrosetta"):
+        assert tier in extras, f"optional accelerator/oracle tier `{tier}` is not declared"
+
+
+def test_torch_not_in_all_extra():
+    """`all` stays light: it must not drag in the heavy oracle-only torch runtime."""
+    with open(PYPROJECT, "rb") as fh:
+        all_specs = tomllib.load(fh)["project"]["optional-dependencies"].get("all", [])
+    assert not any("torch" in spec for spec in all_specs), (
+        "`all` must not pull torch (oracle-only); keep it out of the recursive extra"
+    )
 
 
 @pytest.mark.parametrize("module", sorted(["numpy", "pandas", "Bio", "plotly", "tqdm"]))

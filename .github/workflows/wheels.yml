@@ -1,0 +1,71 @@
+name: Compiled wheels
+
+# Multi-platform binary wheels for the compiled, torch-free energy kernels.
+#
+# FrustraPy itself is a pure-Python package (Hatchling, built by release.yml). The CPU
+# energy cores it can optionally use are separate compiled sub-packages:
+#
+#   * native_tmol -> frustramol-tmol : the all-atom (ref2015) CPU kernels (ljlk, fa_elec,
+#                     lk_ball, hbond), ported torch-free from the Apache-2.0 tmol reference.
+#   * native      -> frustrapy-native : the coarse-grain AWSEM CPU core.
+#
+# Both are nanobind STABLE_ABI modules, so one cp312-abi3 wheel per OS/arch covers
+# CPython 3.12+. NONE of these wheels link torch, CUDA, or Metal: they are the
+# lightweight CPU path the default `pip install frustrapy` runs against.
+#
+# This is a MAINTAINER workflow (the dev container has no cross-compile toolchain):
+# run it on a tag or by hand. The per-package cibuildwheel config lives in each
+# sub-package's pyproject.toml ([tool.cibuildwheel]).
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wheels-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-wheels:
+    name: ${{ matrix.package }} wheels (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        package: ["native_tmol", "native"]
+        os: ["ubuntu-latest", "macos-14", "macos-13"]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install libomp (macOS OpenMP runtime for the CPU kernels)
+        if: runner.os == 'macOS'
+        run: brew install libomp
+      - name: Build wheels
+        uses: pypa/cibuildwheel@v2.21
+        with:
+          package-dir: ${{ matrix.package }}
+      - name: Upload wheels
+        uses: actions/upload-artifact@v4
+        with:
+          name: wheels-${{ matrix.package }}-${{ matrix.os }}
+          path: ./wheelhouse/*.whl
+
+  build-sdist:
+    name: ${{ matrix.package }} sdist
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        package: ["native_tmol", "native"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+      - name: Build sdist (the 3.9-3.11 source-build fallback)
+        run: uv build --sdist ${{ matrix.package }} -o dist
+      - name: Upload sdist
+        uses: actions/upload-artifact@v4
+        with:
+          name: sdist-${{ matrix.package }}
+          path: dist/*.tar.gz

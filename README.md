@@ -87,6 +87,35 @@ uv pip install -e ".[cli]"         # the `frustrapy` command-line tool (Typer + 
 uv pip install -e ".[all]"         # everything above
 ```
 
+The default install is intentionally lightweight: it runs the LAMMPS path, the
+compiled AWSEM CPU core, and the all-atom CPU energy kernels with **no PyTorch and no
+GPU toolchain** pulled in. The heavier acceleration and validation tiers layer on only
+when asked for:
+
+| Tier | Install | What it adds |
+|---|---|---|
+| **core** (default) | `pip install frustrapy` | torch-free CPU energy path: LAMMPS + the `frustrapy-native` AWSEM core + the `frustramol-tmol` all-atom kernels |
+| `torch` | `pip install "frustrapy[torch]"` | the PyTorch runtime for the all-atom **tmol validation oracle** only (the `tmol` package itself is set up separately, like PyRosetta below) |
+| `cuda` / `metal` | build flag on the native core | GPU kernels of the compiled cores (a `-C cmake.define` build option, see below), not a PyPI dependency |
+| `pyrosetta` | `pip install "frustrapy[pyrosetta]"` | the PyRosetta mutation backend helper (non-commercial license) |
+
+The compiled CPU energy cores ship as separate platform wheels and are optional
+accelerators of the same numbers the LAMMPS path produces:
+
+```bash
+# Coarse-grain AWSEM CPU core (and, with a build flag, its GPU kernels):
+uv pip install ./native                                              # CPU
+uv pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_CUDA=ON     # NVIDIA GPU
+uv pip install ./native -C cmake.define.FRUSTRAPY_NATIVE_METAL=ON \
+    -C cmake.define.FRUSTRAPY_METAL_CPP_DIR=/path/to/metal-cpp       # Apple GPU
+
+# All-atom (ref2015) torch-free CPU kernels:
+uv pip install ./native_tmol
+```
+
+Both are imported lazily with a graceful fallback, so a bare `import frustrapy` and the
+default LAMMPS path never require them.
+
 Verify:
 
 ```bash
@@ -127,6 +156,19 @@ pdb, *_ = frustrapy.calculate_frustration(
 )
 mutate_res_parallel(pdb, res_num=10, chain="A", method="pyrosetta")
 ```
+
+### Optional PyRosetta backend (non-commercial license)
+
+Two optional, opt-in paths use PyRosetta: the `pyrosetta` mutation backend above and
+the `atomic` REF2015 energy backend. PyRosetta is licensed by RosettaCommons for
+non-commercial and academic use only, so it is never a core dependency and is never
+imported by `import frustrapy` or by the default lammps, native, or tmol energy
+paths or the threading/modeller mutation paths. The first time a PyRosetta-backed
+path actually runs in a process, FrustraPy logs a one-time notice stating that
+PyRosetta is in use and licensed for non-commercial use. The notice is on by default
+and can be silenced with `FRUSTRAPY_SUPPRESS_PYROSETTA_NOTICE=1`. When PyRosetta is
+not installed, only these paths fail, with an actionable error pointing to the
+install steps and the license; every other path is unaffected.
 
 ## Quickstart
 

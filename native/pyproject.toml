@@ -16,6 +16,11 @@ dependencies = ["numpy"]
 minimum-version = "0.10"
 build-dir = "build/{wheel_tag}"
 wheel.packages = ["src/frustrapy_native"]
+# The _core module is nanobind STABLE_ABI (see CMakeLists), so emit ONE cp312-abi3
+# wheel per platform that loads on CPython 3.12+, instead of one wheel per Python
+# minor. This is the default CPU build; the optional CUDA/Metal kernels (below) are a
+# separate -C cmake.define install, not part of the published abi3 CPU wheels.
+wheel.py-api = "cp312"
 
 [tool.scikit-build.cmake.define]
 # Default CPU-only build. Turn the CUDA path on at install time on a machine with nvcc:
@@ -26,3 +31,20 @@ wheel.packages = ["src/frustrapy_native"]
 # (see native/docs/METAL_BUILD.md)
 FRUSTRAPY_NATIVE_CUDA = "OFF"
 FRUSTRAPY_NATIVE_METAL = "OFF"
+
+# Multi-platform CPU wheel build (MAINTAINER step), driven by .github/workflows/
+# wheels.yml. Matches native_tmol so both compiled cores produce the same cp312-abi3
+# wheel shape. The default build here is CPU-only (CUDA/Metal stay the -C cmake.define
+# opt-in above); CUDA/Metal wheels are not part of this matrix.
+[tool.cibuildwheel]
+build = "cp312-*"
+skip = ["*-musllinux*", "pp*"]
+build-frontend = "build"
+test-command = "python -c \"import frustrapy_native as n; print('module ok'); assert hasattr(n, 'compute_frustration')\""
+
+[tool.cibuildwheel.linux]
+archs = ["x86_64"]
+manylinux-x86-64-image = "manylinux2014"
+
+[tool.cibuildwheel.macos]
+archs = ["arm64", "x86_64"]

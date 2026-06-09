@@ -2,12 +2,20 @@
 
 This module is the license-clean (Apache-2.0) energy engine for the atomic backend.
 It mirrors the LAMMPS-backend philosophy exactly: the energy model is NOT
-reimplemented here. The per-residue-pair ref2015 energies are evaluated by **tmol**
+reimplemented here. The per-residue-pair energies are evaluated by **tmol**
 (``engelberger/tmol``, an Apache-2.0 PyTorch reimplementation of the Rosetta
-``beta_nov2016`` energy function), which #37 (``docs/tmol/ENERGY_AUDIT.md``) confirmed
-runs on CPU in-container and reproduces tmol's own shipped 1ubq oracle to ~1e-5. So
-this is **adapt-and-wrap, not a reimplementation**: we build a tmol ``ScoreFunction``
-over the in-scope pairwise terms and read back its per-block-pair energy tensor.
+``beta_nov2016_cart`` energy function), which #37 (``docs/tmol/ENERGY_AUDIT.md``)
+confirmed runs on CPU in-container and reproduces tmol's own shipped 1ubq oracle to
+~1e-5. So this is **adapt-and-wrap, not a reimplementation**: we build a tmol
+``ScoreFunction`` over the in-scope pairwise terms and read back its per-block-pair
+energy tensor.
+
+ENERGY-FUNCTION HONESTY (do not soften): the published all-atom Frustratometer (Chen
+et al. 2020) uses Rosetta **REF2015**; tmol provides **beta_nov2016**, a later refit
+with different weights AND some different LK/elec/hbond params and forms. It is NOT a
+pure weight swap, so this engine does **not** claim parity with that paper. The
+PyRosetta ``atomic`` engine is the true REF2015 anchor. Quantifying and (if reachable)
+closing the beta-vs-REF2015 gap is gate mission TMOL2-G1.
 
 What this replaces, and what it does not (the load-bearing honesty point):
 
@@ -110,7 +118,7 @@ THREADS_ENV = "FRUSTRAPY_TMOL_THREADS"
 
 _TMOL_SETUP_HELP = (
     "The 'atomic-tmol' backend needs the optional 'tmol' package (Apache-2.0).\n"
-    "tmol evaluates the ref2015/beta_nov2016 energy on CPU. Per docs/tmol/ENERGY_AUDIT.md\n"
+    "tmol evaluates the beta_nov2016 energy on CPU. Per docs/tmol/ENERGY_AUDIT.md\n"
     "the published CPU wheel ships without one pybind module, so until that gap is closed\n"
     "upstream a C++ toolchain + JIT bridge is required. Maintainer setup:\n"
     "  uv venv /tmp/tmolprobe --python 3.12 && source /tmp/tmolprobe/bin/activate\n"
