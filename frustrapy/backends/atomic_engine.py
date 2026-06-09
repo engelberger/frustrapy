@@ -575,7 +575,7 @@ def compute_decoy_pair_energies(
     decoy_seq: str,
     scorefxn=None,
     repeats: int = RELAX_REPEATS,
-    start_position: str = "1A",
+    start_position: int = 1,
 ) -> List[ResPairEnergy]:
     """E2 (MAINTAINER): one decoy's pose energy via threading + fixed-backbone repack.
 
@@ -599,7 +599,9 @@ def compute_decoy_pair_energies(
 
     from pyrosetta.rosetta.protocols.simple_moves import SimpleThreadingMover
 
-    threader = SimpleThreadingMover(start_position, decoy_seq)
+    # PyRosetta constructor is SimpleThreadingMover(thread_sequence: str,
+    # start_position: int); thread the full decoy sequence from pose residue 1.
+    threader = SimpleThreadingMover(decoy_seq, start_position)
     if hasattr(threader, "set_pack_neighbors"):
         threader.set_pack_neighbors(True)
     if hasattr(threader, "set_neighbor_distance"):
