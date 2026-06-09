@@ -79,3 +79,14 @@ repo.md
 # Internal analysis / design / parity / decision docs - local mental-model only.
 docs/tmol/
 docs/atomic/
+
+# Internal design notes + execution plan - local only (replaced by curated public docs later).
+docs/HDF5_STORE_DESIGN.md
+docs/HPC_WORKFLOW.md
+docs/MPNN_INTEGRATION.md
+docs/NATIVE_BACKEND_DESIGN.md
+docs/OUTPUT_CONTRACT.md
+docs/PREP_AMORTIZATION_PLAN.md
+docs/VISUALIZATION.md
+docs/parallelism_inventory.md
+ROADMAP.md
