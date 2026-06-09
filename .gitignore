@@ -75,3 +75,7 @@ frustraevo_legacy/*
 frustraevo_test.log
 repo.md
 *.cpython-310.pyc
+
+# Internal analysis / design / parity / decision docs - local mental-model only.
+docs/tmol/
+docs/atomic/
