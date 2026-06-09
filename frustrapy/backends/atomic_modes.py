@@ -21,7 +21,7 @@ READ THIS FIRST - parity vs extension (the honesty framing this mission requires
       (``tests/test_atomic_post.py``). Ship it.
 
     * ``mutational`` and ``singleresidue`` -> EXTENSIONS BEYOND THE PUBLISHED METHOD,
-      designed by analogy with the AWSEM definitions (CLAUDE.md section 3), NOT a
+      designed by analogy with the AWSEM definitions (the project conventions), NOT a
       reproduction of any reference. There is no atomic reference for them and no
       parity oracle. They are EXPERIMENTAL. Their decoy-generation logic is
       well-defined and unit-tested here; their end-to-end scoring (PyRosetta relax/
@@ -31,10 +31,10 @@ READ THIS FIRST - parity vs extension (the honesty framing this mission requires
 The mode's :attr:`ModeInfo.parity_status` carries this distinction into code; the
 docs are in ``docs/atomic/AA_MODES.md``. The cutoffs are unchanged and not the mode's
 to set: contacts use ``-1`` / ``0.78`` (``FrstState`` in :mod:`atomic_post`), the
-single-residue plot uses ``0.58`` (CLAUDE.md section 3); the ``0.78`` and ``0.58``
+single-residue plot uses ``0.58`` (the project conventions); the ``0.78`` and ``0.58``
 splits are intentional and must never be collapsed.
 
-The AWSEM definitions this maps onto (CLAUDE.md section 3): the three indices share
+The AWSEM definitions this maps onto (the project conventions): the three indices share
 ONE energy model and ONE Z-score and differ ONLY in what the decoy ensemble
 randomizes -- configurational randomizes identities + geometry + density,
 mutational randomizes only the identities of the contacting pair i,j (geometry

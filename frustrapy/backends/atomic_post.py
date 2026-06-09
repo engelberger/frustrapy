@@ -30,7 +30,7 @@ Three things this module reproduces from the reference
 "lower = more favorable", reads a very negative Z as minimally frustrated (the
 published-paper sign). FrustraPy/AWSEM uses the **opposite** implemented relation
 ``FrstIndex = (DecoyEnergy - NativeEnergy) / SDEnergy`` where **positive = minimally
-frustrated** (CLAUDE.md section 2). So this module **negates** the atomic Z:
+frustrated** (the project conventions). So this module **negates** the atomic Z:
 ``FrstIndex = (decoy_mean - E_native) / decoy_std``. That keeps the existing
 ``FrstState`` classifier (``>= 0.78`` minimal, ``<= -1`` highly) correct. The flip
 is verified row-for-row against the golden by the parity test, not by reasoning
@@ -262,7 +262,7 @@ def atomic_frustration_index(
 ) -> float:
     """FrustraPy/AWSEM ``FrstIndex`` for an atomic contact.
 
-    ``FrstIndex = (DecoyEnergy - NativeEnergy) / SDEnergy`` (CLAUDE.md section 2),
+    ``FrstIndex = (DecoyEnergy - NativeEnergy) / SDEnergy`` (the project conventions),
     i.e. the **negation** of the atomic reference's own
     ``frust = (E_native - decoy_mean) / decoy_std``. Positive = minimally
     frustrated (favorable native contact), matching the existing ``FrstState``
@@ -412,7 +412,7 @@ def write_singleresidue_dat(
     cutoff, never the 0.78 contact cutoff).
 
     The atomic single-residue mode is EXPERIMENTAL: the per-site decoy ensemble
-    (re-identify only site i; CLAUDE.md AWSEM singleresidue) has no atomic reference
+    (re-identify only site i; the AWSEM singleresidue definition) has no atomic reference
     and no parity oracle. ``site_summaries`` carries the per-site
     ``(native, decoy_mean, decoy_std)`` the (maintainer-gated) engine produces; this
     writer is the pure post-processing half.

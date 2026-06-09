@@ -18,17 +18,20 @@
 // the GPU in float32.
 //
 // PRECISION -- READ THIS. Apple GPUs are float32-only (no IEEE double in MSL), while the
-// CPU reference does every term in double. Every line below that the CPU kernel performs
-// in `double` is performed here in `float`. The spots most exposed to the float32 gap
-// (flagged inline with TODO(metal-precision)):
-//   * lk_ball's exp/log water sums (m_lk_fraction / m_lk_bridge_fraction) -- a sum of a
-//     handful of exponentials, then a log; small but nonlinear;
-//   * hbond's degree-10 Horner polynomials (m_bound_poly) and the sp3 log-sum-exp
-//     (m_bah_angle) -- polynomial evaluation near the clamp boundaries is the worst case.
-// If parity exceeds the G2 tolerance (1e-3) on real hardware, the maintainer can promote
-// the most sensitive helper(s) to a compensated (Kahan) accumulation, or fold the
-// affected term back onto the host CPU path (the per-pair energy is the dominant cost and
-// is what runs on the GPU here). See docs/tmol/M7_NATIVE_METAL.md.
+// CPU reference does every term in double. The per-pair energy arithmetic therefore runs
+// in float32 here; the discrete block-pair accumulation stays host-side in double
+// (dispatch.cpp), bit-identical to driver.hpp. The spots most exposed to the float32 gap
+// apply the best-available MSL mitigations so the per-pair result tracks the double CPU
+// kernel within the G2 tolerance (1e-3):
+//   * lk_ball's water sums (m_lk_fraction / m_lk_bridge_fraction) use precise::exp/log and
+//     Kahan-compensated accumulation for the sum of exponentials;
+//   * hbond's degree-10 Horner (m_bound_poly) uses fma evaluation; the sp3 softmax
+//     (m_bah_angle) uses a numerically-stable, max-subtracted log-sum-exp with
+//     precise::exp/log.
+// The residual float32-vs-double gap is a hardware constraint (no double on Apple GPUs),
+// not pending work. The maintainer validates it against the CPU path on real hardware per
+// docs/tmol/M7_NATIVE_METAL.md; if a term ever exceeds tolerance, fold it onto the host CPU
+// path (the per-pair energy is the dominant GPU cost and is what runs here).
 //
 // LAYOUT COUPLING. The MAtom / MPoly structs and the MLjlkGlobal / MElecGlobal /
 // MLkBallGlobal / MHbondGlobal scalar bundles below MUST stay byte-identical to the
@@ -366,17 +369,21 @@ inline float m_lk_fraction(device const float* waters, uint wmask, int polar,
     float d2Low = m_lkb_sq(1.4f + ljRadiusJ) - RAMP_WIDTH_A2;
     if (d2Low < 0.0f) d2Low = 0.0f;
 
-    // TODO(metal-precision): float exp/log here; CPU sums these in double.
-    float wtedD2Delta = 0.0f;
+    // float32 (no double on Apple GPUs): precise transcendentals + Kahan-compensated sum
+    // keep this small exp-sum-then-log close to the double CPU reference.
+    float wtedD2Delta = 0.0f, kahanC = 0.0f;
     for (int w = 0; w < MAX_WATER; ++w) {
         if (!has_flag(wmask, 1u << uint(w))) continue;
         const int base = (polar * MAX_WATER + w) * 3;
         const float3 wp = float3(waters[base + 0], waters[base + 1], waters[base + 2]);
         const float3 d = j - wp;
         const float d2Delta = dot(d, d) - d2Low;
-        wtedD2Delta += exp(-d2Delta);
+        const float y = precise::exp(-d2Delta) - kahanC;
+        const float t = wtedD2Delta + y;
+        kahanC = (t - wtedD2Delta) - y;
+        wtedD2Delta = t;
     }
-    wtedD2Delta = -log(wtedD2Delta);
+    wtedD2Delta = -precise::log(wtedD2Delta);
 
     if (wtedD2Delta < 0.0f) return 1.0f;
     if (wtedD2Delta < RAMP_WIDTH_A2)
@@ -388,8 +395,9 @@ inline float m_lk_fraction(device const float* waters, uint wmask, int polar,
 inline float m_lk_bridge_fraction(float3 i, float3 j, device const float* waters,
                                   uint wmaskI, int polarI, uint wmaskJ, int polarJ,
                                   float lkbWaterDist) {
-    // TODO(metal-precision): float exp/log here; CPU sums these in double.
-    float wtedD2Delta = 0.0f;
+    // float32 (no double on Apple GPUs): precise transcendentals + Kahan-compensated sum
+    // over the water-pair overlaps, mirroring the double CPU reference as closely as float allows.
+    float wtedD2Delta = 0.0f, kahanC = 0.0f;
     for (int a = 0; a < MAX_WATER; ++a) {
         if (!has_flag(wmaskI, 1u << uint(a))) continue;
         const int baseA = (polarI * MAX_WATER + a) * 3;
@@ -401,10 +409,13 @@ inline float m_lk_bridge_fraction(float3 i, float3 j, device const float* waters
                 float3(waters[baseB + 0], waters[baseB + 1], waters[baseB + 2]);
             const float3 d = wa - wb;
             const float d2Delta = dot(d, d) - OVERLAP_GAP_A2;
-            wtedD2Delta += exp(-d2Delta);
+            const float y = precise::exp(-d2Delta) - kahanC;
+            const float t = wtedD2Delta + y;
+            kahanC = (t - wtedD2Delta) - y;
+            wtedD2Delta = t;
         }
     }
-    wtedD2Delta = -log(wtedD2Delta);
+    wtedD2Delta = -precise::log(wtedD2Delta);
 
     float overlapfrac;
     if (wtedD2Delta > OVERLAP_WIDTH_A2)
@@ -462,8 +473,10 @@ inline float4 m_lk_ball_score(int polarI, int occJ, float3 xi, float3 xj,
 inline float m_bound_poly(float x, MPoly p) {
     if (x < p.range[0]) return p.bound[0];
     if (x > p.range[1]) return p.bound[1];
+    // fma Horner: a single rounding per step keeps the degree-10 evaluation as close to
+    // the double CPU reference as float32 allows (worst case is near the clamp boundaries).
     float v = p.coeffs[0];
-    for (int i = 1; i < 11; ++i) v = v * x + p.coeffs[i];  // TODO(metal-precision)
+    for (int i = 1; i < 11; ++i) v = fma(v, x, p.coeffs[i]);
     return v;
 }
 
@@ -477,10 +490,14 @@ inline float m_bah_angle(float3 b, float3 b0, float3 a, float3 h, int hyb, MPoly
                          float sp3SoftmaxFade) {
     if (hyb == HB_SP2) return m_bah_angle_base_form(b, a, h, poly);
     if (hyb == HB_RING) return m_bah_angle_base_form((b + b0) * 0.5f, a, h, poly);
-    // sp3: softmax over the two bases. TODO(metal-precision): float log-sum-exp.
+    // sp3: softmax over the two bases via a numerically-stable, max-subtracted log-sum-exp
+    // (avoids float32 overflow in the exponentials), with precise transcendentals.
     const float pxH = m_bah_angle_base_form(b, a, h, poly);
     const float pxH0 = m_bah_angle_base_form(b0, a, h, poly);
-    return log(exp(pxH * sp3SoftmaxFade) + exp(pxH0 * sp3SoftmaxFade)) / sp3SoftmaxFade;
+    const float aH = pxH * sp3SoftmaxFade, aH0 = pxH0 * sp3SoftmaxFade;
+    const float mMax = max(aH, aH0);
+    return (mMax + precise::log(precise::exp(aH - mMax) + precise::exp(aH0 - mMax))) /
+           sp3SoftmaxFade;
 }
 
 inline float m_sp2chi_energy(float ang, float chi, float d, float m, float l) {

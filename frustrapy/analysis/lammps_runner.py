@@ -7,7 +7,7 @@ from ..utils import get_os
 logger = logging.getLogger(__name__)
 
 # Default wall-clock ceiling for a single LAMMPS single-point energy run. A wedged
-# run must not hang the caller indefinitely (CLAUDE.md §8: every subprocess.run
+# run must not hang the caller indefinitely (the project conventions: every subprocess.run
 # needs a timeout). 1CRN runs in ~1 s; this is generous for large proteins.
 DEFAULT_LAMMPS_TIMEOUT = 3600
 

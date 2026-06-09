@@ -178,7 +178,7 @@ class FrustrationCalculator:
                 else:
                     # Display general file operation error
                     display_error(e, is_debug=self.debug)
-                # Library code must not call sys.exit(): propagate (CLAUDE.md §8).
+                # Library code must not call sys.exit(): propagate (the project conventions).
                 raise
 
             # Create PDB object with absolute paths. This also writes the cleaned

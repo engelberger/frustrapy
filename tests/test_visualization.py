@@ -11,7 +11,7 @@ compare the pure-Python generator against the legacy
 ``GenerateVisualizations.pl`` oracle and are skipped if ``perl`` is absent. The
 slow (``e2e``) tests run the real engine on 1crn -- always on a private temp
 copy of the fixture, never the committed file (single-residue mode rewrites its
-input PDB in place; see CLAUDE.md section 8).
+input PDB in place; see the project conventions).
 """
 
 import os

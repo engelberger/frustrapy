@@ -164,7 +164,7 @@ def calculate_frustration(
             logger.error(f"Frustration calculation failed due to missing backbone atoms: {e}")
 
         # Library code must not call sys.exit(): propagate so the caller decides
-        # how to handle it (CLAUDE.md §8). The warning has already been displayed.
+        # how to handle it (the project conventions). The warning has already been displayed.
         raise
     except FileOperationError as e:
         if "Destination file already exists" in e.message and not overwrite:
@@ -173,7 +173,7 @@ def calculate_frustration(
         else:
             # Display general file operation error
             display_error(e, is_debug=debug)
-        # Library code must not call sys.exit(): propagate the error (CLAUDE.md §8).
+        # Library code must not call sys.exit(): propagate the error (the project conventions).
         raise
     except Exception as e:
         # Display any other error
@@ -361,7 +361,7 @@ def dir_frustration(
         if n_procs_eff > 1:
             # Lever 2: outer batch parallelism. The shared budget above keeps the
             # outer pool and each inner mutation pool together within `cores`
-            # workers (never `cores²`). cf. CLAUDE.md / ROADMAP "never stack two
+            # workers (never `cores²`). cf. the project conventions "never stack two
             # cpu_count() pools".
             logger.info(
                 f"- Parallel batch: {n_procs_eff} structures concurrent x "
